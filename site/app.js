@@ -121,6 +121,45 @@
   const changeAmount = (change) => (hasChange(change) ? `${change.amount > 0 ? "▲" : "▼"} ${coins(Math.abs(change.amount))}` : "–");
   const changePercent = (change) => (hasChange(change) ? `${change.amount > 0 ? "+" : "-"}${Math.abs(change.percent).toFixed(1)}%` : "–");
 
+  // ---- Plain sentences for each cell (shown when you hover a cell) ----
+  const BASIS_TEXT = { previous: "the last update", day: "the 24-hour average", week: "the 7-day average" };
+  const pct = (fraction) => `${Math.round(fraction * 100)}%`;
+  const say = {
+    lowest: (row) => (!row ? "No price data for this item yet."
+      : row[2] > 0 ? `The cheapest one for sale right now costs ${money(lowestOf(row))}.`
+      : `None for sale right now. The last price seen was ${money(lowestOf(row))}.`),
+    market: (row) => (row && row[1] != null ? `Most of the cheaper listings cost about ${money(row[1])}. That's a fairer price than the single cheapest one.` : "No price data yet."),
+    now: (row) => {
+      const rating = ratePriceNow(row);
+      if (!rating) return "Not enough price history yet to compare.";
+      const base = `Today it costs about ${money(row[1])}; the 7-day average is ${money(row[5])}.`;
+      return `${base} ${{ cheap: "That's cheaper than usual: a good time to buy.", usual: "That's about normal.", pricey: "That's more than usual: a good time to sell." }[rating]}`;
+    },
+    change: (change, basis) => {
+      if (!change) return `No earlier price to compare with ${BASIS_TEXT[basis] || "before"}.`;
+      if (!hasChange(change)) return `Same price as ${BASIS_TEXT[basis]}.`;
+      const up = change.amount > 0;
+      const times = up && change.percent >= 100 ? ` It now costs about ${(1 + change.percent / 100).toFixed(1)} times as much.` : "";
+      return `${up ? "Up" : "Down"} ${money(Math.abs(change.amount))} (${Math.abs(change.percent).toFixed(1)}%) from ${money(change.old)} at ${BASIS_TEXT[basis]} to ${money(change.old + change.amount)}.${times}`;
+    },
+    supply: (count) => (count > 0 ? `${number(count)} for sale on the auction house right now.` : "None for sale right now."),
+    vendorPays: (item, row) => {
+      const pays = vendorPays(item);
+      if (!pays) return "Vendors won't buy this item.";
+      const cheapest = row && row[2] > 0 ? lowestOf(row) : null;
+      return `A vendor pays ${money(pays)} for one.${cheapest != null && cheapest < pays ? " That's more than the cheapest auction, so buying it and selling to a vendor makes money." : ""}`;
+    },
+    vendorSells: (item) => (vendorCharges(item) ? `A vendor sells this for ${money(vendorCharges(item))}.` : "No vendor sells this item."),
+    deal: (profit, spend, verb) => {
+      if (profit == null || spend == null) return "Some prices are missing, so the deal can't be worked out.";
+      const back = spend + profit;
+      if (profit <= 0) return `You ${verb} ${money(spend)} and get back ${money(back)}, losing ${money(-profit)}.`;
+      const share = spend > 0 ? pct(profit / spend) : "much";
+      return `You ${verb} ${money(spend)} and get back ${money(back)}: ${share} more. ${rateReturn(profit, spend) === "good" ? "A good deal." : "A small profit."}`;
+    },
+  };
+
+
   function sortRows(rows, spec, getters) {
     const get = getters[spec.key];
     return rows.slice().sort((a, b) => {
@@ -140,6 +179,13 @@
   // Every tab draws through here: one table, one count line, one Show more button.
   // A column has a label and a cell, and optionally a sort key, alignment (left),
   // tone (a class for the cell) and priority (p: 1 to 3; higher hides sooner on small screens).
+  // A cell explains its own value with `say`, or falls back to what the column means.
+  function cellHint(column, row) {
+    if (column.key === "name" || !column.hint) return "";
+    const text = column.say ? column.say(row) : column.hint;
+    return text ? ` data-cell="${esc(text)}"` : "";
+  }
+
   function drawTable(columns, rows, rowAttributes, emptyText, unit, rowClass) {
     const spec = state.sort[state.tab];
     const classes = (column, extra) => {
@@ -154,7 +200,7 @@
       return `<th scope="col"${classes(column)}${hint} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${label}</th>`;
     }).join("");
     const shown = rows.slice(0, state.limit);
-    const body = shown.map((row) => `<tr class="row${rowClass && rowClass(row) ? " " + rowClass(row) : ""}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
+    const body = shown.map((row) => `<tr class="row${rowClass && rowClass(row) ? " " + rowClass(row) : ""}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}${cellHint(column, row)}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
       || emptyRow(columns.length, state.loading ? "Loading prices…" : emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
     const parts = [];
@@ -207,17 +253,17 @@
     });
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
-      { key: "market", label: "Market", hint: HINTS["Market"], p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
-      { key: "now", label: "Price now", hint: "Is today's typical price cheap, usual or pricey compared with its 7-day average? Cheap is a good time to buy; pricey is a good time to sell.", cell: (r) => badge(ratePriceNow(r.row)) },
-      { key: "percent", label: "Change %", hint: HINTS["Change %"], p: 1, tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
-      { key: "amount", label: "Change", hint: HINTS["Change"], p: 2, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
-      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
-      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 1, cell: (r) => coins(vendorPays(r.item)) },
-      { key: "vendorBuy", label: "Vendor sells at", hint: HINTS["Vendor sells at"], p: 3, cell: (r) => coins(vendorCharges(r.item)) },
-      { key: "bought", label: "Bought, 7 days (est.)", hint: HINTS["Bought, 7 days (est.)"], p: 3, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
-      { key: "day", label: "24 hour average", hint: HINTS["24 hour average"], p: 3, cell: (r) => coins(r.row ? r.row[4] : null) },
-      { key: "week", label: "7 day average", hint: HINTS["7 day average"], p: 3, cell: (r) => coins(r.row ? r.row[5] : null) },
+      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "market", label: "Market", hint: HINTS["Market"], say: (r) => say.market(r.row), p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
+      { key: "now", label: "Price now", hint: "Is today's typical price cheap, usual or pricey compared with its 7-day average? Cheap is a good time to buy; pricey is a good time to sell.", say: (r) => say.now(r.row), cell: (r) => badge(ratePriceNow(r.row)) },
+      { key: "percent", label: "Change %", hint: HINTS["Change %"], say: (r) => say.change(r.change, basis), p: 1, tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
+      { key: "amount", label: "Change", hint: HINTS["Change"], say: (r) => say.change(r.change, basis), p: 2, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.row ? r.row[2] : 0), p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, r.row), p: 1, cell: (r) => coins(vendorPays(r.item)) },
+      { key: "vendorBuy", label: "Vendor sells at", hint: HINTS["Vendor sells at"], say: (r) => say.vendorSells(r.item), p: 3, cell: (r) => coins(vendorCharges(r.item)) },
+      { key: "bought", label: "Bought, 7 days (est.)", hint: HINTS["Bought, 7 days (est.)"], say: (r) => (r.row ? `About ${number(r.row[6] || 0)} bought in the last 7 days. This is a guess from listings that disappeared, and some of those may have expired instead.` : "No data yet."), p: 3, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
+      { key: "day", label: "24 hour average", hint: HINTS["24 hour average"], say: (r) => (r.row && r.row[4] ? `Over the last 24 hours it cost ${money(r.row[4])} on average.` : "Not enough history yet."), p: 3, cell: (r) => coins(r.row ? r.row[4] : null) },
+      { key: "week", label: "7 day average", hint: HINTS["7 day average"], say: (r) => (r.row && r.row[5] ? `Over the last 7 days it cost ${money(r.row[5])} on average.` : "Not enough history yet."), p: 3, cell: (r) => coins(r.row ? r.row[5] : null) },
       { key: "source", label: "Source", hint: HINTS["Source"], left: true, p: 2, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
       { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
     ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or source, or clear your search.", "item", (r) => goodRow(ratePriceNow(r.row)));
@@ -252,13 +298,13 @@
     });
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Now", hint: HINTS["Now"], cell: (r) => coins(r.market) },
-      { key: "meaning", label: "What it means", hint: "Got cheaper: a chance to buy for less than before. Got pricier: a chance to sell for more than before.", cell: (r) => badge(r.amount < 0 ? "cheaper" : "pricier") },
-      { key: "percent", label: "Change %", hint: HINTS["Change %"], p: 1, tone: (r) => changeTone(r), cell: (r) => changePercent(r) },
-      { key: "old", label: "Before", hint: HINTS["Before"], p: 1, cell: (r) => coins(r.old) },
-      { key: "amount", label: "Change", hint: HINTS["Change"], p: 1, tone: (r) => changeTone(r), cell: (r) => changeAmount(r) },
-      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 1, cell: (r) => number(r.supply) },
-      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 1, cell: (r) => coins(vendorPays(itemOf(r.id))) },
+      { key: "price", label: "Now", hint: HINTS["Now"], say: (r) => `It costs about ${money(r.market)} now.`, cell: (r) => coins(r.market) },
+      { key: "meaning", label: "What it means", hint: "Got cheaper: a chance to buy for less than before. Got pricier: a chance to sell for more than before.", say: (r) => `${say.change(r, state.alert.basis)} ${r.amount < 0 ? "A chance to buy for less." : "A chance to sell for more."}`, cell: (r) => badge(r.amount < 0 ? "cheaper" : "pricier") },
+      { key: "percent", label: "Change %", hint: HINTS["Change %"], say: (r) => say.change(r, state.alert.basis), p: 1, tone: (r) => changeTone(r), cell: (r) => changePercent(r) },
+      { key: "old", label: "Before", hint: HINTS["Before"], say: (r) => `It cost ${money(r.old)} at ${BASIS_TEXT[state.alert.basis]}.`, p: 1, cell: (r) => coins(r.old) },
+      { key: "amount", label: "Change", hint: HINTS["Change"], say: (r) => say.change(r, state.alert.basis), p: 1, tone: (r) => changeTone(r), cell: (r) => changeAmount(r) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.supply), p: 1, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(itemOf(r.id), state.prices[r.id]), p: 1, cell: (r) => coins(vendorPays(itemOf(r.id))) },
     ], rows, (r) => `data-item="${r.id}"`,
     state.ts ? "No big price changes with these settings. Lower the limits to see more." : "Waiting for price data.", "alert", (r) => (r.amount < 0 ? "good-row" : ""));
   }
@@ -287,15 +333,15 @@
     const profitArrow = (r) => (r.profit == null ? "" : r.profit > 0 ? "▲ " : "▼ ");
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.recipe.i, r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "") },
-      { key: "deal", label: "Deal", hint: "Good deal: you get back at least 20% more than you spend. Fair: a small profit. Loss: you lose money.", cell: (r) => badge(rateReturn(r.profit, r.cost)) },
-      { key: "profit", label: "Profit", hint: HINTS["Profit"], tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
-      { label: "Sell by", hint: HINTS["Sell by"], left: true, p: 1, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
-      { key: "cost", label: "Craft cost", hint: HINTS["Craft cost"], p: 1, cell: (r) => (r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)) },
-      { key: "ah", label: "Auction, after cut", hint: HINTS["Auction, after cut"], p: 2, cell: (r) => coins(perCraft(r.ah, r)) },
-      { key: "de", label: "Disenchant", hint: HINTS["Disenchant"], p: 2, cell: (r) => coins(perCraft(r.de, r)) },
-      { key: "vendor", label: "Vendor", hint: HINTS["Vendor"], p: 3, cell: (r) => coins(perCraft(r.vendor, r)) },
-      { key: "margin", label: "Margin", hint: HINTS["Margin"], p: 3, cell: (r) => (r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%") },
-      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 2, cell: (r) => number(r.supply || 0) },
+      { key: "deal", label: "Deal", hint: "Good deal: you get back at least 20% more than you spend. Fair: a small profit. Loss: you lose money.", say: (r) => say.deal(r.profit, r.cost, "spend"), cell: (r) => badge(rateReturn(r.profit, r.cost)) },
+      { key: "profit", label: "Profit", hint: HINTS["Profit"], say: (r) => (r.profit == null ? "Some reagent prices are missing, so profit can't be worked out." : `Making it costs ${money(r.cost)} and the best way to sell brings ${money(r.cost + r.profit)}, so you ${r.profit > 0 ? "keep" : "lose"} ${money(Math.abs(r.profit))}.`), tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
+      { label: "Sell by", hint: HINTS["Sell by"], say: (r) => (r.best ? { "Sell on auction": "Selling it on the auction house earns the most.", Disenchant: "Disenchanting it and selling the materials earns the most.", "Sell to vendor": "Selling it to a vendor earns the most." }[r.best.kind] : "No way to sell it has a price yet."), left: true, p: 1, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
+      { key: "cost", label: "Craft cost", hint: HINTS["Craft cost"], say: (r) => (r.cost == null ? `No price yet for: ${r.missing.map((id) => itemOf(id).n).join(", ")}.` : `Getting all the reagents the cheapest way costs ${money(r.cost)}. Open the item to see each reagent.`), p: 1, cell: (r) => (r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)) },
+      { key: "ah", label: "Auction, after cut", hint: HINTS["Auction, after cut"], say: (r) => (r.ah == null ? "It can't be sold on the auction house, or it has no price there." : `Selling on the auction house brings ${money(perCraft(r.ah, r))} after the 5% cut.`), p: 2, cell: (r) => coins(perCraft(r.ah, r)) },
+      { key: "de", label: "Disenchant", hint: HINTS["Disenchant"], say: (r) => (r.de == null ? "It can't be disenchanted, or its materials have no price." : `Disenchanting gives materials worth about ${money(perCraft(r.de, r))} on average, after the 5% cut.`), p: 2, cell: (r) => coins(perCraft(r.de, r)) },
+      { key: "vendor", label: "Vendor", hint: HINTS["Vendor"], say: (r) => (r.vendor ? `A vendor pays ${money(perCraft(r.vendor, r))}.` : "Vendors won't buy it."), p: 3, cell: (r) => coins(perCraft(r.vendor, r)) },
+      { key: "margin", label: "Margin", hint: HINTS["Margin"], say: (r) => (r.margin == null ? "Not known yet." : `${pct(r.margin)} of what you sell it for is profit.`), p: 3, cell: (r) => (r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%") },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => `${say.supply(r.supply || 0)} More listings means more sellers to compete with.`, p: 2, cell: (r) => number(r.supply || 0) },
       { key: "profession", label: "Profession", hint: HINTS["Profession"], left: true, p: 3, cell: (r) => esc(r.recipe.p) },
     ], rows, (r) => `data-recipe="${r.recipe.s}"`,
     state.ts ? "No recipes match. Try another category, clear your search or turn off Profitable only." : "Waiting for price data.", "recipe", (r) => goodRow(rateReturn(r.profit, r.cost)));
@@ -305,7 +351,7 @@
   function materialCell(id) {
     if (!id) return "–";
     const material = itemOf(id);
-    return `<div class="item-cell">${iconHtml(material)}<span class="q${material.q}">${esc(material.n)}</span></div>`;
+    return `<div class="item-cell" data-item="${Number(id)}">${iconHtml(material)}<span class="q${material.q}">${esc(material.n)}</span></div>`;
   }
 
   function renderDeals() {
@@ -339,17 +385,17 @@
     const makes = (r) => (r.recipe && r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "");
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id, makes(r)) },
-      { key: "roi", label: "Deal", hint: "Good deal: on average you get back at least 20% more than you spend. Fair: a small expected profit.", cell: (r) => badge(rateReturn(r.profit, r.price)) },
-      { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
-      { key: "price", label: crafting ? "Craft cost" : "Lowest price", hint: crafting ? HINTS["Craft cost"] : HINTS["Lowest price"], p: 1, cell: (r) => coins(r.price) },
-      { key: "value", label: "Expected materials", hint: HINTS["Expected materials"], p: 1, cell: (r) => coins(r.value) },
-      { key: "roi", label: "Return", hint: HINTS["Return"], p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
-      { key: "skill", label: "Skill needed", hint: HINTS["Skill needed"], p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
-      { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], left: true, p: 2, cell: (r) => materialCell(r.material) },
+      { key: "roi", label: "Deal", hint: "Good deal: on average you get back at least 20% more than you spend. Fair: a small expected profit.", say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), cell: (r) => badge(rateReturn(r.profit, r.price)) },
+      { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by ${crafting ? "crafting" : "buying"} it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
+      { key: "price", label: crafting ? "Craft cost" : "Lowest price", hint: crafting ? HINTS["Craft cost"] : HINTS["Lowest price"], say: (r) => (crafting ? `Getting all the reagents costs ${money(r.price)}.` : `The cheapest one for sale costs ${money(r.price)}.`), p: 1, cell: (r) => coins(r.price) },
+      { key: "value", label: "Expected materials", hint: HINTS["Expected materials"], say: (r) => `Disenchanting gives materials worth about ${money(r.value)} on average, after the 5% cut.`, p: 1, cell: (r) => coins(r.value) },
+      { key: "roi", label: "Return", hint: HINTS["Return"], say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
+      { key: "skill", label: "Skill needed", hint: HINTS["Skill needed"], say: (r) => (r.skill == null ? "Not known." : `You need ${number(r.skill)} Enchanting skill to disenchant it.`), p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
+      { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], say: (r) => (r.material ? `Disenchanting it mostly gives ${itemOf(r.material).n}. Hover the material for its details.` : "Not known."), left: true, p: 2, cell: (r) => materialCell(r.material) },
       crafting
         ? { key: "profession", label: "Profession", hint: HINTS["Profession"], left: true, p: 3, cell: (r) => esc(r.recipe.p) }
-        : { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 2, cell: (r) => number(r.supply) },
-      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 3, cell: (r) => coins(vendorPays(r.item)) },
+        : { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.supply), p: 2, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, null), p: 3, cell: (r) => coins(vendorPays(r.item)) },
     ], rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
     state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
     crafting ? "craft" : "item", (r) => goodRow(rateReturn(r.profit, r.price)));
@@ -383,9 +429,9 @@
     });
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
-      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
-      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 1, cell: (r) => coins(vendorPays(r.item)) },
+      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.row ? r.row[2] : 0), p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, r.row), p: 1, cell: (r) => coins(vendorPays(r.item)) },
       { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
       { label: "", cell: (r) => `<button type="button" class="secondary remove" data-remove="${r.id}" aria-label="Remove ${esc(r.item.n)} from your scan list">Remove</button>` },
     ], rows, (r) => `data-item="${r.id}"`,
@@ -574,11 +620,14 @@
   function hideTip() {
     clearTimeout(tip.timer);
     tip.id = null;
+    tip.hintFor = null;
     $("tip").hidden = true;
   }
 
+  // Item details show only over an item's icon or name, not anywhere in its row.
   function tipTarget(element) {
-    const holder = element.closest && element.closest("[data-item],[data-recipe]");
+    if (!element.closest || !element.closest(".icon, .item-cell .name, .item-cell [class^='q']")) return null;
+    const holder = element.closest("[data-item],[data-recipe]");
     if (!holder) return null;
     if (holder.dataset.item) return holder.dataset.item;
     const recipe = state.catalog.recipes.find((r) => r.s === Number(holder.dataset.recipe));
@@ -589,7 +638,7 @@
     document.addEventListener("pointerover", (event) => {
       const hinted = event.target.closest && event.target.closest("[data-hint]");
       if (hinted) {
-        if (tip.id === "hint" && tip.hintFor === hinted) return;
+        if (tip.hintFor === hinted) return;
         hideTip();
         tip.hintFor = hinted;
         const rect = hinted.getBoundingClientRect();
@@ -597,13 +646,22 @@
         showHint(hinted.dataset.hint);
         return;
       }
-      if (tip.id === "hint") { hideTip(); tip.hintFor = null; }
-      if (event.pointerType === "touch") return; // Tapping opens the item details instead.
-      const id = tipTarget(event.target);
+      if (event.pointerType === "touch") { if (tip.id === "hint") hideTip(); return; } // Tapping opens the item details instead.
       tip.x = event.clientX; tip.y = event.clientY;
-      if (id === tip.id) return;
+      const id = tipTarget(event.target);
+      if (id) {
+        if (id === tip.id) return;
+        hideTip();
+        tip.timer = setTimeout(() => showTip(id), TIP_DELAY_MS);
+        return;
+      }
+      const cell = event.target.closest && event.target.closest("td[data-cell]");
+      if (cell && cell === tip.hintFor) return;
       hideTip();
-      if (id) tip.timer = setTimeout(() => showTip(id), TIP_DELAY_MS);
+      if (cell) {
+        tip.hintFor = cell;
+        tip.timer = setTimeout(() => showHint(cell.dataset.cell), TIP_DELAY_MS);
+      }
     });
     document.addEventListener("pointermove", (event) => {
       if (event.pointerType === "touch") return;
