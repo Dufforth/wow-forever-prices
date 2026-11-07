@@ -68,9 +68,16 @@ class BuildTests(unittest.TestCase):
         self.assertEqual((gear[3]["cl"], gear[3]["sc"]), (4, 1))
         self.assertNotIn(4, gear)
 
+    def test_every_list_keeps_the_vendor_price(self):
+        data = tables()
+        data["ItemSparse"][2]["SellPrice"] = "250"
+        catalog, gear, tradable = build_catalog.build(data, "1.0", {}, {})
+        self.assertEqual(gear[3]["sell"], 250)
+        self.assertEqual(tradable[3][5], 250)
+
     def test_tradable_list_leaves_out_soulbound_items(self):
         tradable = self.build()[2]
-        self.assertEqual(tradable[3], ["Robe", 2, "inv_chest_cloth_01", 4, 1])
+        self.assertEqual(tradable[3], ["Robe", 2, "inv_chest_cloth_01", 4, 1, 0])
         self.assertNotIn(4, tradable)
 
 

@@ -1,9 +1,0 @@
-## Interface: 16001
-## Title: Gathering Tracker
-## Notes: Herb and ore icons on the minimap that stay when you swap tracking, with automatic tracking swaps gathering skill tooltips, and auction price scans for the Forever Prices page.
-## Version: 2.4.0
-## IconTexture: Interface\Icons\INV_Misc_Flower_02
-## SavedVariables: TentTimerDB
-
-Nodes.lua
-Scan.lua

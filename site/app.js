@@ -44,7 +44,7 @@
   const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought, scanList: new Set(state.scanList) });
   function tradableItem(id) {
     const row = state.allItems && state.allItems[id];
-    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4] } : null;
+    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4], sell: row[5] } : null;
   }
   const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || tradableItem(id) || { n: "Item " + id, q: 1 };
 
@@ -71,6 +71,9 @@
   }
 
   // The cheapest listing, or the last known price if none are for sale.
+  // What a vendor pays, and what a vendor charges for the reagents they're known to sell.
+  const vendorPays = (item) => (item.sell > 0 ? item.sell : null);
+  const vendorCharges = (item) => (item.v && item.buy > 0 ? item.buy : null);
   const lowestOf = (row) => (row ? (row[0] == null ? row[1] : row[0]) : null);
 
   const hasChange = (change) => Boolean(change && change.amount !== 0);
@@ -144,6 +147,7 @@
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
       bought: (r) => (r.row ? r.row[6] || 0 : null),
+      vendor: (r) => vendorPays(r.item), vendorBuy: (r) => vendorCharges(r.item),
       type: (r) => typeLabel(r.item),
     });
     drawTable([
@@ -153,6 +157,8 @@
       { key: "percent", label: "Change %", tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
       { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
       { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
+      { key: "vendorBuy", label: "Vendor sells at", p: 3, cell: (r) => coins(vendorCharges(r.item)) },
       { key: "bought", label: "Bought, 7 days (est.)", p: 2, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
       { key: "day", label: "24 hour average", p: 2, cell: (r) => coins(r.row ? r.row[4] : null) },
       { key: "week", label: "7 day average", p: 2, cell: (r) => coins(r.row ? r.row[5] : null) },
@@ -177,7 +183,7 @@
     const filtered = allAlerts().filter((c) => passesFilters(c.id, itemOf(c.id))).map((c) => ({ ...c, name: itemOf(c.id).n }));
     const rows = sortRows(filtered, state.sort.alerts, {
       name: (r) => r.name, price: (r) => r.market, old: (r) => r.old, amount: (r) => Math.abs(r.amount),
-      percent: (r) => Math.abs(r.percent), supply: (r) => r.supply,
+      percent: (r) => Math.abs(r.percent), supply: (r) => r.supply, vendor: (r) => vendorPays(itemOf(r.id)),
     });
     drawTable([
       { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
@@ -186,6 +192,7 @@
       { key: "old", label: "Before", p: 1, cell: (r) => coins(r.old) },
       { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r), cell: (r) => changeAmount(r) },
       { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(itemOf(r.id))) },
     ], rows, (r) => `data-item="${r.id}"`,
     state.ts ? "No big price changes with these settings. Lower the limits to see more." : "Waiting for price data.", "alert");
   }
@@ -241,7 +248,7 @@
     state.deals = state.deals || disenchantDeals(state.gear, state.prices);
     let rows = state.deals.filter((d) => d.profit > 0 && passesFilters(d.id, d.item));
     rows = sortRows(rows, state.sort.deals, {
-      name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
+      name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply, vendor: (r) => vendorPays(r.item),
     });
     drawTable([
       { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
@@ -249,6 +256,7 @@
       { key: "price", label: "Lowest price", cell: (r) => coins(r.price) },
       { key: "value", label: "Expected materials", p: 1, cell: (r) => coins(r.value) },
       { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
     ], rows, (r) => `data-item="${r.id}"`,
     state.ts ? "No gear here is priced below its materials right now." : "Waiting for price data.", "deal");
   }
@@ -277,12 +285,13 @@
 
   function renderScanList() {
     const rows = sortRows(state.scanList.map((id) => ({ id, item: itemOf(id), row: state.prices[id] })).filter((r) => passesFilters(r.id, r.item)), state.sort.scan, {
-      name: (r) => r.item.n, price: (r) => lowestOf(r.row), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item),
+      name: (r) => r.item.n, price: (r) => lowestOf(r.row), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item), vendor: (r) => vendorPays(r.item),
     });
     drawTable([
       { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
       { key: "price", label: "Lowest price", cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
       { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
       { key: "type", label: "Type", left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
       { label: "", cell: (r) => `<button type="button" class="secondary remove" data-remove="${r.id}" aria-label="Remove ${esc(r.item.n)} from your scan list">Remove</button>` },
     ], rows, (r) => `data-item="${r.id}"`,
@@ -419,6 +428,9 @@
     if (row) {
       lines.push(row[2] > 0 ? `Lowest price ${coins(lowestOf(row))} · Market ${coins(row[1])} · ${number(row[2])} for sale` : `None for sale. Last seen at ${coins(row[1])}`);
     } else lines.push("No price seen yet");
+    const item = itemOf(id);
+    if (vendorPays(item)) lines.push(`Vendor pays ${coins(vendorPays(item))}`);
+    if (vendorCharges(item)) lines.push(`Vendor sells at ${coins(vendorCharges(item))}`);
     const crafted = state.catalog.recipes.filter((r) => r.i === Number(id));
     if (crafted.length) lines.push("Crafted with " + [...new Set(crafted.map((r) => `${esc(r.p)} (skill ${r.sk})`))].join(", "));
     const used = state.catalog.recipes.filter((r) => r.r.some((part) => part[0] === Number(id))).length;
@@ -625,7 +637,8 @@
     const stats = [
       statBox("Lowest price", coins(lowestOf(row))), statBox("Market", coins(row ? row[1] : null)), statBox("Previous update", coins(row ? row[3] : null)),
       statBox("24 hour average", coins(row ? row[4] : null)), statBox("7 day average", coins(row ? row[5] : null)),
-      statBox("For sale", row ? number(row[2]) : "–"),
+      statBox("For sale", row ? number(row[2]) : "–"), statBox("Vendor pays", coins(vendorPays(item))),
+      ...(vendorCharges(item) ? [statBox("Vendor sells at", coins(vendorCharges(item)))] : []),
     ].join("");
     state.rows = state.rows || craftRows(state.catalog, state.prices);
     const crafts = state.rows.filter((r) => r.recipe.i === Number(id));
@@ -857,7 +870,7 @@
     const scans = Scan.parseSavedFile(text);
     const markets = Object.keys(scans);
     if (!markets.length) {
-      toast("No scan found in that file. Pick TentTimer.lua after scanning and typing /reload in game.");
+      toast("No scan found in that file. Pick DufforthAHScanner.lua after scanning and typing /reload in game.");
       return;
     }
     state.scans = { ...state.scans, ...scans };
@@ -1100,6 +1113,12 @@
     bindTip();
     bindScanList();
     updateCopyButton();
+    getJson("downloads/latest.json").then((latest) => {
+      if (!/^[\w.-]+\.zip$/.test(latest.file)) return;
+      const link = $("addon-download");
+      link.href = `downloads/${latest.file}`;
+      link.textContent = `Download Dufforth AH Scanner v${latest.version}`;
+    }).catch(() => { /* The plain link still works. */ });
     getJson("all_items.json").then((items) => {
       state.allItems = items;
       refreshPrices();

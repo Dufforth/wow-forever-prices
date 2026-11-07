@@ -176,14 +176,14 @@ def build(tables, build_name, nodes, icons):
         if (item["cl"] in (WEAPON, ARMOR) and 2 <= item["q"] <= 4 and item["il"] > 0 and item["n"]
                 and "[DNT]" not in item["n"] and item["n"] != "Template Item"
                 and item["inv"] not in NEVER_DISENCHANT_SLOTS and not item["bop"]):
-            gear[item_id] = {"n": item["n"], "q": item["q"], "il": item["il"], "cl": item["cl"], "sc": item["sc"]}
+            gear[item_id] = {"n": item["n"], "q": item["q"], "il": item["il"], "cl": item["cl"], "sc": item["sc"], "sell": item["sell"]}
             if "ic" in item:
                 gear[item_id]["ic"] = item["ic"]
 
     tradable = {}
     for item_id, item in items.items():
         if item["n"] and not item["bop"] and "[DNT]" not in item["n"] and item["n"] != "Template Item":
-            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"]]
+            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"], item["sell"]]
 
     catalog = {
         "build": build_name,

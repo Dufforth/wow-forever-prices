@@ -2,7 +2,7 @@ import os, sys
 import lupa.lua51 as L
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SRC = open(os.path.join(ROOT, "addon", "TentTimer", "Scan.lua"), encoding="utf-8").read()
+SRC = open(os.path.join(ROOT, "addon", "DufforthAHScanner", "Scan.lua"), encoding="utf-8").read()
 
 MOCK = r"""
 NOW, UPTIME = 1000000, 500
@@ -48,18 +48,18 @@ function CreateFrame(kind, name)
   function f:Show() self.shown = true end
   function f:Hide() self.shown = false end
   function f:RegisterEvent(e) self.events[e] = true end
-  if name == "TentTimerScanFrame" then FRAME = f end
-  if name == "TentTimerScanButton" then BUTTON = f end
-  if name == "TentTimerScanListButton" then LISTBUTTON = f end
-  if name == "TentTimerListFrame" then LISTFRAME = f end
-  if name == "TentTimerListEdit" then LISTEDIT = f end
-  if name == "TentTimerListSave" then LISTSAVE = f end
+  if name == "DufforthAHScannerScanFrame" then FRAME = f end
+  if name == "DufforthAHScannerScanButton" then BUTTON = f end
+  if name == "DufforthAHScannerScanListButton" then LISTBUTTON = f end
+  if name == "DufforthAHScannerListFrame" then LISTFRAME = f end
+  if name == "DufforthAHScannerListEdit" then LISTEDIT = f end
+  if name == "DufforthAHScannerListSave" then LISTSAVE = f end
   return setmetatable(f, { __index = function() return function() end end })
 end
 function FIRE(e, a) FRAME.scripts.OnEvent(FRAME, e, a) end
 function ANSWER(rows) RESULTS = rows; FIRE("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED") end
 function R(id, price, qty, suffix, pet) return { itemKey = { itemID = id, itemSuffix = suffix or 0, battlePetSpeciesID = pet or 0 }, minPrice = price, totalQuantity = qty } end
-function SAVED(m) return TentTimerDB.scans and TentTimerDB.scans[m or "forever.pvp.horde.us"] end
+function SAVED(m) return DufforthAHScannerDB.scans and DufforthAHScannerDB.scans[m or "forever.pvp.horde.us"] end
 function TICK(s) UPTIME = UPTIME + s; NOW = NOW + s; for _, f in ipairs(TICKS) do f() end end
 """
 
@@ -68,7 +68,7 @@ def fresh():
     lua.execute(MOCK)
     lua.execute(SRC)
     # The automatic scan has its own tests below, so the others start with it off.
-    lua.execute('TentTimerDB = { autoScan = false }; FIRE("ADDON_LOADED", "TentTimer")')
+    lua.execute('DufforthAHScannerDB = { autoScan = false }; FIRE("ADDON_LOADED", "DufforthAHScanner")')
     return lua
 
 failed = False
@@ -80,7 +80,7 @@ def check(label, cond, detail=""):
 def queries(lua): return [lua.eval(f"QUERIES[{i}]") for i in range(1, lua.eval("#QUERIES") + 1)]
 
 lua = fresh()
-lua.globals().SlashCmdList.TENTTIMERSCAN("")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("")
 check("won't start with the auction house closed", lua.eval("#QUERIES") == 0 and "Open the auction house" in lua.eval("CHAT[#CHAT]"))
 lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
 check("does nothing until asked", lua.eval("#QUERIES") == 0)
@@ -102,13 +102,13 @@ lua.execute("BUTTON.scripts.OnClick()")
 check("button reloads", lua.eval("RELOADS") == 1)
 
 lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
-lua.globals().SlashCmdList.TENTTIMERSCAN("quick")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("quick")
 lua.execute("ANSWER({R(1,1,1)}); ANSWER({}); ANSWER({}); ANSWER({})")
 check("quick scan covers materials, consumables and ammo", queries(lua) == [7, 0, 5, 6], queries(lua))
 check("quick scan is labeled", lua.eval("SAVED().mode") == "quick")
 
 lua = fresh(); lua.execute('FULL = false; FIRE("AUCTION_HOUSE_SHOW")')
-lua.globals().SlashCmdList.TENTTIMERSCAN("")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("")
 lua.execute("ANSWER({R(1,10,1)})")
 check("asks for more when results are split", lua.eval("MORE") == 1 and queries(lua) == [7])
 lua.execute("READY = false; ANSWER({R(1,10,1), R(2,20,1)})")
@@ -118,11 +118,11 @@ check("asks when the throttle clears", lua.eval("MORE") == 2)
 lua.execute("FULL = true; ANSWER({R(1,10,1), R(2,20,1), R(3,30,1)})")
 check("reads each result once at the end", queries(lua) == [7, 0])
 lua.execute("ANSWER({}) ANSWER({})")
-lua.globals().SlashCmdList.TENTTIMERSCAN("stop")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("stop")
 check("stop keeps what was read, as partial", lua.eval("SAVED().data") == "1:10:1;2:20:1;3:30:1" and lua.eval("SAVED().complete") is False, lua.eval("SAVED().data"))
 
 lua = fresh(); lua.execute('READY = false; FIRE("AUCTION_HOUSE_SHOW")')
-lua.globals().SlashCmdList.TENTTIMERSCAN("")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("")
 check("waits for the throttle before the first query", lua.eval("#QUERIES") == 0)
 lua.execute('READY = true; FIRE("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")')
 check("sends when ready", queries(lua) == [7])
@@ -130,7 +130,7 @@ lua.execute('FIRE("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")')
 check("doesn't send twice", queries(lua) == [7])
 
 lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
-lua.globals().SlashCmdList.TENTTIMERSCAN("")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("")
 lua.execute("ANSWER({R(1,10,1)})")
 lua.execute('FIRE("AUCTION_HOUSE_CLOSED")')
 check("closing saves a partial scan", lua.eval("SAVED().complete") is False)
@@ -138,14 +138,14 @@ n = lua.eval("#QUERIES")
 lua.execute("TICK(100)"); check("no queries after closing", lua.eval("#QUERIES") == n)
 
 lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
-lua.globals().SlashCmdList.TENTTIMERSCAN("")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("")
 lua.execute("TICK(21)"); lua.execute("TICK(21)")
 check("retries a silent category", queries(lua) == [7, 7, 7], queries(lua))
 lua.execute("TICK(21)")
 check("then skips it", queries(lua) == [7, 7, 7, 0], queries(lua))
 
 lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
-lua.globals().SlashCmdList.TENTTIMERSCAN("")
+lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("")
 lua.execute("C_AuctionHouse.SendBrowseQuery({ itemClassFilters = {{ classID = 99 }} })")
 lua.execute("ANSWER({R(77, 1, 1)})")
 check("ignores another addon's results", lua.eval("#AFTERS") == 1 and queries(lua) == [7, 99], queries(lua))
@@ -154,12 +154,12 @@ check("asks again after another addon's search", queries(lua) == [7, 99, 7], que
 
 for realm, faction, want in [("CAMWOW US1 Realm 4 PvP", "Alliance", "forever.pvp.alliance.us"), ("Some Normal Realm", "Horde", "forever.normal.horde.us"), ("Something RP Realm", "Horde", "forever.rp.horde.us")]:
     lua = fresh(); lua.execute(f'REALM, FACTION = "{realm}", "{faction}"; FIRE("AUCTION_HOUSE_SHOW")')
-    lua.globals().SlashCmdList.TENTTIMERSCAN("quick")
+    lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN("quick")
     lua.execute("ANSWER({R(1,1,1)}); ANSWER({}); ANSWER({}); ANSWER({})")
     check(f"market name {want}", lua.eval(f'SAVED("{want}") ~= nil') is True)
 
 # Your own scan list
-def slash(lua, text): lua.globals().SlashCmdList.TENTTIMERSCAN(text)
+def slash(lua, text): lua.globals().SlashCmdList.DUFFORTHAHSCANNERSCAN(text)
 def searches(lua): return [lua.eval(f"SEARCHES[{i}]") for i in range(1, lua.eval("#SEARCHES") + 1)]
 def paste(lua, text):
     slash(lua, "list")
@@ -171,7 +171,7 @@ slash(lua, "mine")
 check("an empty list explains what to do", "scan list is empty" in lua.eval("CHAT[#CHAT]") and lua.eval("#SEARCHES") == 0)
 check("no list button until there is a list", lua.eval("LISTBUTTON.shown") in (False, None))
 paste(lua, "  GT1:2447,2770, 2447,abc,0,99999999999,118\n")
-ids = [lua.eval(f"TentTimerDB.scanList[{i}]") for i in range(1, lua.eval("#TentTimerDB.scanList") + 1)]
+ids = [lua.eval(f"DufforthAHScannerDB.scanList[{i}]") for i in range(1, lua.eval("#DufforthAHScannerDB.scanList") + 1)]
 check("pasted list is read, without repeats or bad IDs", ids == [2447, 2770, 118], ids)
 check("the window closes and confirms", lua.eval("LISTFRAME.shown") is False and "3 items" in lua.eval("CHAT[#CHAT]"))
 check("list button appears with the count", lua.eval("LISTBUTTON.shown") is True and lua.eval("LISTBUTTON.text") == "Scan my list (3)", lua.eval("LISTBUTTON.text"))
@@ -192,7 +192,7 @@ d = lua.eval("SAVED().data")
 check("per unit price, total quantity, and 0 when none for sale", d == "118:0:0;2447:19:3351;2770:90:8", d)
 check("labeled as a list scan", lua.eval("SAVED().mode") == "list" and lua.eval("SAVED().complete") is True)
 
-lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW"); TentTimerDB.scanList = {2447, 777}')
+lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW"); DufforthAHScannerDB.scanList = {2447, 777}')
 slash(lua, "quick")
 lua.execute("ANSWER({R(2447, 10, 2)}); ANSWER({}); ANSWER({}); ANSWER({})")
 check("after categories, asks only for list items they missed", searches(lua) == [777], searches(lua))
@@ -200,13 +200,13 @@ check("progress counts the extra items", lua.eval("BUTTON.text") == "Stop scan (
 lua.execute("TICK(9)")
 check("an item that never answers is skipped, not marked as none", "777:" not in lua.eval("SAVED().data") and "didn't answer" in " ".join(lua.eval("CHAT")[i] for i in range(1, lua.eval("#CHAT")+1)), lua.eval("SAVED().data"))
 
-lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW"); TentTimerDB.scanList = {1}')
-lua.execute('TentTimerDB.scans = { ["forever.pvp.horde.us"] = { at = NOW - 3600, data = "1:50:5;2:60:6" } }')
+lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW"); DufforthAHScannerDB.scanList = {1}')
+lua.execute('DufforthAHScannerDB.scans = { ["forever.pvp.horde.us"] = { at = NOW - 3600, data = "1:50:5;2:60:6" } }')
 slash(lua, "mine")
 lua.execute('COMMODITY[1] = {70, 7}; FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 1)')
 check("a list scan keeps recent results for other items", lua.eval("SAVED().data") == "1:70:7;2:60:6", lua.eval("SAVED().data"))
-lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW"); TentTimerDB.scanList = {1}')
-lua.execute('TentTimerDB.scans = { ["forever.pvp.horde.us"] = { at = NOW - 90000, data = "2:60:6" } }')
+lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW"); DufforthAHScannerDB.scanList = {1}')
+lua.execute('DufforthAHScannerDB.scans = { ["forever.pvp.horde.us"] = { at = NOW - 90000, data = "2:60:6" } }')
 slash(lua, "mine")
 lua.execute('COMMODITY[1] = {70, 7}; FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 1)')
 check("results older than a day are dropped", lua.eval("SAVED().data") == "1:70:7", lua.eval("SAVED().data"))
@@ -216,7 +216,7 @@ def auto_lua(saved="nil"):
     lua = L.LuaRuntime(unpack_returned_tuples=True)
     lua.execute(MOCK)
     lua.execute(SRC)
-    lua.execute(f'TentTimerDB = {saved}; FIRE("ADDON_LOADED", "TentTimer")')
+    lua.execute(f'DufforthAHScannerDB = {saved}; FIRE("ADDON_LOADED", "DufforthAHScanner")')
     return lua
 def run_afters(lua): lua.execute("local a = AFTERS; AFTERS = {}; for _, f in ipairs(a) do f() end")
 def other_search(lua): lua.execute("C_AuctionHouse.SendBrowseQuery({ itemClassFilters = {{ classID = 99 }} })")
@@ -241,9 +241,9 @@ check("reopening later scans again", lua.eval("#QUERIES") == n + 1, lua.eval("#Q
 lua = auto_lua('{ autoScan = false }')
 lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
 check("the setting turns it off", lua.eval("#QUERIES") == 0)
-slash(lua, "auto on"); check("/ahscan auto on", lua.eval("TentTimerDB.autoScan") is True)
-slash(lua, "auto off"); check("/ahscan auto off", lua.eval("TentTimerDB.autoScan") is False)
-slash(lua, "auto"); check("/ahscan auto toggles", lua.eval("TentTimerDB.autoScan") is True)
+slash(lua, "auto on"); check("/ahscan auto on", lua.eval("DufforthAHScannerDB.autoScan") is True)
+slash(lua, "auto off"); check("/ahscan auto off", lua.eval("DufforthAHScannerDB.autoScan") is False)
+slash(lua, "auto"); check("/ahscan auto toggles", lua.eval("DufforthAHScannerDB.autoScan") is True)
 
 lua = auto_lua()
 lua.execute('FIRE("AUCTION_HOUSE_SHOW"); FIRE("AUCTION_HOUSE_CLOSED")'); run_afters(lua)

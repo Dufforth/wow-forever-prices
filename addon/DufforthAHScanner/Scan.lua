@@ -13,7 +13,7 @@ local AUTO_DELAY = 1 -- seconds after the window opens, so the game's own window
 local AUTO_MIN_GAP = 60 -- reopening sooner than this doesn't scan again
 local AUTO_MAX_INTERRUPTIONS = 2 -- searches an automatic scan yields to before it stops
 local LIST_PREFIX = "^%s*GT1:"
-local PREFIX = "|cff66ccffGathering Tracker:|r "
+local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
 
 -- Quest items and miscellaneous items are left out, so this is not a full scan.
 local CATEGORIES = {
@@ -35,7 +35,7 @@ local sending = false -- true while this addon sends its own query
 local needsReload = false
 local lastAutoStart
 local button, listButton, listFrame, listEdit
-local frame = CreateFrame("Frame", "TentTimerScanFrame", UIParent)
+local frame = CreateFrame("Frame", "DufforthAHScannerScanFrame", UIParent)
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. message)
@@ -393,7 +393,7 @@ end
 
 local function ShowListWindow()
     if not listFrame then
-        listFrame = CreateFrame("Frame", "TentTimerListFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        listFrame = CreateFrame("Frame", "DufforthAHScannerListFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
         listFrame:SetSize(420, 170)
         listFrame:SetPoint("CENTER")
         listFrame:SetFrameStrata("DIALOG")
@@ -406,7 +406,7 @@ local function ShowListWindow()
         title:SetPoint("TOPLEFT", 12, -10)
         title:SetText("Paste your scan list from the Forever Prices page")
 
-        listEdit = CreateFrame("EditBox", "TentTimerListEdit", listFrame)
+        listEdit = CreateFrame("EditBox", "DufforthAHScannerListEdit", listFrame)
         listEdit:SetPoint("TOPLEFT", 12, -34)
         listEdit:SetPoint("BOTTOMRIGHT", -12, 44)
         listEdit:SetMultiLine(true)
@@ -415,13 +415,13 @@ local function ShowListWindow()
         listEdit:SetFontObject(ChatFontNormal)
         listEdit:SetScript("OnEscapePressed", function() listFrame:Hide() end)
 
-        local save = CreateFrame("Button", "TentTimerListSave", listFrame, "UIPanelButtonTemplate")
+        local save = CreateFrame("Button", "DufforthAHScannerListSave", listFrame, "UIPanelButtonTemplate")
         save:SetSize(90, 24)
         save:SetPoint("BOTTOMRIGHT", -12, 10)
         save:SetText("Save")
         save:SetScript("OnClick", SaveList)
 
-        local cancel = CreateFrame("Button", "TentTimerListCancel", listFrame, "UIPanelButtonTemplate")
+        local cancel = CreateFrame("Button", "DufforthAHScannerListCancel", listFrame, "UIPanelButtonTemplate")
         cancel:SetSize(90, 24)
         cancel:SetPoint("RIGHT", save, "LEFT", -8, 0)
         cancel:SetText("Cancel")
@@ -440,7 +440,7 @@ local function CreateButtons()
         return
     end
     local parent = AuctionHouseFrame or UIParent
-    button = CreateFrame("Button", "TentTimerScanButton", parent, "UIPanelButtonTemplate")
+    button = CreateFrame("Button", "DufforthAHScannerScanButton", parent, "UIPanelButtonTemplate")
     button:SetSize(150, 22)
     if AuctionHouseFrame then
         button:SetPoint("TOPRIGHT", AuctionHouseFrame, "TOPRIGHT", -70, -1)
@@ -456,15 +456,15 @@ local function CreateButtons()
             StartScan("full")
         end
     end)
-    listButton = CreateFrame("Button", "TentTimerScanListButton", parent, "UIPanelButtonTemplate")
+    listButton = CreateFrame("Button", "DufforthAHScannerScanListButton", parent, "UIPanelButtonTemplate")
     listButton:SetSize(150, 22)
     listButton:SetPoint("RIGHT", button, "LEFT", -6, 0)
     listButton:SetScript("OnClick", function() StartScan("list") end)
     UpdateButtons()
 end
 
-SLASH_TENTTIMERSCAN1 = "/ahscan"
-SlashCmdList.TENTTIMERSCAN = function(input)
+SLASH_DUFFORTHAHSCANNERSCAN1 = "/ahscan"
+SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
     local command = string.lower(string.match(input or "", "^%s*(%S*)") or "")
     if command == "stop" then
         if scan then
@@ -513,9 +513,9 @@ local hooked = false
 
 frame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
-        if arg1 == "TentTimer" then
-            TentTimerDB = TentTimerDB or {}
-            db = TentTimerDB
+        if arg1 == "DufforthAHScanner" then
+            DufforthAHScannerDB = DufforthAHScannerDB or {}
+            db = DufforthAHScannerDB
         end
     elseif event == "AUCTION_HOUSE_SHOW" then
         houseOpen = true

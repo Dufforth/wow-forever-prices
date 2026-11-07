@@ -29,6 +29,7 @@ RULESETS = {"normal": "Normal", "pvp": "PvP", "rp": "Roleplay"}
 HOURLY_KEEP = 24 * 7
 DAILY_KEEP = 60
 BOUGHT_DAYS = 7
+MAX_UPDATE_GAP = 3600 # seconds; the page updates at least this often, even if a check finds nothing
 DAY = 86400
 
 # The ruleset in the address doesn't select the market, so one is used for every house.
@@ -340,6 +341,52 @@ def collect_public(out, get, wanted, tracked, skip, reports=None):
     return entries
 
 
+def blizzard_stamps(token, region):
+    """{market: newest Last-Modified time}, reading only the headers of each list."""
+    base = f"https://{region}.api.blizzard.com/data/wow/ruleset/{BLIZZARD_RULESET}/auctions"
+    stamps = {}
+    for house_id, (ruleset, faction) in BLIZZARD_HOUSES.items():
+        market = f"forever.{ruleset}.{faction}.{region}"
+        for suffix in ("", "/commodities"):
+            request = urllib.request.Request(f"{base}/{house_id}{suffix}?namespace=dynamic-forever-{region}",
+                                             headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "gzip"})
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    modified = response.headers.get("Last-Modified")
+            except (urllib.error.URLError, TimeoutError):
+                continue
+            if modified:
+                stamp = int(parsedate_to_datetime(modified).timestamp())
+                stamps[market] = max(stamps.get(market, 0), stamp)
+    return stamps
+
+
+def needs_update(meta, stamps, now):
+    """True if Blizzard has something newer than what's published, or an hour has passed."""
+    if not meta or now - meta.get("updated", 0) >= MAX_UPDATE_GAP:
+        return True
+    known = {house["id"]: house.get("scannedAt", 0) for house in meta.get("houses", [])}
+    return any(market in known and stamp > known[market] for market, stamp in stamps.items())
+
+
+def check_for_update(out, region):
+    """Decides whether a full update is worth running, for the GitHub workflow."""
+    meta = load_json(out / "meta.json", None)
+    stamps = {}
+    client, secret = os.environ.get("BLIZZARD_CLIENT_ID"), os.environ.get("BLIZZARD_CLIENT_SECRET")
+    if client and secret:
+        try:
+            stamps = blizzard_stamps(blizzard_token(client, secret), region)
+        except Exception as error:  # Never log the error itself, in case it holds a credential.
+            print(f"Blizzard check failed: {type(error).__name__}", file=sys.stderr)
+    changed = needs_update(meta, stamps, int(time.time()))
+    print(f"changed={'true' if changed else 'false'}")
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as file:
+            file.write(f"changed={'true' if changed else 'false'}\n")
+
+
 def report_matches(blizzard, public):
     """Logs which Blizzard house best agrees with each player-scanned market, to check the labels."""
     for market, scanned in public.items():
@@ -386,7 +433,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("state"))
     parser.add_argument("--region", default="us")
+    parser.add_argument("--check", action="store_true", help="only report whether there's new data")
     args = parser.parse_args()
+    if args.check:
+        check_for_update(args.out, args.region)
+        return
     wanted, tracked = load_wanted(ROOT)
     blizzard = None
     client, secret = os.environ.get("BLIZZARD_CLIENT_ID"), os.environ.get("BLIZZARD_CLIENT_SECRET")

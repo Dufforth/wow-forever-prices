@@ -1,4 +1,4 @@
--- Gathering Tracker: remembers the herbs and ore your tracking shows, and keeps an icon
+-- Dufforth AH Scanner: remembers the herbs and ore your tracking shows, and keeps an icon
 -- on the minimap for each after you swap tracking, until you gather it.
 --
 -- The game gives addons no list of tracked nodes. Forever does let an addon move the
@@ -27,7 +27,7 @@ local DEFAULT_SIZE = 14
 local DEFAULT_KEEP_MINUTES = 30
 local DEFAULT_GATHERED_MINUTES = 60
 local GATHERED_GRACE = 10 -- seconds a gathered dot may linger before it counts as back
-local PREFIX = "|cff66ccffGathering Tracker:|r "
+local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
 local ROUND_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
 local FIND_SPELLS = { [2383] = "herb", [8387] = "herb", [2580] = "ore", [8388] = "ore" }
@@ -276,7 +276,7 @@ local grid, gridWidth, gridSquare
 local icons = {}
 local stats = { sweeps = 0, lastDots = 0, lastError = nil }
 
-local holder = CreateFrame("Frame", "TentTimerNodesFrame", Minimap)
+local holder = CreateFrame("Frame", "DufforthAHScannerNodesFrame", Minimap)
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. message)
@@ -1129,12 +1129,12 @@ local function HandleSlash(input)
 end
 
 local function OnLogin()
-    TentTimerDB = TentTimerDB or {}
-    TentTimerDB.nodes = TentTimerDB.nodes or {}
+    DufforthAHScannerDB = DufforthAHScannerDB or {}
+    DufforthAHScannerDB.nodes = DufforthAHScannerDB.nodes or {}
     -- Saved by the tent timer, which no longer exists.
-    TentTimerDB.chars, TentTimerDB.position, TentTimerDB.hidden = nil, nil, nil
-    TentTimerDB.collapsed, TentTimerDB.offlineTicks, TentTimerDB.auraName = nil, nil, nil
-    db = TentTimerDB.nodes
+    DufforthAHScannerDB.chars, DufforthAHScannerDB.position, DufforthAHScannerDB.hidden = nil, nil, nil
+    DufforthAHScannerDB.collapsed, DufforthAHScannerDB.offlineTicks, DufforthAHScannerDB.auraName = nil, nil, nil
+    db = DufforthAHScannerDB.nodes
     db.pins = db.pins or {}
     db.custom = db.custom or {}
     db.unknown = {}
@@ -1154,8 +1154,8 @@ local function OnLogin()
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.MinimapMouseover, OnGameMinimapTooltip)
     end
 
-    SLASH_TENTTIMERNODES1 = "/nk"
-    SlashCmdList.TENTTIMERNODES = HandleSlash
+    SLASH_DUFFORTHAHSCANNERNODES1 = "/nk"
+    SlashCmdList.DUFFORTHAHSCANNERNODES = HandleSlash
 
     local expireTimer = 0
     holder:SetScript("OnUpdate", function(_, elapsed)

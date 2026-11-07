@@ -184,6 +184,42 @@ class PublicSourceTests(unittest.TestCase):
                 collect.collect(Path(folder), no_public, {1}, {1}, START)
 
 
+class UpdateCheckTests(unittest.TestCase):
+    META = {"updated": START, "houses": [{"id": PVP_HORDE, "scannedAt": START - 100}, {"id": MARKET, "scannedAt": START - 100}]}
+
+    def test_updates_as_soon_as_a_house_is_newer(self):
+        self.assertTrue(collect.needs_update(self.META, {PVP_HORDE: START - 99}, START + 60))
+
+    def test_waits_when_nothing_is_newer(self):
+        self.assertFalse(collect.needs_update(self.META, {PVP_HORDE: START - 100, MARKET: START - 200}, START + 60))
+
+    def test_unknown_markets_do_not_trigger_an_update(self):
+        self.assertFalse(collect.needs_update(self.META, {"forever.other119.horde.us": START}, START + 60))
+
+    def test_still_updates_hourly_if_a_check_finds_nothing(self):
+        self.assertTrue(collect.needs_update(self.META, {}, START + 3600))
+        self.assertFalse(collect.needs_update(self.META, {}, START + 3599))
+
+    def test_first_run_updates(self):
+        self.assertTrue(collect.needs_update(None, {}, START))
+
+    def test_check_writes_its_answer_for_the_workflow(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / "meta.json").write_text(json.dumps({"updated": 9999999999, "houses": []}))
+            result = out / "github_output"
+            saved = {k: collect.os.environ.pop(k, None) for k in ("BLIZZARD_CLIENT_ID", "BLIZZARD_CLIENT_SECRET", "GITHUB_OUTPUT")}
+            collect.os.environ["GITHUB_OUTPUT"] = str(result)
+            try:
+                quiet(collect.check_for_update, out, "us")
+            finally:
+                del collect.os.environ["GITHUB_OUTPUT"]
+                for key, value in saved.items():
+                    if value is not None:
+                        collect.os.environ[key] = value
+            self.assertEqual(result.read_text(), "changed=false\n")
+
+
 class BlizzardTests(unittest.TestCase):
     def test_house_ids_become_market_names_with_market_averages(self):
         with tempfile.TemporaryDirectory() as folder:
