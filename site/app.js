@@ -1,8 +1,39 @@
 (function () {
   "use strict";
-  const { money, priceChange, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
   const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
+  // Plain explanations for column titles, shown on hover or keyboard focus.
+  const HINTS = {
+    "Item": "The item. Select it for details, history and recipes. Hover it to see its in-game tooltip.",
+    "Lowest price": "The cheapest price anyone is asking for one right now.",
+    "Market": "The typical price: the average of the cheapest 15% of items for sale. One unusually cheap or expensive listing barely moves it.",
+    "Change %": "How much the typical price moved, compared with the setting above. +50% means it now costs one and a half times as much. -50% means half as much.",
+    "Change": "The same price move, in gold, silver and copper.",
+    "For sale": "How many are listed on this auction house right now.",
+    "Vendor pays": "What a vendor (NPC) gives you if you sell one to them. Selling on the auction house for less than this loses money.",
+    "Vendor sells at": "What a vendor (NPC) charges for one, for reagents vendors are known to sell.",
+    "Bought, 7 days (est.)": "A guess at how many sold in the last 7 days, from how much the number for sale dropped. Expired listings look the same, so treat it as a rough guide.",
+    "24 hour average": "The average typical price over the last 24 hours.",
+    "7 day average": "The average typical price over the last 7 days. Use it to tell whether today's price is unusual.",
+    "Source": "Where the item comes from: crafted by a profession, gathered, sold by vendors, or anything else (usually drops).",
+    "Type": "What kind of item it is.",
+    "Now": "The typical price right now.",
+    "Before": "The typical price it's compared against.",
+    "Profit": "What you keep per craft after buying the reagents and paying the 5% auction cut. Green means you make money, red means you lose money.",
+    "Sell by": "The best way to sell what you craft: on the auction house, by disenchanting it, or to a vendor.",
+    "Craft cost": "What the reagents for one craft cost, buying each the cheapest way.",
+    "Auction, after cut": "What one craft's items sell for on the auction house, minus the 5% the auction house keeps.",
+    "Disenchant": "What one craft's items are worth if you disenchant them and sell the materials, on average.",
+    "Vendor": "What a vendor pays for one craft's items.",
+    "Margin": "Profit compared with what you spend. 50% means you get back one and a half times your cost.",
+    "Profession": "The profession that makes it.",
+    "Expected profit": "What you keep on average after paying for the item and selling the materials, with the 5% auction cut taken off.",
+    "Expected materials": "What the enchanting materials are worth on average, after the 5% auction cut.",
+    "Return": "Profit compared with what you spend. 100% means you double your money on average.",
+    "Skill needed": "The Enchanting skill needed to disenchant it.",
+    "Mostly gives": "The material it gives most often when disenchanted. Select the item for all the odds.",
+  };
   const PAGE = 100;
   const POLL_MS = 5 * 60 * 1000;
   const STALE_SECONDS = 12 * 3600;
@@ -27,7 +58,7 @@
     scanList: store.get("scanList", []), allItems: null, suggestions: [], activeSuggestion: -1,
     fileTs: null, published: {}, scans: store.get("scans", {}), scanHandle: null,
     favorites: new Set(store.get("favorites", [])),
-    tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), limit: PAGE, detailId: null,
+    loading: true, tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), limit: PAGE, detailId: null,
     sort: {
       prices: { key: "name", dir: 1 }, profit: { key: "profit", dir: -1 },
       alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 }, scan: { key: "name", dir: 1 },
@@ -77,8 +108,16 @@
   const vendorCharges = (item) => (item.v && item.buy > 0 ? item.buy : null);
   const lowestOf = (row) => (row ? (row[0] == null ? row[1] : row[0]) : null);
 
+  const BADGES = {
+    good: ["Good deal", "good"], fair: ["Fair", "fair"], poor: ["Loss", "poor"],
+    cheap: ["Cheap now", "good"], usual: ["Usual price", "fair"], pricey: ["Pricey now", "warn"],
+    cheaper: ["Got cheaper", "good"], pricier: ["Got pricier", "warn"],
+  };
+  const badge = (kind) => (kind ? `<span class="deal deal-${BADGES[kind][1]}">${BADGES[kind][0]}</span>` : '<span class="muted">–</span>');
+  const goodRow = (kind) => (kind && BADGES[kind][1] === "good" ? "good-row" : "");
+
   const hasChange = (change) => Boolean(change && change.amount !== 0);
-  const changeTone = (change) => (hasChange(change) ? (change.amount > 0 ? "up" : "down") : "muted");
+  const changeTone = (change) => (hasChange(change) ? "" : "muted"); // A move up or down isn't good or bad by itself.
   const changeAmount = (change) => (hasChange(change) ? `${change.amount > 0 ? "▲" : "▼"} ${coins(Math.abs(change.amount))}` : "–");
   const changePercent = (change) => (hasChange(change) ? `${change.amount > 0 ? "+" : "-"}${Math.abs(change.percent).toFixed(1)}%` : "–");
 
@@ -101,20 +140,22 @@
   // Every tab draws through here: one table, one count line, one Show more button.
   // A column has a label and a cell, and optionally a sort key, alignment (left),
   // tone (a class for the cell) and priority (p: 1 to 3; higher hides sooner on small screens).
-  function drawTable(columns, rows, rowAttributes, emptyText, unit) {
+  function drawTable(columns, rows, rowAttributes, emptyText, unit, rowClass) {
     const spec = state.sort[state.tab];
     const classes = (column, extra) => {
       const list = [column.left && "left", column.p && `p${column.p}`, extra].filter(Boolean);
       return list.length ? ` class="${list.join(" ")}"` : "";
     };
     const head = columns.map((column) => {
-      if (!column.key) return `<th scope="col"${classes(column)}>${column.label}</th>`;
+      const hint = column.hint ? ` data-hint="${esc(column.hint)}"` : "";
+      const label = column.hint ? `<span class="hinted">${column.label}</span>` : column.label;
+      if (!column.key) return `<th scope="col"${classes(column)}${hint}${column.hint ? ' tabindex="0"' : ""}>${label}</th>`;
       const sort = column.key === spec.key ? (spec.dir > 0 ? "ascending" : "descending") : "none";
-      return `<th scope="col"${classes(column)} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${column.label}</th>`;
+      return `<th scope="col"${classes(column)}${hint} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${label}</th>`;
     }).join("");
     const shown = rows.slice(0, state.limit);
-    const body = shown.map((row) => `<tr class="row" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
-      || emptyRow(columns.length, emptyText);
+    const body = shown.map((row) => `<tr class="row${rowClass && rowClass(row) ? " " + rowClass(row) : ""}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
+      || emptyRow(columns.length, state.loading ? "Loading prices…" : emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
     const parts = [];
     if (state.category !== "all") parts.push(categoryLabel(state.category));
@@ -160,29 +201,39 @@
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
       bought: (r) => (r.row ? r.row[6] || 0 : null),
+      now: (r) => { const rating = ratePriceNow(r.row); return rating ? { cheap: 0, usual: 1, pricey: 2 }[rating] : null; },
       vendor: (r) => vendorPays(r.item), vendorBuy: (r) => vendorCharges(r.item),
       type: (r) => typeLabel(r.item), source: (r) => sourceLabel(sourceOf(r.id, r.item, context())),
     });
     drawTable([
-      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
-      { key: "market", label: "Market", p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
-      { key: "percent", label: "Change %", tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
-      { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
-      { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
-      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
-      { key: "vendorBuy", label: "Vendor sells at", p: 3, cell: (r) => coins(vendorCharges(r.item)) },
-      { key: "bought", label: "Bought, 7 days (est.)", p: 3, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
-      { key: "day", label: "24 hour average", p: 3, cell: (r) => coins(r.row ? r.row[4] : null) },
-      { key: "week", label: "7 day average", p: 3, cell: (r) => coins(r.row ? r.row[5] : null) },
-      { key: "source", label: "Source", left: true, p: 2, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
-      { key: "type", label: "Type", left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
-    ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or source, or clear your search.", "item");
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "market", label: "Market", hint: HINTS["Market"], p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
+      { key: "now", label: "Price now", hint: "Is today's typical price cheap, usual or pricey compared with its 7-day average? Cheap is a good time to buy; pricey is a good time to sell.", cell: (r) => badge(ratePriceNow(r.row)) },
+      { key: "percent", label: "Change %", hint: HINTS["Change %"], p: 1, tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
+      { key: "amount", label: "Change", hint: HINTS["Change"], p: 2, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 1, cell: (r) => coins(vendorPays(r.item)) },
+      { key: "vendorBuy", label: "Vendor sells at", hint: HINTS["Vendor sells at"], p: 3, cell: (r) => coins(vendorCharges(r.item)) },
+      { key: "bought", label: "Bought, 7 days (est.)", hint: HINTS["Bought, 7 days (est.)"], p: 3, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
+      { key: "day", label: "24 hour average", hint: HINTS["24 hour average"], p: 3, cell: (r) => coins(r.row ? r.row[4] : null) },
+      { key: "week", label: "7 day average", hint: HINTS["7 day average"], p: 3, cell: (r) => coins(r.row ? r.row[5] : null) },
+      { key: "source", label: "Source", hint: HINTS["Source"], left: true, p: 2, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
+      { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
+    ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or source, or clear your search.", "item", (r) => goodRow(ratePriceNow(r.row)));
   }
 
   // ---- Alerts ----
+  let alertsCache = { key: null, list: null };
   function allAlerts() {
     const a = state.alert;
+    const key = JSON.stringify([state.house, state.ts, a, a.favorites ? [...state.favorites] : 0]);
+    if (alertsCache.key === key) return alertsCache.list;
+    alertsCache = { key, list: computeAlerts(a) };
+    return alertsCache.list;
+  }
+
+  function computeAlerts(a) {
     return significantChanges(state.prices, { percent: a.percent, minAmount: a.amount * 100, minSupply: a.supply, basis: a.basis })
       .filter((c) => state.catalog.items[c.id] && (!a.favorites || state.favorites.has(c.id)));
   }
@@ -197,18 +248,19 @@
     const filtered = allAlerts().filter((c) => passesFilters(c.id, itemOf(c.id))).map((c) => ({ ...c, name: itemOf(c.id).n }));
     const rows = sortRows(filtered, state.sort.alerts, {
       name: (r) => r.name, price: (r) => r.market, old: (r) => r.old, amount: (r) => Math.abs(r.amount),
-      percent: (r) => Math.abs(r.percent), supply: (r) => r.supply, vendor: (r) => vendorPays(itemOf(r.id)),
+      percent: (r) => Math.abs(r.percent), supply: (r) => r.supply, meaning: (r) => r.amount, vendor: (r) => vendorPays(itemOf(r.id)),
     });
     drawTable([
-      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Now", cell: (r) => coins(r.market) },
-      { key: "percent", label: "Change %", tone: (r) => changeTone(r), cell: (r) => changePercent(r) },
-      { key: "old", label: "Before", p: 1, cell: (r) => coins(r.old) },
-      { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r), cell: (r) => changeAmount(r) },
-      { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
-      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(itemOf(r.id))) },
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      { key: "price", label: "Now", hint: HINTS["Now"], cell: (r) => coins(r.market) },
+      { key: "meaning", label: "What it means", hint: "Got cheaper: a chance to buy for less than before. Got pricier: a chance to sell for more than before.", cell: (r) => badge(r.amount < 0 ? "cheaper" : "pricier") },
+      { key: "percent", label: "Change %", hint: HINTS["Change %"], p: 1, tone: (r) => changeTone(r), cell: (r) => changePercent(r) },
+      { key: "old", label: "Before", hint: HINTS["Before"], p: 1, cell: (r) => coins(r.old) },
+      { key: "amount", label: "Change", hint: HINTS["Change"], p: 1, tone: (r) => changeTone(r), cell: (r) => changeAmount(r) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 1, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 1, cell: (r) => coins(vendorPays(itemOf(r.id))) },
     ], rows, (r) => `data-item="${r.id}"`,
-    state.ts ? "No big price changes with these settings. Lower the limits to see more." : "Waiting for price data.", "alert");
+    state.ts ? "No big price changes with these settings. Lower the limits to see more." : "Waiting for price data.", "alert", (r) => (r.amount < 0 ? "good-row" : ""));
   }
 
   // ---- Profit ----
@@ -229,23 +281,24 @@
     });
     rows = sortRows(rows, state.sort.profit, {
       name: (r) => r.item.n, profession: (r) => r.recipe.p, cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
-      vendor: (r) => perCraft(r.vendor, r), profit: (r) => r.profit, margin: (r) => r.margin, supply: (r) => r.supply,
+      vendor: (r) => perCraft(r.vendor, r), deal: (r) => (r.profit == null ? null : r.cost > 0 ? r.profit / r.cost : 0), profit: (r) => r.profit, margin: (r) => r.margin, supply: (r) => r.supply,
     });
     const profitTone = (r) => (r.profit == null ? "muted" : r.profit > 0 ? "up" : "down");
     const profitArrow = (r) => (r.profit == null ? "" : r.profit > 0 ? "▲ " : "▼ ");
     drawTable([
-      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.recipe.i, r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "") },
-      { key: "profit", label: "Profit", tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
-      { label: "Sell by", left: true, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
-      { key: "cost", label: "Craft cost", p: 1, cell: (r) => (r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)) },
-      { key: "ah", label: "Auction, after cut", p: 2, cell: (r) => coins(perCraft(r.ah, r)) },
-      { key: "de", label: "Disenchant", p: 2, cell: (r) => coins(perCraft(r.de, r)) },
-      { key: "vendor", label: "Vendor", p: 3, cell: (r) => coins(perCraft(r.vendor, r)) },
-      { key: "margin", label: "Margin", p: 3, cell: (r) => (r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%") },
-      { key: "supply", label: "For sale", p: 2, cell: (r) => number(r.supply || 0) },
-      { key: "profession", label: "Profession", left: true, p: 3, cell: (r) => esc(r.recipe.p) },
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.recipe.i, r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "") },
+      { key: "deal", label: "Deal", hint: "Good deal: you get back at least 20% more than you spend. Fair: a small profit. Loss: you lose money.", cell: (r) => badge(rateReturn(r.profit, r.cost)) },
+      { key: "profit", label: "Profit", hint: HINTS["Profit"], tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
+      { label: "Sell by", hint: HINTS["Sell by"], left: true, p: 1, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
+      { key: "cost", label: "Craft cost", hint: HINTS["Craft cost"], p: 1, cell: (r) => (r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)) },
+      { key: "ah", label: "Auction, after cut", hint: HINTS["Auction, after cut"], p: 2, cell: (r) => coins(perCraft(r.ah, r)) },
+      { key: "de", label: "Disenchant", hint: HINTS["Disenchant"], p: 2, cell: (r) => coins(perCraft(r.de, r)) },
+      { key: "vendor", label: "Vendor", hint: HINTS["Vendor"], p: 3, cell: (r) => coins(perCraft(r.vendor, r)) },
+      { key: "margin", label: "Margin", hint: HINTS["Margin"], p: 3, cell: (r) => (r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%") },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 2, cell: (r) => number(r.supply || 0) },
+      { key: "profession", label: "Profession", hint: HINTS["Profession"], left: true, p: 3, cell: (r) => esc(r.recipe.p) },
     ], rows, (r) => `data-recipe="${r.recipe.s}"`,
-    state.ts ? "No recipes match. Try another category, clear your search or turn off Profitable only." : "Waiting for price data.", "recipe");
+    state.ts ? "No recipes match. Try another category, clear your search or turn off Profitable only." : "Waiting for price data.", "recipe", (r) => goodRow(rateReturn(r.profit, r.cost)));
   }
 
   // ---- Disenchant deals ----
@@ -285,20 +338,21 @@
     });
     const makes = (r) => (r.recipe && r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "");
     drawTable([
-      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id, makes(r)) },
-      { key: "profit", label: "Expected profit", tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
-      { key: "price", label: crafting ? "Craft cost" : "Lowest price", cell: (r) => coins(r.price) },
-      { key: "value", label: "Expected materials", p: 1, cell: (r) => coins(r.value) },
-      { key: "roi", label: "Return", p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
-      { key: "skill", label: "Skill needed", p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
-      { key: "material", label: "Mostly gives", left: true, p: 2, cell: (r) => materialCell(r.material) },
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id, makes(r)) },
+      { key: "roi", label: "Deal", hint: "Good deal: on average you get back at least 20% more than you spend. Fair: a small expected profit.", cell: (r) => badge(rateReturn(r.profit, r.price)) },
+      { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
+      { key: "price", label: crafting ? "Craft cost" : "Lowest price", hint: crafting ? HINTS["Craft cost"] : HINTS["Lowest price"], p: 1, cell: (r) => coins(r.price) },
+      { key: "value", label: "Expected materials", hint: HINTS["Expected materials"], p: 1, cell: (r) => coins(r.value) },
+      { key: "roi", label: "Return", hint: HINTS["Return"], p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
+      { key: "skill", label: "Skill needed", hint: HINTS["Skill needed"], p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
+      { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], left: true, p: 2, cell: (r) => materialCell(r.material) },
       crafting
-        ? { key: "profession", label: "Profession", left: true, p: 3, cell: (r) => esc(r.recipe.p) }
-        : { key: "supply", label: "For sale", p: 2, cell: (r) => number(r.supply) },
-      { key: "vendor", label: "Vendor pays", p: 3, cell: (r) => coins(vendorPays(r.item)) },
+        ? { key: "profession", label: "Profession", hint: HINTS["Profession"], left: true, p: 3, cell: (r) => esc(r.recipe.p) }
+        : { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 2, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 3, cell: (r) => coins(vendorPays(r.item)) },
     ], rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
     state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
-    crafting ? "craft" : "item");
+    crafting ? "craft" : "item", (r) => goodRow(rateReturn(r.profit, r.price)));
   }
 
   // ---- My scans ----
@@ -328,11 +382,11 @@
       name: (r) => r.item.n, price: (r) => lowestOf(r.row), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item), vendor: (r) => vendorPays(r.item),
     });
     drawTable([
-      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
-      { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
-      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
-      { key: "type", label: "Type", left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], p: 1, cell: (r) => coins(vendorPays(r.item)) },
+      { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
       { label: "", cell: (r) => `<button type="button" class="secondary remove" data-remove="${r.id}" aria-label="Remove ${esc(r.item.n)} from your scan list">Remove</button>` },
     ], rows, (r) => `data-item="${r.id}"`,
     state.scanList.length ? "No items here match your search or category." : "Your scan list is empty. Add an item above, and the addon will scan it every time. Open How it works to get started.", "item");
@@ -507,6 +561,16 @@
     });
   }
 
+  function showHint(text) {
+    const box = $("tip");
+    tip.id = "hint";
+    const parent = $("detail").open ? $("detail") : document.body;
+    if (box.parentElement !== parent) parent.appendChild(box);
+    box.innerHTML = `<div class="tip-text">${esc(text)}</div>`;
+    box.hidden = false;
+    placeTip();
+  }
+
   function hideTip() {
     clearTimeout(tip.timer);
     tip.id = null;
@@ -523,6 +587,17 @@
 
   function bindTip() {
     document.addEventListener("pointerover", (event) => {
+      const hinted = event.target.closest && event.target.closest("[data-hint]");
+      if (hinted) {
+        if (tip.id === "hint" && tip.hintFor === hinted) return;
+        hideTip();
+        tip.hintFor = hinted;
+        const rect = hinted.getBoundingClientRect();
+        tip.x = rect.left; tip.y = rect.bottom;
+        showHint(hinted.dataset.hint);
+        return;
+      }
+      if (tip.id === "hint") { hideTip(); tip.hintFor = null; }
       if (event.pointerType === "touch") return; // Tapping opens the item details instead.
       const id = tipTarget(event.target);
       tip.x = event.clientX; tip.y = event.clientY;
@@ -536,6 +611,13 @@
       if (tip.id) placeTip();
     });
     document.addEventListener("focusin", (event) => {
+      if (event.target.matches("[data-hint]")) {
+        const rect = event.target.getBoundingClientRect();
+        tip.x = rect.left; tip.y = rect.bottom;
+        hideTip();
+        showHint(event.target.dataset.hint);
+        return;
+      }
       if (!event.target.matches(".name")) return;
       const id = tipTarget(event.target);
       if (!id) return;
@@ -544,7 +626,7 @@
       hideTip();
       showTip(id);
     });
-    document.addEventListener("focusout", (event) => { if (event.target.matches(".name")) hideTip(); });
+    document.addEventListener("focusout", (event) => { if (event.target.matches(".name, [data-hint]")) hideTip(); });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideTip(); });
     // Tabbing to a row can scroll the table, so a keyboard tooltip moves with its row.
     document.addEventListener("scroll", () => {
@@ -713,7 +795,12 @@
   }
 
   // ---- Categories ----
+  // Counting every item in every category is the slowest part of drawing the page, so it's
+  // only redone when something it depends on changes.
+  let countsCache = { key: null, counts: null };
   function categoryCounts() {
+    const key = [state.house, state.ts, state.source, state.favorites.size, state.scanList.length, Boolean(state.allItems), state.mostPosted.size].join("|");
+    if (countsCache.key === key) return countsCache.counts;
     const counts = new Map();
     const add = (key) => counts.set(key, (counts.get(key) || 0) + 1);
     const allGroups = groups(state.professions);
@@ -733,6 +820,7 @@
     counts.set("scan-list", state.scanList.length);
     counts.set("most-posted", state.mostPosted.size);
     counts.set("most-bought", state.mostBought.size);
+    countsCache = { key, counts };
     return counts;
   }
 
@@ -778,6 +866,14 @@
     $("search").value = state.search;
   }
 
+  const LEGENDS = {
+    prices: () => `${badge("cheap")} lower than its usual price this week, a good time to buy · ${badge("pricey")} higher than usual, a good time to sell · ▲ ▼ show how much the price moved. Hover a column title to see what it means.`,
+    alerts: () => `Items whose price moved a lot. ${badge("cheaper")} is a chance to buy, and ${badge("pricier")} is a chance to sell. Hover a column title to see what it means.`,
+    profit: () => `${badge("good")} pays back at least 20% more than you spend · ${badge("fair")} small profit · ${badge("poor")} loses money. Profit is per craft, after the 5% auction cut.`,
+    deals: () => `Items worth more as enchanting materials than they cost. ${badge("good")} expected to return at least 20% more than you spend · ${badge("fair")} small expected profit. Results vary item by item.`,
+    scan: () => "Items your addon scans every time. Add or remove items here, then copy the list into the game. Open How it works for the steps.",
+  };
+
   function render() {
     document.querySelectorAll(".tabs button").forEach((b) => {
       const on = b.dataset.tab === state.tab;
@@ -786,6 +882,8 @@
     });
     TABS.forEach((name) => { $("tab-" + name).hidden = name !== state.tab; });
     $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
+    $("legend").innerHTML = LEGENDS[state.tab]();
+    $("table").parentElement.setAttribute("aria-busy", state.loading ? "true" : "false");
     // The add box does the searching on this tab, and all its controls stay visible.
     $("search").hidden = state.tab === "scan";
     $("source-filter").hidden = state.tab === "profit"; // Every recipe is crafted.
@@ -973,7 +1071,9 @@
 
   async function poll() {
     try {
-      const meta = await getJson("data/meta.json");
+      const early = state.metaEarly;
+      state.metaEarly = null;
+      const meta = (early && await early) || await getJson("data/meta.json");
       const first = !state.meta;
       state.meta = meta;
       if (first) await loadHouse(fillHouses());
@@ -982,7 +1082,9 @@
         if (file.ts !== state.fileTs) { usePrices(file); render(); }
       }
       notifyChanges();
+      state.loading = false;
     } catch (e) {
+      state.loading = false;
       if (!state.meta) {
         $("banner").hidden = false;
         $("banner").textContent = "No prices yet. They appear after the first successful update.";
@@ -1168,6 +1270,7 @@
   }
 
   async function start() {
+    state.metaEarly = getJson("data/meta.json").catch(() => null);
     state.catalog = await getJson("catalog.json");
     $("build").textContent = `Game data build ${state.catalog.build}.`;
     state.professions = [...new Set(state.catalog.recipes.map((r) => r.p))].sort();

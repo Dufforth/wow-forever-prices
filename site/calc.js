@@ -222,6 +222,26 @@
       .sort((a, b) => b.profit - a.profit);
   }
 
+  // Plain-language ratings, so nobody has to read percentages to spot a good opportunity.
+  const GOOD_RETURN = 0.2; // profit of at least 20% of what you spend
+  const USUAL_BAND = 0.15; // within 15% of the 7-day average counts as a usual price
+
+  // Crafting: "good" pays back at least 20% more than it costs, "fair" makes a little, "poor" loses money.
+  function rateReturn(profit, cost) {
+    if (profit == null) return null;
+    if (profit <= 0) return "poor";
+    return cost > 0 && profit / cost >= GOOD_RETURN ? "good" : "fair";
+  }
+
+  // Today's typical price against its 7-day average.
+  function ratePriceNow(row) {
+    if (!row || !(row[2] > 0) || !(row[5] > 0) || row[1] == null) return null;
+    const ratio = row[1] / row[5];
+    if (ratio <= 1 - USUAL_BAND) return "cheap";
+    if (ratio >= 1 + USUAL_BAND) return "pricey";
+    return "usual";
+  }
+
   const BASIS_COLUMN = { previous: 3, day: 4, week: 5 };
 
   function priceChange(row, basis) {
@@ -255,7 +275,7 @@
   }
 
   return {
-    AUCTION_CUT, afterCut, craftDisenchantRows, craftRows, disenchantDeals, disenchantOutcomes, disenchantSkill, disenchantValue, likelyMaterial,
+    AUCTION_CUT, GOOD_RETURN, USUAL_BAND, rateReturn, ratePriceNow, afterCut, craftDisenchantRows, craftRows, disenchantDeals, disenchantOutcomes, disenchantSkill, disenchantValue, likelyMaterial,
     indexRecipes, money, priceChange, significantChanges,
   };
 });

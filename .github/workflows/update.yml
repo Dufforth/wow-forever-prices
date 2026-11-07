@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      check_only:
+        description: "Only update if Blizzard has new prices"
+        type: boolean
+        default: false
   push:
     branches: [main]
 
@@ -15,7 +20,7 @@ permissions:
 jobs:
   # A quick look at Blizzard's timestamps, so a full update runs right after new prices appear.
   check:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || inputs.check_only
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -40,7 +45,7 @@ jobs:
 
   update:
     needs: check
-    if: ${{ always() && (github.event_name != 'schedule' || needs.check.outputs.changed == 'true') }}
+    if: ${{ always() && ((github.event_name != 'schedule' && !inputs.check_only) || needs.check.outputs.changed == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:

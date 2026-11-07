@@ -157,6 +157,22 @@ test("deals list gear priced under its materials, best first", () => {
   assert.equal(deals[0].material, SHARD);
 });
 
+test("return ratings: good from 20% back, fair for a small profit, poor for a loss", () => {
+  assert.equal(Calc.rateReturn(20, 100), "good");
+  assert.equal(Calc.rateReturn(19, 100), "fair");
+  assert.equal(Calc.rateReturn(0, 100), "poor");
+  assert.equal(Calc.rateReturn(-5, 100), "poor");
+  assert.equal(Calc.rateReturn(null, 100), null);
+});
+
+test("price now against the 7-day average", () => {
+  assert.equal(Calc.ratePriceNow([80, 85, 10, 0, 0, 100]), "cheap");
+  assert.equal(Calc.ratePriceNow([95, 100, 10, 0, 0, 100]), "usual");
+  assert.equal(Calc.ratePriceNow([115, 115, 10, 0, 0, 100]), "pricey");
+  assert.equal(Calc.ratePriceNow([80, 85, 0, 0, 0, 100]), null, "nothing for sale");
+  assert.equal(Calc.ratePriceNow([80, 85, 10, 0, 0, null]), null, "no history yet");
+});
+
 test("significant changes respect every limit and sort by size", () => {
   const prices = {
     1: [0, 200, 10, 100, 150, 120],   // +100%
