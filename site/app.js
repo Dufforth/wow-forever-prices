@@ -277,7 +277,8 @@
     };
     holder.innerHTML = '<div class="range"><button type="button" class="secondary" data-range="hours">Last 7 days, hourly</button><button type="button" class="secondary" data-range="days">Last 60 days, daily</button></div><div class="plot"></div>';
     holder.querySelectorAll("[data-range]").forEach((b) => b.addEventListener("click", () => show(b.dataset.range)));
-    show("hours");
+    const hourly = (history.hours.i[id] || []).filter((v) => v != null).length;
+    show(hourly >= 2 ? "hours" : "days");
   }
 
   function reagentTable(parts) {
