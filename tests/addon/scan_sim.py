@@ -18,18 +18,18 @@ ReloadUI = function() RELOADS = RELOADS + 1 end
 UIParent = {}
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) CHAT[#CHAT+1] = m end }
 SlashCmdList = {}
-TICKS, HOOK = {}, nil
+TICKS, HOOKS = {}, {}
 AFTERS = {}
 C_Timer = { NewTicker = function(_, f) TICKS[#TICKS+1] = f end, After = function(_, f) AFTERS[#AFTERS+1] = f end }
-hooksecurefunc = function(t, name, f) HOOK = f end
+hooksecurefunc = function(t, name, f) HOOKS[name] = f end
 C_AuctionHouse = {
   IsThrottledMessageSystemReady = function() return READY end,
-  SendBrowseQuery = function(q) QUERIES[#QUERIES+1] = q.itemClassFilters[1].classID; if HOOK then HOOK() end end,
+  SendBrowseQuery = function(q) QUERIES[#QUERIES+1] = q.itemClassFilters[1].classID; if HOOKS.SendBrowseQuery then HOOKS.SendBrowseQuery() end end,
   RequestMoreBrowseResults = function() MORE = MORE + 1 end,
   HasFullBrowseResults = function() return FULL end,
   GetBrowseResults = function() return RESULTS end,
   MakeItemKey = function(id) return { itemID = id } end,
-  SendSearchQuery = function(key, sorts) SEARCHES[#SEARCHES+1] = key.itemID; SORT = sorts[1] end,
+  SendSearchQuery = function(key, sorts) SEARCHES[#SEARCHES+1] = key.itemID; SORT = sorts and sorts[1]; if HOOKS.SendSearchQuery then HOOKS.SendSearchQuery() end end,
   GetCommoditySearchResultInfo = function(id, i) local c = COMMODITY[id]; return c and { unitPrice = c[1] } or nil end,
   GetCommoditySearchResultsQuantity = function(id) local c = COMMODITY[id]; return c and c[2] or 0 end,
   GetNumItemSearchResults = function(key) return #(ITEMS[key.itemID] or {}) end,
@@ -67,7 +67,8 @@ def fresh():
     lua = L.LuaRuntime(unpack_returned_tuples=True)
     lua.execute(MOCK)
     lua.execute(SRC)
-    lua.execute('FIRE("ADDON_LOADED", "TentTimer")')
+    # The automatic scan has its own tests below, so the others start with it off.
+    lua.execute('TentTimerDB = { autoScan = false }; FIRE("ADDON_LOADED", "TentTimer")')
     return lua
 
 failed = False
@@ -209,5 +210,62 @@ lua.execute('TentTimerDB.scans = { ["forever.pvp.horde.us"] = { at = NOW - 90000
 slash(lua, "mine")
 lua.execute('COMMODITY[1] = {70, 7}; FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 1)')
 check("results older than a day are dropped", lua.eval("SAVED().data") == "1:70:7", lua.eval("SAVED().data"))
+
+# Automatic scan
+def auto_lua(saved="nil"):
+    lua = L.LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(MOCK)
+    lua.execute(SRC)
+    lua.execute(f'TentTimerDB = {saved}; FIRE("ADDON_LOADED", "TentTimer")')
+    return lua
+def run_afters(lua): lua.execute("local a = AFTERS; AFTERS = {}; for _, f in ipairs(a) do f() end")
+def other_search(lua): lua.execute("C_AuctionHouse.SendBrowseQuery({ itemClassFilters = {{ classID = 99 }} })")
+
+lua = auto_lua()
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
+check("waits a moment after the window opens", lua.eval("#QUERIES") == 0)
+run_afters(lua)
+check("scans automatically by default", queries(lua) == [7], queries(lua))
+check("says how to turn it off", "/ahscan auto off" in lua.eval("CHAT[1]"), lua.eval("CHAT[1]"))
+for rows in ['{R(1, 5, 2)}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}']:
+    lua.execute(f"ANSWER({rows})")
+check("finishes a full scan and saves it", lua.eval("SAVED().mode") == "full" and lua.eval("SAVED().complete") is True)
+check("chat stays quiet: start and finish only", lua.eval("#CHAT") == 2, lua.eval("#CHAT"))
+lua.execute('FIRE("AUCTION_HOUSE_CLOSED"); NOW = NOW + 30; FIRE("AUCTION_HOUSE_SHOW")')
+n = lua.eval("#QUERIES"); run_afters(lua)
+check("reopening within a minute doesn't scan again", lua.eval("#QUERIES") == n)
+lua.execute('FIRE("AUCTION_HOUSE_CLOSED"); NOW = NOW + 61; FIRE("AUCTION_HOUSE_SHOW")')
+run_afters(lua)
+check("reopening later scans again", lua.eval("#QUERIES") == n + 1, lua.eval("#QUERIES"))
+
+lua = auto_lua('{ autoScan = false }')
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
+check("the setting turns it off", lua.eval("#QUERIES") == 0)
+slash(lua, "auto on"); check("/ahscan auto on", lua.eval("TentTimerDB.autoScan") is True)
+slash(lua, "auto off"); check("/ahscan auto off", lua.eval("TentTimerDB.autoScan") is False)
+slash(lua, "auto"); check("/ahscan auto toggles", lua.eval("TentTimerDB.autoScan") is True)
+
+lua = auto_lua()
+lua.execute('FIRE("AUCTION_HOUSE_SHOW"); FIRE("AUCTION_HOUSE_CLOSED")'); run_afters(lua)
+check("no scan if the window closed during the wait", lua.eval("#QUERIES") == 0)
+
+lua = auto_lua()
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
+lua.execute("ANSWER({R(1, 5, 2)})")
+other_search(lua)
+check("another search pauses the automatic scan", lua.eval("#AFTERS") == 1 and queries(lua) == [7, 0, 99], queries(lua))
+run_afters(lua)
+check("then it tries once more", queries(lua) == [7, 0, 99, 0], queries(lua))
+other_search(lua)
+check("a second search stops it and keeps the partial scan", lua.eval("SAVED().complete") is False and lua.eval("SAVED().data") == "1:5:2", lua.eval("SAVED().data"))
+n = lua.eval("#QUERIES"); run_afters(lua); lua.execute("TICK(100)")
+check("it stays stopped", lua.eval("#QUERIES") == n)
+
+lua = auto_lua('{ scanList = {777} }')
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
+for _ in range(9): lua.execute("ANSWER({})")
+check("the automatic scan includes your list", searches(lua) == [777], searches(lua))
+lua.execute("C_AuctionHouse.SendSearchQuery({ itemID = 5 })")
+check("a search also counts as another search", lua.eval("#AFTERS") == 1)
 
 sys.exit(1 if failed else 0)

@@ -34,7 +34,7 @@ On the same tab, add or remove the items you want. **Copy list for addon** gives
 
 The Gathering Tracker addon can read the auction house itself. It asks for one item category at a time (materials, consumables, ammo, bags, recipes, armor and weapons), leaving out quest and miscellaneous items. Each answer gives an item's lowest price and total quantity.
 
-1. Open the auction house and press **Scan prices**, or type `/ahscan` (`/ahscan quick` skips bags, recipes and gear).
+1. Open the auction house. It scans automatically unless you reopened it within a minute. Type `/ahscan auto off` to turn that off, or `/ahscan` to scan by hand (`/ahscan quick` skips bags, recipes and gear).
 2. Type `/reload`, because addons can only save files that way.
 3. On the page, press **Load scan** and pick `SavedVariables\TentTimer.lua`.
 

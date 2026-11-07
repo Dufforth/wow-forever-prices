@@ -9,6 +9,9 @@ local MAX_TRIES = 3
 local RETRY_DELAY = 3 -- seconds to wait when another addon asks at the same time
 local KEEP_OLD_SECONDS = 24 * 3600 -- earlier results stay in the saved scan for this long
 local MAX_LIST_ITEMS = 2000
+local AUTO_DELAY = 1 -- seconds after the window opens, so the game's own window can finish loading
+local AUTO_MIN_GAP = 60 -- reopening sooner than this doesn't scan again
+local AUTO_MAX_INTERRUPTIONS = 2 -- searches an automatic scan yields to before it stops
 local LIST_PREFIX = "^%s*GT1:"
 local PREFIX = "|cff66ccffGathering Tracker:|r "
 
@@ -30,6 +33,7 @@ local houseOpen = false
 local scan -- the scan in progress, or nil
 local sending = false -- true while this addon sends its own query
 local needsReload = false
+local lastAutoStart
 local button, listButton, listFrame, listEdit
 local frame = CreateFrame("Frame", "TentTimerScanFrame", UIParent)
 
@@ -246,7 +250,9 @@ local function OnBrowseResults()
     if C_AuctionHouse.HasFullBrowseResults() then
         scan.asked = false
         local count = ReadBrowseResults()
-        Print(string.format("%s: %d results.", scan.steps[scan.step].name, count))
+        if not scan.auto then
+            Print(string.format("%s: %d results.", scan.steps[scan.step].name, count))
+        end
         NextStep()
     else
         RequestMore()
@@ -266,7 +272,7 @@ local function OnItemResults(id, read)
     NextStep()
 end
 
-local function StartScan(mode)
+local function StartScan(mode, auto)
     if scan then
         Print("A scan is already running. Type /ahscan stop to end it.")
         return
@@ -289,11 +295,54 @@ local function StartScan(mode)
     needsReload = false
     scan = {
         steps = steps, step = 0, tries = 0, items = {}, market = MarketName(), skipped = 0,
-        mode = mode, startedAt = time(), lastAnswer = GetTime(),
+        mode = mode, startedAt = time(), lastAnswer = GetTime(), auto = auto, interruptions = 0,
     }
-    Print(mode == "list" and string.format("Scanning your list of %d items in %s.", #ScanList(), scan.market)
-        or string.format("Scanning %s: %d categories, without quest and miscellaneous items.", scan.market, #steps))
+    if auto then
+        Print("Scanning prices automatically. Type /ahscan stop to stop, or /ahscan auto off to turn this off.")
+    else
+        Print(mode == "list" and string.format("Scanning your list of %d items in %s.", #ScanList(), scan.market)
+            or string.format("Scanning %s: %d categories, without quest and miscellaneous items.", scan.market, #steps))
+    end
     NextStep()
+end
+
+local function AutoScanEnabled()
+    return db and db.autoScan ~= false
+end
+
+local function MaybeAutoScan()
+    if not AutoScanEnabled() or not houseOpen or scan then
+        return
+    end
+    if lastAutoStart and time() - lastAutoStart < AUTO_MIN_GAP then
+        return
+    end
+    lastAutoStart = time()
+    StartScan("full", true)
+end
+
+-- Results are shared, so someone else's search replaces what this scan asked for.
+-- A manual scan waits and asks again. An automatic one gives way, so it never fights you.
+local function OnOtherQuery(isBrowse)
+    if not scan or sending or not scan.asked then
+        return
+    end
+    if scan.auto then
+        scan.interruptions = scan.interruptions + 1
+        if scan.interruptions >= AUTO_MAX_INTERRUPTIONS then
+            FinishScan(false, "Another search started, so the automatic scan stopped. Type /ahscan to run it again.")
+            return
+        end
+    elseif not isBrowse or scan.steps[scan.step].itemID then
+        return
+    end
+    scan.asked = false
+    C_Timer.After(RETRY_DELAY, function()
+        if scan and not scan.asked then
+            scan.tries = 0
+            SendStep()
+        end
+    end)
 end
 
 local function CheckTimeout()
@@ -429,6 +478,16 @@ SlashCmdList.TENTTIMERSCAN = function(input)
         StartScan("list")
     elseif command == "list" then
         ShowListWindow()
+    elseif command == "auto" then
+        local option = string.lower(string.match(input or "", "^%s*%S+%s+(%S+)") or "")
+        if option == "on" then
+            db.autoScan = true
+        elseif option == "off" then
+            db.autoScan = false
+        else
+            db.autoScan = not AutoScanEnabled()
+        end
+        Print("Automatic scan when you open the auction house: " .. (AutoScanEnabled() and "ON" or "OFF") .. ".")
     elseif command == "" then
         StartScan("full")
     else
@@ -436,6 +495,7 @@ SlashCmdList.TENTTIMERSCAN = function(input)
         Print("/ahscan quick - scan only materials, consumables, ammo and your list")
         Print("/ahscan mine - scan only your list")
         Print("/ahscan list - paste your list from the Forever Prices page")
+        Print("/ahscan auto - turn the automatic scan on or off")
         Print("/ahscan stop - stop and keep what has been read")
     end
 end
@@ -462,18 +522,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         CreateButtons()
         if not hooked and C_AuctionHouse and hooksecurefunc then
             hooked = true
-            -- Results are shared, so another addon's browse replaces what this scan asked for.
-            hooksecurefunc(C_AuctionHouse, "SendBrowseQuery", function()
-                if scan and not sending and scan.asked and not scan.steps[scan.step].itemID then
-                    scan.asked = false
-                    C_Timer.After(RETRY_DELAY, function()
-                        if scan and not scan.asked then
-                            scan.tries = 0
-                            SendStep()
-                        end
-                    end)
-                end
-            end)
+            hooksecurefunc(C_AuctionHouse, "SendBrowseQuery", function() OnOtherQuery(true) end)
+            hooksecurefunc(C_AuctionHouse, "SendSearchQuery", function() OnOtherQuery(false) end)
+        end
+        if AutoScanEnabled() then
+            C_Timer.After(AUTO_DELAY, MaybeAutoScan)
         end
     elseif event == "AUCTION_HOUSE_CLOSED" then
         houseOpen = false
