@@ -70,6 +70,9 @@
     return `<div class="item-cell">${starHtml(id, item)}${iconHtml(item)}<span><button type="button" class="name q${item.q}" data-open="${Number(id)}">${esc(item.n)}</button>${extra || ""}</span></div>`;
   }
 
+  // The cheapest listing, or the last known price if none are for sale.
+  const lowestOf = (row) => (row ? (row[0] == null ? row[1] : row[0]) : null);
+
   const hasChange = (change) => Boolean(change && change.amount !== 0);
   const changeTone = (change) => (hasChange(change) ? (change.amount > 0 ? "up" : "down") : "muted");
   const changeAmount = (change) => (hasChange(change) ? `${change.amount > 0 ? "▲" : "▼"} ${coins(Math.abs(change.amount))}` : "–");
@@ -137,7 +140,7 @@
       rows.push({ id, item, row, change: row ? priceChange(row, basis) : null });
     }
     rows = sortRows(rows, state.sort.prices, {
-      name: (r) => r.item.n, price: (r) => (r.row ? r.row[1] : null),
+      name: (r) => r.item.n, price: (r) => lowestOf(r.row), market: (r) => (r.row ? r.row[1] : null),
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
       bought: (r) => (r.row ? r.row[6] || 0 : null),
@@ -145,7 +148,8 @@
     });
     drawTable([
       { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", cell: (r) => `${coins(r.row ? r.row[1] : null)}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "price", label: "Lowest price", cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "market", label: "Market", p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
       { key: "percent", label: "Change %", tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
       { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
       { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
@@ -273,11 +277,11 @@
 
   function renderScanList() {
     const rows = sortRows(state.scanList.map((id) => ({ id, item: itemOf(id), row: state.prices[id] })).filter((r) => passesFilters(r.id, r.item)), state.sort.scan, {
-      name: (r) => r.item.n, price: (r) => (r.row ? r.row[1] : null), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item),
+      name: (r) => r.item.n, price: (r) => lowestOf(r.row), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item),
     });
     drawTable([
       { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", cell: (r) => `${coins(r.row ? r.row[1] : null)}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "price", label: "Lowest price", cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
       { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
       { key: "type", label: "Type", left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
       { label: "", cell: (r) => `<button type="button" class="secondary remove" data-remove="${r.id}" aria-label="Remove ${esc(r.item.n)} from your scan list">Remove</button>` },
@@ -413,7 +417,7 @@
     const row = state.prices[id];
     const lines = [];
     if (row) {
-      lines.push(row[2] > 0 ? `Lowest price ${coins(row[1])} · ${number(row[2])} for sale` : `None for sale. Last seen at ${coins(row[1])}`);
+      lines.push(row[2] > 0 ? `Lowest price ${coins(lowestOf(row))} · Market ${coins(row[1])} · ${number(row[2])} for sale` : `None for sale. Last seen at ${coins(row[1])}`);
     } else lines.push("No price seen yet");
     const crafted = state.catalog.recipes.filter((r) => r.i === Number(id));
     if (crafted.length) lines.push("Crafted with " + [...new Set(crafted.map((r) => `${esc(r.p)} (skill ${r.sk})`))].join(", "));
@@ -619,7 +623,7 @@
     $("detail-title").innerHTML = `${iconHtml(item)}<span class="q${item.q}">${esc(item.n)}</span>`;
     updateDetailButtons();
     const stats = [
-      statBox("Lowest price", coins(row ? row[1] : null)), statBox("Previous scan", coins(row ? row[3] : null)),
+      statBox("Lowest price", coins(lowestOf(row))), statBox("Market", coins(row ? row[1] : null)), statBox("Previous update", coins(row ? row[3] : null)),
       statBox("24 hour average", coins(row ? row[4] : null)), statBox("7 day average", coins(row ? row[5] : null)),
       statBox("For sale", row ? number(row[2]) : "–"),
     ].join("");
@@ -775,7 +779,7 @@
     const banner = $("banner");
     if (state.ts && Date.now() / 1000 - state.ts > STALE_SECONDS) {
       banner.hidden = false;
-      banner.textContent = `No player has scanned this auction house for ${timeAgo(state.ts).replace(" ago", "")}, so these prices may be out of date.`;
+      banner.textContent = `This auction house hasn't been updated for ${timeAgo(state.ts).replace(" ago", "")}, so these prices may be out of date.`;
     } else if (state.ts) {
       banner.hidden = true;
     }

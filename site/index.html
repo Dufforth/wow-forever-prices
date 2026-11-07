@@ -44,7 +44,7 @@
       <div id="tab-prices" class="filters">
         <label class="inline">Compare with
           <select id="price-basis">
-            <option value="previous">Previous scan</option>
+            <option value="previous">Previous update</option>
             <option value="day">24 hour average</option>
             <option value="week">7 day average</option>
           </select>
@@ -58,7 +58,7 @@
         <label class="inline">with <input id="alert-supply" type="number" min="1" step="1"> for sale</label>
         <label class="inline">vs
           <select id="alert-basis">
-            <option value="previous">Previous scan</option>
+            <option value="previous">Previous update</option>
             <option value="day">24 hour average</option>
             <option value="week">7 day average</option>
           </select>
@@ -75,7 +75,7 @@
         <label class="inline"><input id="profit-only" type="checkbox" checked> Profitable only</label>
         <details class="help">
           <summary>Help</summary>
-          <p>Profit is per craft, using the best way to sell after the 5% auction cut. Prices are the single lowest listing, so one unusual listing can mislead. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game.</p>
+          <p>Profit is per craft, using the best way to sell after the 5% auction cut. Prices use the market average where Blizzard's data has one, and the lowest listing elsewhere. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game.</p>
         </details>
       </div>
 
@@ -124,10 +124,10 @@
 </div>
 
 <footer class="muted">
-  <span>Lowest asking prices scanned by players, not sales.</span>
+  <span>Asking prices, not completed sales. Market is the average of the cheapest 15%.</span>
   <details class="help up-help">
     <summary>About this data</summary>
-    <p>Prices come from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a> and are only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. To refresh prices yourself, open the auction house in game, press Scan prices, type /reload, then press Load scan here and pick <code>World of Warcraft\_forever_\WTF\Account\(your account)\SavedVariables\TentTimer.lua</code>. Scans and favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
+    <p>Prices come from Blizzard's API, about once an hour. Markets it can't provide use player scans from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a>, where Market just repeats the lowest price. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. To refresh prices yourself, open the auction house in game, press Scan prices, type /reload, then press Load scan here and pick <code>World of Warcraft\_forever_\WTF\Account\(your account)\SavedVariables\TentTimer.lua</code>. Scans and favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
   </details>
 </footer>
 

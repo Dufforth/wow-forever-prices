@@ -2,12 +2,25 @@
 
 A page showing WoW Forever auction prices for profession and gathering items, with price change alerts and crafting and disenchanting profit.
 
-A GitHub Actions job runs every hour. It reads the [public auctionhouse.fyi API](https://auctionhouse.fyi/docs/api), which needs no key, saves the prices on the `data` branch and publishes the page with GitHub Pages.
+A GitHub Actions job runs every hour. It reads every market from Blizzard's API, fills any gaps from the [public auctionhouse.fyi API](https://auctionhouse.fyi/docs/api), saves the prices on the `data` branch and publishes the page with GitHub Pages.
+
+## Set up
+
+1. Create a client at [develop.battle.net](https://develop.battle.net/access/clients).
+2. Save its ID and secret as repository secrets:
+
+   ```bash
+   gh secret set BLIZZARD_CLIENT_ID
+   gh secret set BLIZZARD_CLIENT_SECRET
+   ```
+
+Without them, the page still works using only the public source.
 
 ## How the numbers work
 
-- **Prices come from players** scanning the auction house and uploading to auctionhouse.fyi. A market only has data if someone scans it, so the page shows how old each scan is.
-- **Prices are the lowest asking price per unit**, not completed sales, so a single unusual listing can skew them.
+- **Lowest** is the cheapest unit. **Market** is the average of the cheapest 15% of units, which one unusual listing can't move as much. Player-scanned markets only have the lowest price.
+- **Prices are asking prices**, not completed sales.
+- **Most bought** is an estimate from falling quantities, because expired and cancelled listings look the same as sales.
 - **Profit** is per craft. Reagents use the cheapest of auction, vendor or crafting them yourself, and selling on the auction takes off the 5% cut.
 - **Disenchant values** are expected averages from the Classic tables, by item level, so check them in game.
 - **Items with random bonuses** are left out of prices, and bind on pickup items can't be sold on the auction.
