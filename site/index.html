@@ -101,7 +101,7 @@
   <span>Lowest asking prices scanned by players, not sales.</span>
   <details class="help up-help">
     <summary>About this data</summary>
-    <p>Prices come from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a> and are only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
+    <p>Prices come from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a> and are only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. Favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
   </details>
 </footer>
 
@@ -116,9 +116,11 @@
   <div id="detail-body"></div>
 </dialog>
 
+<div id="tip" class="tip" role="tooltip" hidden></div>
 <div id="toast" class="toast" role="status" hidden></div>
 <script src="calc.js"></script>
 <script src="categories.js"></script>
+<script src="tooltip.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

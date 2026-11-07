@@ -238,6 +238,124 @@
     state.ts ? "No gear here is priced below its materials right now." : "Waiting for price data.", "deal");
   }
 
+  // ---- Item tooltip ----
+  // Shows at once from local data, then fills in the game's tooltip from Wowhead.
+  const TIP_DELAY_MS = 120;
+  const TIP_GAP = 14;
+  const gameInfo = new Map(); // Item ID to a promise of clean HTML, or of null if it failed.
+  const tip = { id: null, timer: null, x: 0, y: 0 };
+
+  function loadGameInfo(id) {
+    if (!gameInfo.has(id)) {
+      gameInfo.set(id, fetch(Tooltip.address(id))
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(response.status))))
+        .then((data) => Tooltip.sanitize(data.tooltip) || null)
+        .catch(() => null));
+    }
+    return gameInfo.get(id);
+  }
+
+  function localInfo(item) {
+    const lines = [`<b class="q${item.q}">${esc(item.n)}</b>`];
+    if (item.il) lines.push(`<span class="q">Item Level ${Number(item.il)}</span>`);
+    if (item.bop) lines.push("Binds when picked up");
+    if (item.cl !== undefined) lines.push(esc(typeLabel(item)));
+    if (item.rl) lines.push(`Requires Level ${Number(item.rl)}`);
+    return lines.join("<br>");
+  }
+
+  function marketInfo(id) {
+    const row = state.prices[id];
+    const lines = [];
+    if (row) {
+      lines.push(row[2] > 0 ? `Lowest price ${coins(row[1])} · ${number(row[2])} for sale` : `None for sale. Last seen at ${coins(row[1])}`);
+    } else lines.push("No price seen yet");
+    const crafted = state.catalog.recipes.filter((r) => r.i === Number(id));
+    if (crafted.length) lines.push("Crafted with " + [...new Set(crafted.map((r) => `${esc(r.p)} (skill ${r.sk})`))].join(", "));
+    const used = state.catalog.recipes.filter((r) => r.r.some((part) => part[0] === Number(id))).length;
+    if (used) lines.push(`Used in ${number(used)} recipe${used > 1 ? "s" : ""}`);
+    return lines.join("<br>");
+  }
+
+  function placeTip() {
+    const box = $("tip");
+    const { width, height } = box.getBoundingClientRect();
+    const fitsRight = tip.x + TIP_GAP + width <= innerWidth - 8;
+    const fitsBelow = tip.y + TIP_GAP + height <= innerHeight - 8;
+    const left = fitsRight ? tip.x + TIP_GAP : tip.x - TIP_GAP - width;
+    const top = fitsBelow ? tip.y + TIP_GAP : tip.y - TIP_GAP - height;
+    box.style.left = `${Math.max(8, Math.min(left, innerWidth - width - 8))}px`;
+    box.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
+  }
+
+  function showTip(id) {
+    const box = $("tip");
+    const item = itemOf(id);
+    tip.id = id;
+    // A modal dialog sits above everything else, so the tooltip has to live inside it.
+    const parent = $("detail").open ? $("detail") : document.body;
+    if (box.parentElement !== parent) parent.appendChild(box);
+    box.innerHTML = `${iconHtml(item)}<div class="tip-text"><div class="tip-game">${localInfo(item)}</div><div class="tip-market">${marketInfo(id)}</div></div>`;
+    box.hidden = false;
+    placeTip();
+    loadGameInfo(id).then((html) => {
+      if (tip.id !== id || box.hidden) return;
+      if (html) box.querySelector(".tip-game").innerHTML = html;
+      else box.querySelector(".tip-game").insertAdjacentHTML("beforeend", '<p class="muted">More details are unavailable right now.</p>');
+      placeTip();
+    });
+  }
+
+  function hideTip() {
+    clearTimeout(tip.timer);
+    tip.id = null;
+    $("tip").hidden = true;
+  }
+
+  function tipTarget(element) {
+    const holder = element.closest && element.closest("[data-item],[data-recipe]");
+    if (!holder) return null;
+    if (holder.dataset.item) return holder.dataset.item;
+    const recipe = state.catalog.recipes.find((r) => r.s === Number(holder.dataset.recipe));
+    return recipe ? String(recipe.i) : null;
+  }
+
+  function bindTip() {
+    document.addEventListener("pointerover", (event) => {
+      if (event.pointerType === "touch") return; // Tapping opens the item details instead.
+      const id = tipTarget(event.target);
+      tip.x = event.clientX; tip.y = event.clientY;
+      if (id === tip.id) return;
+      hideTip();
+      if (id) tip.timer = setTimeout(() => showTip(id), TIP_DELAY_MS);
+    });
+    document.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return;
+      tip.x = event.clientX; tip.y = event.clientY;
+      if (tip.id) placeTip();
+    });
+    document.addEventListener("focusin", (event) => {
+      if (!event.target.matches(".name")) return;
+      const id = tipTarget(event.target);
+      if (!id) return;
+      const rect = event.target.getBoundingClientRect();
+      tip.x = rect.left; tip.y = rect.bottom;
+      hideTip();
+      showTip(id);
+    });
+    document.addEventListener("focusout", (event) => { if (event.target.matches(".name")) hideTip(); });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideTip(); });
+    // Tabbing to a row can scroll the table, so a keyboard tooltip moves with its row.
+    document.addEventListener("scroll", () => {
+      const focused = document.activeElement;
+      if (!tip.id || !focused || !focused.matches(".name") || tipTarget(focused) !== tip.id) { hideTip(); return; }
+      const rect = focused.getBoundingClientRect();
+      tip.x = rect.left; tip.y = rect.bottom;
+      placeTip();
+    }, true);
+    window.addEventListener("blur", hideTip);
+  }
+
   // ---- Item detail ----
   function statBox(label, html) {
     return `<div class="stat"><b>${html}</b><span class="label">${esc(label)}</span></div>`;
@@ -320,7 +438,7 @@
   }
 
   function reagentTable(parts) {
-    const rows = parts.map((p) => `<tr><td><div class="item-cell">${iconHtml(itemOf(p.id))}<span class="q${itemOf(p.id).q}">${esc(itemOf(p.id).n)}</span></div></td><td>${p.count}</td><td>${coins(p.cost)}</td><td>${p.cost == null ? "–" : coins(p.cost * p.count)}</td><td class="left">${SOURCE[p.source]}</td></tr>`).join("");
+    const rows = parts.map((p) => `<tr><td><div class="item-cell" data-item="${p.id}">${iconHtml(itemOf(p.id))}<span class="q${itemOf(p.id).q}">${esc(itemOf(p.id).n)}</span></div></td><td>${p.count}</td><td>${coins(p.cost)}</td><td>${p.cost == null ? "–" : coins(p.cost * p.count)}</td><td class="left">${SOURCE[p.source]}</td></tr>`).join("");
     return `<div class="table-wrap"><table class="detail-table"><thead><tr><th scope="col">Reagent</th><th scope="col">Needed</th><th scope="col">Each</th><th scope="col">Total</th><th scope="col" class="left">Cheapest from</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
@@ -330,7 +448,7 @@
     const rows = outcomes.filter((o) => o.chance > 0).map((o) => {
       const row = state.prices[o.id];
       const material = itemOf(o.id);
-      return `<tr><td><div class="item-cell">${iconHtml(material)}<span class="q${material.q}">${esc(material.n)}</span></div></td><td>${Math.round(o.chance * 1000) / 10}%</td><td>${o.min === o.max ? o.min : o.min + "–" + o.max}</td><td>${coins(row && row[2] > 0 ? row[1] : null)}</td></tr>`;
+      return `<tr><td><div class="item-cell" data-item="${o.id}">${iconHtml(material)}<span class="q${material.q}">${esc(material.n)}</span></div></td><td>${Math.round(o.chance * 1000) / 10}%</td><td>${o.min === o.max ? o.min : o.min + "–" + o.max}</td><td>${coins(row && row[2] > 0 ? row[1] : null)}</td></tr>`;
     }).join("");
     return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th scope="col">Material</th><th scope="col">Chance</th><th scope="col">Amount</th><th scope="col">Price each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
@@ -366,9 +484,14 @@
     }).join("");
     const usedIn = state.catalog.recipes.filter((r) => r.r.some((p) => p[0] === Number(id)));
     const usedHtml = usedIn.length ? `<h3>Used in ${usedIn.length} recipe${usedIn.length > 1 ? "s" : ""}</h3><p class="muted note">${usedIn.slice(0, 12).map((r) => esc(r.n)).join(", ")}${usedIn.length > 12 ? " and more" : ""}</p>` : "";
-    $("detail-body").innerHTML = `<div class="stats">${stats}</div><div id="history"></div>${craftHtml}${disenchantTable(item)}${usedHtml}
+    hideTip();
+    $("detail-body").innerHTML = `<div class="tip-game detail-game" id="detail-game">${localInfo(item)}</div><div class="stats">${stats}</div><div id="history"></div>${craftHtml}${disenchantTable(item)}${usedHtml}
       <p class="note" style="margin-top:12px"><a href="https://forever.warcraftdb.com/data/item/${Number(id)}" target="_blank" rel="noopener">Open in Warcraft DB</a></p>`;
     $("detail").showModal();
+    loadGameInfo(id).then((html) => {
+      const holder = $("detail-game");
+      if (html && holder && state.detailId === id) holder.innerHTML = html;
+    });
     loadHistory(String(id), $("history"));
   }
 
@@ -445,6 +568,7 @@
     });
     TABS.forEach((name) => { $("tab-" + name).hidden = name !== state.tab; });
     $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
+    hideTip();
     updateAlertBadge();
     renderCategories();
     ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
@@ -701,6 +825,7 @@
     }
     readHash();
     bind();
+    bindTip();
     updateNotifyButton();
     await poll();
     setInterval(poll, POLL_MS);

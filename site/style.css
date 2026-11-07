@@ -117,6 +117,24 @@ td.empty { text-align: center; padding: 32px; color: var(--muted); white-space: 
 
 footer { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); align-items: center; padding: 3px var(--gutter); font-size: 12px; }
 
+/* Item tooltip */
+.tip { position: fixed; z-index: 30; display: flex; gap: var(--space-2); align-items: flex-start; width: max-content; max-width: min(340px, calc(100vw - 16px)); padding: 10px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); pointer-events: none; font-size: 13px; line-height: 1.35; margin: 0; }
+.tip .icon { width: 36px; height: 36px; }
+.tip-text { min-width: 0; }
+.tip-market { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); }
+.tip-game b { font-size: 14px; }
+.tip-game table { width: 100%; border-collapse: collapse; }
+.tip-game th, .tip-game td, .detail-game th, .detail-game td { position: static; padding: 0; border: 0; background: none; color: inherit; font: inherit; white-space: normal; text-align: left; min-width: 0; }
+.tip-game th, .detail-game th { text-align: right; padding-left: var(--space-3); white-space: nowrap; }
+.tip-game .q, .detail-game .q { color: var(--gold); }
+.tip-game p { margin-top: 4px; }
+.detail-game { margin-bottom: var(--space-3); font-size: 13px; line-height: 1.35; }
+.detail-game > table:first-child td > b:first-child { display: none; } /* The dialog title already names the item. */
+.detail-game > table:first-child td > b:first-child + span > br:first-child { display: none; }
+.moneygold::after { content: "g"; color: var(--gold); font-size: 0.85em; font-weight: 600; margin-left: 1px; }
+.moneysilver::after { content: "s"; color: var(--silver); font-size: 0.85em; font-weight: 600; margin-left: 1px; }
+.moneycopper::after { content: "c"; color: var(--copper); font-size: 0.85em; font-weight: 600; margin-left: 1px; }
+
 /* Item details */
 dialog { width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: var(--space-4); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
 dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
