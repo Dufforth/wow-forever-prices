@@ -23,6 +23,13 @@ test("types split items by class and subclass", () => {
   assert.equal(Categories.typeOf({ cl: 12, sc: 0 }), "other");
 });
 
+test("type labels", () => {
+  assert.equal(Categories.typeLabel({ cl: 0, sc: 1 }), "Potions");
+  assert.equal(Categories.typeLabel({ cl: 12, sc: 0 }), "Other");
+  assert.equal(Categories.typeLabel({ cl: 7, sc: 9, g: "herb" }), "Herbs");
+  assert.equal(Categories.typeLabel({ cl: 7, sc: 8 }), "Cooking ingredients");
+});
+
 test("every real item lands in exactly one item type", () => {
   const ids = typeIds();
   for (const item of [...Object.values(catalog.items), ...Object.values(gear)]) {

@@ -1,13 +1,14 @@
 (function () {
   "use strict";
   const { money, priceChange, significantChanges, craftRows, disenchantDeals, disenchantOutcomes } = Calc;
-  const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, PROFESSION_PREFIX } = Categories;
+  const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, typeLabel, PROFESSION_PREFIX } = Categories;
 
   const PAGE = 100;
   const POLL_MS = 5 * 60 * 1000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
   const TABS = ["prices", "alerts", "profit", "deals"];
+  const SELL_BY = { "Sell on auction": "Auction", Disenchant: "Disenchant", "Sell to vendor": "Vendor" };
   const SOURCE = { auction: "Auction", vendor: "Vendor", craft: "Craft it", none: "No price" };
 
   const $ = (id) => document.getElementById(id);
@@ -62,11 +63,10 @@
     return `<div class="item-cell">${starHtml(id, item)}${iconHtml(item)}<span><button type="button" class="name q${item.q}" data-open="${Number(id)}">${esc(item.n)}</button>${extra || ""}</span></div>`;
   }
 
-  function changeCells(change) {
-    if (!change || change.amount === 0) return '<td class="muted">–</td><td class="muted">–</td>';
-    const up = change.amount > 0;
-    return `<td class="${up ? "up" : "down"}">${up ? "▲" : "▼"} ${coins(Math.abs(change.amount))}</td><td class="${up ? "up" : "down"}">${up ? "+" : "-"}${Math.abs(change.percent).toFixed(1)}%</td>`;
-  }
+  const hasChange = (change) => Boolean(change && change.amount !== 0);
+  const changeTone = (change) => (hasChange(change) ? (change.amount > 0 ? "up" : "down") : "muted");
+  const changeAmount = (change) => (hasChange(change) ? `${change.amount > 0 ? "▲" : "▼"} ${coins(Math.abs(change.amount))}` : "–");
+  const changePercent = (change) => (hasChange(change) ? `${change.amount > 0 ? "+" : "-"}${Math.abs(change.percent).toFixed(1)}%` : "–");
 
   function sortRows(rows, spec, getters) {
     const get = getters[spec.key];
@@ -85,16 +85,22 @@
   }
 
   // Every tab draws through here: one table, one count line, one Show more button.
-  function drawTable(columns, rows, rowHtml, emptyText, unit) {
+  // A column has a label and a cell, and optionally a sort key, alignment (left),
+  // tone (a class for the cell) and priority (p: 1 to 3; higher hides sooner on small screens).
+  function drawTable(columns, rows, rowAttributes, emptyText, unit) {
     const spec = state.sort[state.tab];
+    const classes = (column, extra) => {
+      const list = [column.left && "left", column.p && `p${column.p}`, extra].filter(Boolean);
+      return list.length ? ` class="${list.join(" ")}"` : "";
+    };
     const head = columns.map((column) => {
-      const cls = column.left ? ' class="left"' : "";
-      if (!column.key) return `<th scope="col"${cls}>${column.label}</th>`;
+      if (!column.key) return `<th scope="col"${classes(column)}>${column.label}</th>`;
       const sort = column.key === spec.key ? (spec.dir > 0 ? "ascending" : "descending") : "none";
-      return `<th scope="col"${cls} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${column.label}</th>`;
+      return `<th scope="col"${classes(column)} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${column.label}</th>`;
     }).join("");
     const shown = rows.slice(0, state.limit);
-    const body = shown.map(rowHtml).join("") || emptyRow(columns.length, emptyText);
+    const body = shown.map((row) => `<tr class="row" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
+      || emptyRow(columns.length, emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
     const scope = state.category === "all" ? "" : ` in ${categoryLabel(state.category)}`;
     $("result-count").textContent = `${number(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}${scope}`;
@@ -124,16 +130,19 @@
     rows = sortRows(rows, state.sort.prices, {
       name: (r) => r.item.n, price: (r) => (r.row ? r.row[1] : null),
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
-      supply: (r) => (r.row ? r.row[2] : null),
+      supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
+      type: (r) => typeLabel(r.item),
     });
     drawTable([
-      { key: "name", label: "Item", left: true }, { key: "price", label: "Lowest price" },
-      { key: "amount", label: "Change" }, { key: "percent", label: "Change %" }, { key: "supply", label: "For sale" },
-    ], rows, (r) => {
-      const row = r.row;
-      const old = row && !row[2] ? ' <span class="badge">last seen</span>' : "";
-      return `<tr class="row" data-item="${r.id}"><td>${itemCell(r.id)}</td><td>${coins(row ? row[1] : null)}${old}</td>${changeCells(r.change)}<td>${row ? number(row[2]) : "–"}</td></tr>`;
-    }, "No items match. Try another category or clear your search.", "item");
+      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
+      { key: "price", label: "Lowest price", cell: (r) => `${coins(r.row ? r.row[1] : null)}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "percent", label: "Change %", tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
+      { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
+      { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "day", label: "24 hour average", p: 2, cell: (r) => coins(r.row ? r.row[4] : null) },
+      { key: "week", label: "7 day average", p: 2, cell: (r) => coins(r.row ? r.row[5] : null) },
+      { key: "type", label: "Type", left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
+    ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or clear your search.", "item");
   }
 
   // ---- Alerts ----
@@ -156,9 +165,13 @@
       percent: (r) => Math.abs(r.percent), supply: (r) => r.supply,
     });
     drawTable([
-      { key: "name", label: "Item", left: true }, { key: "price", label: "Now" }, { key: "old", label: "Before" },
-      { key: "amount", label: "Change" }, { key: "percent", label: "Change %" }, { key: "supply", label: "For sale" },
-    ], rows, (r) => `<tr class="row" data-item="${r.id}"><td>${itemCell(r.id)}</td><td>${coins(r.market)}</td><td>${coins(r.old)}</td>${changeCells(r)}<td>${number(r.supply)}</td></tr>`,
+      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
+      { key: "price", label: "Now", cell: (r) => coins(r.market) },
+      { key: "percent", label: "Change %", tone: (r) => changeTone(r), cell: (r) => changePercent(r) },
+      { key: "old", label: "Before", p: 1, cell: (r) => coins(r.old) },
+      { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r), cell: (r) => changeAmount(r) },
+      { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
+    ], rows, (r) => `data-item="${r.id}"`,
     state.ts ? "No big price changes with these settings. Lower the limits to see more." : "Waiting for price data.", "alert");
   }
 
@@ -182,23 +195,21 @@
       name: (r) => r.item.n, profession: (r) => r.recipe.p, cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
       vendor: (r) => perCraft(r.vendor, r), profit: (r) => r.profit, margin: (r) => r.margin, supply: (r) => r.supply,
     });
+    const profitTone = (r) => (r.profit == null ? "muted" : r.profit > 0 ? "up" : "down");
+    const profitArrow = (r) => (r.profit == null ? "" : r.profit > 0 ? "▲ " : "▼ ");
     drawTable([
-      { key: "name", label: "Item", left: true }, { key: "profit", label: "Profit" }, { label: "Best choice", left: true },
-      { key: "cost", label: "Craft cost" }, { key: "ah", label: "Auction, after cut" }, { key: "de", label: "Disenchant" },
-      { key: "vendor", label: "Vendor" }, { key: "margin", label: "Margin" }, { key: "supply", label: "For sale" },
-      { key: "profession", label: "Profession", left: true },
-    ], rows, (r) => {
-      const makes = r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "";
-      const cls = r.profit == null ? "muted" : r.profit > 0 ? "up" : "down";
-      const arrow = r.profit == null ? "" : r.profit > 0 ? "▲ " : "▼ ";
-      return `<tr class="row" data-recipe="${r.recipe.s}"><td>${itemCell(r.recipe.i, makes)}</td>
-        <td class="${cls}">${arrow}${coins(r.profit)}</td>
-        <td class="left">${r.best ? esc(r.best.kind) : "–"}</td>
-        <td>${r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)}</td>
-        <td>${coins(perCraft(r.ah, r))}</td><td>${coins(perCraft(r.de, r))}</td><td>${coins(perCraft(r.vendor, r))}</td>
-        <td>${r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%"}</td><td>${number(r.supply || 0)}</td>
-        <td class="left">${esc(r.recipe.p)}</td></tr>`;
-    }, state.ts ? "No recipes match. Try another category, clear your search or turn off Only profitable." : "Waiting for price data.", "recipe");
+      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.recipe.i, r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "") },
+      { key: "profit", label: "Profit", tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
+      { label: "Sell by", left: true, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
+      { key: "cost", label: "Craft cost", p: 1, cell: (r) => (r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)) },
+      { key: "ah", label: "Auction, after cut", p: 2, cell: (r) => coins(perCraft(r.ah, r)) },
+      { key: "de", label: "Disenchant", p: 2, cell: (r) => coins(perCraft(r.de, r)) },
+      { key: "vendor", label: "Vendor", p: 3, cell: (r) => coins(perCraft(r.vendor, r)) },
+      { key: "margin", label: "Margin", p: 3, cell: (r) => (r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%") },
+      { key: "supply", label: "For sale", p: 2, cell: (r) => number(r.supply || 0) },
+      { key: "profession", label: "Profession", left: true, p: 3, cell: (r) => esc(r.recipe.p) },
+    ], rows, (r) => `data-recipe="${r.recipe.s}"`,
+    state.ts ? "No recipes match. Try another category, clear your search or turn off Profitable only." : "Waiting for price data.", "recipe");
   }
 
   // ---- Disenchant deals ----
@@ -218,9 +229,12 @@
       name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
     });
     drawTable([
-      { key: "name", label: "Item", left: true }, { key: "price", label: "Lowest price" }, { key: "value", label: "Expected materials" },
-      { key: "profit", label: "Expected profit" }, { key: "supply", label: "For sale" },
-    ], rows, (r) => `<tr class="row" data-item="${r.id}"><td>${itemCell(r.id)}</td><td>${coins(r.price)}</td><td>${coins(r.value)}</td><td class="up">▲ ${coins(r.profit)}</td><td>${number(r.supply)}</td></tr>`,
+      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
+      { key: "profit", label: "Expected profit", tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
+      { key: "price", label: "Lowest price", cell: (r) => coins(r.price) },
+      { key: "value", label: "Expected materials", p: 1, cell: (r) => coins(r.value) },
+      { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
+    ], rows, (r) => `data-item="${r.id}"`,
     state.ts ? "No gear here is priced below its materials right now." : "Waiting for price data.", "deal");
   }
 
@@ -430,6 +444,7 @@
       b.tabIndex = on ? 0 : -1;
     });
     TABS.forEach((name) => { $("tab-" + name).hidden = name !== state.tab; });
+    $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
     updateAlertBadge();
     renderCategories();
     ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
@@ -450,8 +465,15 @@
     return hours < 48 ? `${hours} hour${hours > 1 ? "s" : ""} ago` : `${Math.round(hours / 24)} days ago`;
   }
 
+  const houseLabel = (h) => `${h.rulesetName} ${h.name} · ${h.scannedAt ? timeAgo(h.scannedAt).replace(" ago", "") : "no scans"}`;
+
   function showUpdated() {
-    $("updated").textContent = state.ts ? `Last scanned ${timeAgo(state.ts)}. Checks for new prices every 5 minutes.` : "Waiting for the first prices.";
+    if (state.meta) {
+      [...$("house").options].forEach((option) => {
+        const found = state.meta.houses.find((h) => h.id === option.value);
+        if (found) option.textContent = houseLabel(found);
+      });
+    }
     const banner = $("banner");
     if (state.ts && Date.now() / 1000 - state.ts > STALE_SECONDS) {
       banner.hidden = false;
@@ -466,7 +488,7 @@
     box.textContent = text;
     box.hidden = false;
     clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => { box.hidden = true; }, 15000);
+    toast.timer = setTimeout(() => { box.hidden = true; }, 8000);
   }
 
   function notifyChanges() {
@@ -490,7 +512,9 @@
     const button = $("notify");
     if (!("Notification" in window)) { button.hidden = true; return; }
     const on = Notification.permission === "granted" && store.get("notify", false);
-    button.textContent = on ? "Notifications on" : "Turn on notifications";
+    const text = on ? "Notifications on. Select to turn off." : "Turn on notifications";
+    button.title = text;
+    button.setAttribute("aria-label", text);
     button.classList.toggle("on", on);
     button.classList.toggle("secondary", !on);
     button.setAttribute("aria-pressed", on);
@@ -516,7 +540,7 @@
   function fillHouses() {
     const select = $("house");
     const houses = state.meta.houses.slice().sort((a, b) => (b.scannedAt || 0) - (a.scannedAt || 0));
-    select.innerHTML = houses.map((h) => `<option value="${esc(h.id)}">${esc(h.rulesetName)} – ${esc(h.name)} (${h.scannedAt ? esc(timeAgo(h.scannedAt)) : "no scans"})</option>`).join("");
+    select.innerHTML = houses.map((h) => `<option value="${esc(h.id)}">${esc(houseLabel(h))}</option>`).join("");
     const saved = store.get("house", null);
     const pick = houses.find((h) => h.id === saved) || houses[0];
     if (!pick) throw new Error("no markets");
@@ -585,6 +609,10 @@
 
     $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
     ["price-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
+    $("filters-toggle").addEventListener("click", (event) => {
+      const open = document.querySelector(".toolbar").classList.toggle("filters-open");
+      event.currentTarget.setAttribute("aria-expanded", open);
+    });
     $("more").addEventListener("click", () => { state.limit += PAGE; render(); });
 
     [["alert-percent", "percent"], ["alert-amount", "amount"], ["alert-supply", "supply"], ["alert-basis", "basis"]].forEach(([id, key]) => {
@@ -683,7 +711,6 @@
   start().catch((error) => {
     $("banner").hidden = false;
     $("banner").textContent = "The page could not load its data. Try refreshing.";
-    $("updated").textContent = "";
     console.error(error);
   });
 })();

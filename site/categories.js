@@ -52,6 +52,14 @@
     { id: "cooking", label: "Cooking ingredients", test: type(7, 8) },
   ];
 
+  // The most specific name for an item, such as "Herbs" rather than "Other trade goods".
+  function typeLabel(item) {
+    const gatheredCategory = GATHERING_CATEGORIES.find((category) => category.test(item));
+    if (gatheredCategory) return gatheredCategory.label;
+    const id = typeOf(item);
+    return (TYPE_CATEGORIES.find((category) => category.id === id) || { label: "Other" }).label;
+  }
+
   function groups(professions) {
     return [
       { label: "Gathering", categories: GATHERING_CATEGORIES },
@@ -97,5 +105,5 @@
     return name ? ICON_BACKUP + encodeURIComponent(name) + ".jpg" : null;
   }
 
-  return { groups, iconBackupUrl, iconUrl, isKnown, label, matches, typeOf, PROFESSION_PREFIX };
+  return { groups, iconBackupUrl, iconUrl, isKnown, label, matches, typeLabel, typeOf, PROFESSION_PREFIX };
 });
