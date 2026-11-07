@@ -22,7 +22,8 @@
 
   const state = {
     catalog: null, gear: null, meta: null, house: null, prices: {}, ts: null, history: null,
-    rows: null, deals: null, professions: [], craftedBy: new Map(),
+    rows: null, deals: null, professions: [], craftedBy: new Map(), mostPosted: new Set(), mostBought: new Set(),
+    fileTs: null, published: {}, scans: store.get("scans", {}), scanHandle: null,
     favorites: new Set(store.get("favorites", [])),
     tab: "prices", category: "all", search: "", limit: PAGE, detailId: null,
     sort: {
@@ -38,7 +39,7 @@
     return response.json();
   }
 
-  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy });
+  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought });
   const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || { n: "Item " + id, q: 1 };
 
   function coins(copper) {
@@ -131,6 +132,7 @@
       name: (r) => r.item.n, price: (r) => (r.row ? r.row[1] : null),
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
+      bought: (r) => (r.row ? r.row[6] || 0 : null),
       type: (r) => typeLabel(r.item),
     });
     drawTable([
@@ -139,6 +141,7 @@
       { key: "percent", label: "Change %", tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
       { key: "amount", label: "Change", p: 1, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
       { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "bought", label: "Bought, 7 days (est.)", p: 2, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
       { key: "day", label: "24 hour average", p: 2, cell: (r) => coins(r.row ? r.row[4] : null) },
       { key: "week", label: "7 day average", p: 2, cell: (r) => coins(r.row ? r.row[5] : null) },
       { key: "type", label: "Type", left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
@@ -241,6 +244,7 @@
   // ---- Item tooltip ----
   // Shows at once from local data, then fills in the game's tooltip from Wowhead.
   const TIP_DELAY_MS = 120;
+  const TOP_ITEMS = 100;
   const TIP_GAP = 14;
   const gameInfo = new Map(); // Item ID to a promise of clean HTML, or of null if it failed.
   const tip = { id: null, timer: null, x: 0, y: 0 };
@@ -589,12 +593,28 @@
     return hours < 48 ? `${hours} hour${hours > 1 ? "s" : ""} ago` : `${Math.round(hours / 24)} days ago`;
   }
 
+  // Published markets, plus any you scanned that nobody has published yet.
+  function allHouses() {
+    const houses = state.meta ? state.meta.houses.slice() : [];
+    for (const id of Object.keys(state.scans)) {
+      if (!houses.some((h) => h.id === id)) {
+        const [, ruleset = "", faction = ""] = id.split(".");
+        const title = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+        houses.push({ id, rulesetName: ruleset === "pvp" ? "PvP" : ruleset === "rp" ? "Roleplay" : title(ruleset), name: title(faction), scannedAt: 0 });
+      }
+    }
+    return houses.map((h) => {
+      const scan = state.scans[h.id];
+      return scan && scan.at > (h.scannedAt || 0) ? { ...h, scannedAt: scan.at } : h;
+    });
+  }
+
   const houseLabel = (h) => `${h.rulesetName} ${h.name} · ${h.scannedAt ? timeAgo(h.scannedAt).replace(" ago", "") : "no scans"}`;
 
   function showUpdated() {
     if (state.meta) {
       [...$("house").options].forEach((option) => {
-        const found = state.meta.houses.find((h) => h.id === option.value);
+        const found = allHouses().find((h) => h.id === option.value);
         if (found) option.textContent = houseLabel(found);
       });
     }
@@ -644,10 +664,71 @@
     button.setAttribute("aria-pressed", on);
   }
 
+  function activeScan() {
+    const scan = state.scans[state.house];
+    return scan && scan.at > (state.fileTs || 0) ? scan : null;
+  }
+
+  // Everything that reads prices reads state.prices: published data, plus a newer scan if there is one.
+  function refreshPrices() {
+    const scan = activeScan();
+    state.prices = scan ? Scan.applyScan(state.published, Scan.decodeRows(scan.data)) : state.published;
+    state.ts = scan ? scan.at : state.fileTs;
+    state.mostPosted = Scan.topBy(state.prices, 2, TOP_ITEMS);
+    state.mostBought = Scan.topBy(state.prices, 6, TOP_ITEMS);
+    state.rows = null; state.deals = null;
+    const status = $("scan-status");
+    const saved = state.scans[state.house];
+    status.hidden = !saved;
+    $("scan-remove").hidden = !saved;
+    if (saved) {
+      const count = Object.keys(Scan.decodeRows(saved.data)).length;
+      status.textContent = `${scan ? "Your scan" : "Your older scan, not in use"}: ${number(count)} item${count === 1 ? "" : "s"}, ${timeAgo(saved.at)}${saved.complete ? "" : " (partial)"} ·`;
+    }
+    $("scan-load").textContent = state.scanHandle ? "Refresh scan" : "Load scan";
+  }
+
   function usePrices(file) {
-    state.prices = file.items || {};
-    state.ts = file.ts || null;
-    state.rows = null; state.deals = null; state.history = null;
+    state.published = file.items || {};
+    state.fileTs = file.ts || null;
+    state.history = null;
+    refreshPrices();
+  }
+
+  function useScanText(text) {
+    const scans = Scan.parseSavedFile(text);
+    const markets = Object.keys(scans);
+    if (!markets.length) {
+      toast("No scan found in that file. Pick TentTimer.lua after scanning and typing /reload in game.");
+      return;
+    }
+    state.scans = { ...state.scans, ...scans };
+    store.set("scans", state.scans);
+    const known = allHouses().some((h) => h.id === state.house);
+    const target = scans[state.house] ? state.house : markets[0];
+    fillHouses();
+    $("house").value = known ? target : markets[0];
+    loadHouse($("house").value).then(() => {
+      const count = Object.keys(Scan.decodeRows(state.scans[state.house].data)).length;
+      toast(`Loaded your scan of ${number(count)} item${count === 1 ? "" : "s"}.`);
+    });
+  }
+
+  async function loadScan() {
+    if (state.scanHandle) {
+      const file = await state.scanHandle.getFile();
+      useScanText(await file.text());
+    } else if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: "Addon data", accept: { "text/plain": [".lua"] } }] });
+        state.scanHandle = handle;
+        useScanText(await (await handle.getFile()).text());
+      } catch (error) {
+        if (error.name !== "AbortError") toast("That file could not be opened. Try again.");
+      }
+    } else {
+      $("scan-file").click();
+    }
   }
 
   async function loadHouse(id) {
@@ -663,7 +744,7 @@
 
   function fillHouses() {
     const select = $("house");
-    const houses = state.meta.houses.slice().sort((a, b) => (b.scannedAt || 0) - (a.scannedAt || 0));
+    const houses = allHouses().sort((a, b) => (b.scannedAt || 0) - (a.scannedAt || 0));
     select.innerHTML = houses.map((h) => `<option value="${esc(h.id)}">${esc(houseLabel(h))}</option>`).join("");
     const saved = store.get("house", null);
     const pick = houses.find((h) => h.id === saved) || houses[0];
@@ -680,7 +761,7 @@
       if (first) await loadHouse(fillHouses());
       else {
         const file = await getJson(`data/h${encodeURIComponent(state.house)}.json`);
-        if (file.ts !== state.ts) { usePrices(file); render(); }
+        if (file.ts !== state.fileTs) { usePrices(file); render(); }
       }
       notifyChanges();
     } catch (e) {
@@ -695,6 +776,9 @@
 
   function setCategory(id) {
     state.category = id;
+    // These lists only make sense ranked, so they open sorted by what they measure.
+    if (id === "most-posted") state.sort.prices = { key: "supply", dir: -1 };
+    if (id === "most-bought") state.sort.prices = { key: "bought", dir: -1 };
     resetAndRender();
   }
 
@@ -733,6 +817,28 @@
 
     $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
     ["price-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
+    $("scan-load").addEventListener("click", () => {
+      loadScan().catch(() => { state.scanHandle = null; toast("That file could not be read. Press Load scan and pick it again."); refreshPrices(); });
+    });
+    $("scan-file").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (file) useScanText(await file.text());
+      event.target.value = "";
+    });
+    $("scan-remove").addEventListener("click", () => {
+      delete state.scans[state.house];
+      store.set("scans", state.scans);
+      state.scanHandle = null;
+      if (!state.meta.houses.some((h) => h.id === state.house)) {
+        loadHouse(fillHouses());
+      } else {
+        fillHouses();
+        $("house").value = state.house;
+        refreshPrices();
+        render();
+      }
+      toast("Scan removed. Showing published prices.");
+    });
     $("filters-toggle").addEventListener("click", (event) => {
       const open = document.querySelector(".toolbar").classList.toggle("filters-open");
       event.currentTarget.setAttribute("aria-expanded", open);

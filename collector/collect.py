@@ -71,6 +71,18 @@ def load_json(path, default):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
 
+def estimate_bought(snapshot):
+    """{item: units gone over the service's seven days}: each drop in daily quantity.
+
+    This is only an estimate, because listings also expire or get cancelled.
+    """
+    bought = {}
+    for key, points in snapshot.get("days") or []:
+        quantities = [point[2] for point in points if point[2] is not None]
+        bought[key] = sum(max(0, old - new) for old, new in zip(quantities, quantities[1:]))
+    return bought
+
+
 def seed_days(snapshot, tracked):
     """A new market starts with the service's seven days of daily closes."""
     by_item = {}
@@ -121,8 +133,8 @@ def add_history(history, stamp, prices, tracked):
     return history
 
 
-def build_house_file(stamp, prices, history, previous):
-    """{item: [lowest, lowest, quantity, previous, 24 h average, 7 day average]}."""
+def build_house_file(stamp, prices, history, previous, bought):
+    """{item: [lowest, lowest, quantity, previous, 24 h average, 7 day average, bought estimate]}."""
     hours, days = history["hours"], history["days"]
     rows = {}
     for key in set(str(i) for i in prices) | set(hours["i"]) | set(days["i"]):
@@ -135,7 +147,7 @@ def build_house_file(stamp, prices, history, previous):
             continue
         old = previous.get(key)
         rows[key] = [current[0] if current else None, price, current[2] if current else 0,
-                     old[1] if old else None, mean(hourly[-24:]), mean(daily[-7:])]
+                     old[1] if old else None, mean(hourly[-24:]), mean(daily[-7:]), bought.get(int(key), 0)]
     return {"ts": stamp, "items": rows}
 
 
@@ -153,7 +165,7 @@ def update_market(out, house, get, wanted, tracked):
     if history is None:
         history = {"hours": {"t": [], "i": {}}, "days": seed_days(snapshot, tracked)}
     add_history(history, stamp, prices, tracked)
-    house_file = build_house_file(stamp, prices, history, old_house.get("items", {}))
+    house_file = build_house_file(stamp, prices, history, old_house.get("items", {}), estimate_bought(snapshot))
     house_path.write_text(json.dumps(house_file, separators=(",", ":")), encoding="utf-8")
     history_path.write_text(json.dumps(history, separators=(",", ":")), encoding="utf-8")
     return True

@@ -49,6 +49,17 @@ test("all, favorites and professions", () => {
   assert.ok(!Categories.matches("ore", 5, item, context()));
 });
 
+test("market categories", () => {
+  const item = { cl: 7, sc: 9 };
+  const ctx = { ...context(), mostPosted: new Set([5]), mostBought: new Set([6]) };
+  assert.ok(Categories.matches("most-posted", "5", item, ctx));
+  assert.ok(!Categories.matches("most-posted", 6, item, ctx));
+  assert.ok(Categories.matches("most-bought", 6, item, ctx));
+  assert.ok(!Categories.matches("most-bought", 6, item, context()));
+  assert.ok(Categories.isKnown("most-bought", []));
+  assert.equal(Categories.label("most-posted"), "Most posted");
+});
+
 test("unknown categories from a link are rejected", () => {
   assert.ok(Categories.isKnown("herb", []));
   assert.ok(Categories.isKnown("favorites", []));

@@ -96,6 +96,7 @@ tbody tr.row:hover { background: var(--surface-2); }
 tbody tr:last-child td { border-bottom: 0; }
 td.empty { text-align: center; padding: 32px; color: var(--muted); white-space: normal; }
 .more { display: block; margin: var(--space-2) auto; }
+code { font-size: 0.92em; overflow-wrap: anywhere; }
 
 /* Less important columns step aside as the table gets narrower. Item details show them all. */
 @container (max-width: 1120px) { .p3 { display: none; } }
@@ -180,6 +181,7 @@ dialog .table-wrap { flex: none; container-type: normal; }
   .toolbar:not(.filters-open) .filters { display: none; }
   .toolbar .filters { flex-basis: 100%; }
   .tabs { order: 3; flex: 1 0 100%; min-height: 40px; }
+  #scan-load { display: none; } /* The scan file lives on the computer that runs the game. */
   .tabs button { flex: 1 1 auto; }
   .star { width: 34px; height: 34px; min-height: 34px; }
   .result-bar { margin-left: 0; }

@@ -19,6 +19,8 @@
     <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Deals</button>
   </nav>
   <div class="bar-end">
+    <button id="scan-load" type="button" class="secondary">Load scan</button>
+    <input id="scan-file" type="file" accept=".lua" hidden>
     <select id="house" aria-label="Auction house and time since its last scan" title="Auction house and time since its last scan"></select>
     <button id="notify" type="button" class="secondary icon-button">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
@@ -85,6 +87,8 @@
 
       <div class="result-bar">
         <button id="filters-toggle" type="button" class="secondary phone-only" aria-expanded="false">Filters</button>
+        <span id="scan-status" class="muted" hidden></span>
+        <button id="scan-remove" type="button" class="linkish" hidden>Remove scan</button>
         <span id="result-count" class="muted" aria-live="polite"></span>
         <button id="clear-filters" type="button" class="linkish" hidden>Clear</button>
       </div>
@@ -101,7 +105,7 @@
   <span>Lowest asking prices scanned by players, not sales.</span>
   <details class="help up-help">
     <summary>About this data</summary>
-    <p>Prices come from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a> and are only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. Favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
+    <p>Prices come from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a> and are only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. To refresh prices yourself, open the auction house in game, press Scan prices, type /reload, then press Load scan here and pick <code>World of Warcraft\_forever_\WTF\Account\(your account)\SavedVariables\TentTimer.lua</code>. Scans and favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
   </details>
 </footer>
 
@@ -121,6 +125,7 @@
 <script src="calc.js"></script>
 <script src="categories.js"></script>
 <script src="tooltip.js"></script>
+<script src="scan.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

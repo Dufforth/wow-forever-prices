@@ -13,6 +13,16 @@ A GitHub Actions job runs every hour. It reads the [public auctionhouse.fyi API]
 - **Items with random bonuses** are left out of prices, and bind on pickup items can't be sold on the auction.
 - **The vendor list** covers common trade-goods reagents only.
 
+## Refreshing prices from the game
+
+The Gathering Tracker addon can read the auction house itself. It asks for one item category at a time (materials, consumables, ammo, bags, recipes, armor and weapons), leaving out quest and miscellaneous items. Each answer gives an item's lowest price and total quantity.
+
+1. Open the auction house and press **Scan prices**, or type `/ahscan` (`/ahscan quick` skips bags, recipes and gear).
+2. Type `/reload`, because addons can only save files that way.
+3. On the page, press **Load scan** and pick `SavedVariables\TentTimer.lua`.
+
+Scans stay in that browser and are never published.
+
 ## After a game patch
 
 ```bash

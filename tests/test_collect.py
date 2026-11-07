@@ -41,7 +41,7 @@ class CollectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
             first = self.run_snapshot(out, 100, START)
-            self.assertEqual(first["items"]["1"], [100, 100, 10, None, 100, 100])
+            self.assertEqual(first["items"]["1"], [100, 100, 10, None, 100, 100, 0])
             second = self.run_snapshot(out, 150, SECOND)
             self.assertEqual(second["items"]["1"][:5], [150, 150, 10, 100, 125])
 
@@ -54,6 +54,11 @@ class CollectTests(unittest.TestCase):
             self.assertEqual(history["days"]["i"]["1"], [80, 90, 100])
             self.assertNotIn("999", history["days"]["i"])
             self.assertEqual(house["items"]["1"][5], 90)
+
+    def test_bought_estimate_adds_up_drops_in_quantity(self):
+        snapshot = {"days": [[1, [[10, 5, 100], [11, 5, 70], [12, 5, 90], [13, 5, 85], [14, 5, None]]], [2, [[10, 5, 3]]]]}
+        self.assertEqual(collect.estimate_bought(snapshot), {1: 35, 2: 0})
+        self.assertEqual(collect.estimate_bought({}), {})
 
     def test_same_scan_twice_does_not_replace_previous(self):
         with tempfile.TemporaryDirectory() as folder:
