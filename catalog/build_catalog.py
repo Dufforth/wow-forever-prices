@@ -180,12 +180,17 @@ def build(tables, build_name, nodes, icons):
             if "ic" in item:
                 gear[item_id]["ic"] = item["ic"]
 
+    tradable = {}
+    for item_id, item in items.items():
+        if item["n"] and not item["bop"] and "[DNT]" not in item["n"] and item["n"] != "Template Item":
+            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"]]
+
     catalog = {
         "build": build_name,
         "items": catalog_items,
         "recipes": sorted(recipes.values(), key=lambda r: (r["p"], r["sk"], r["n"])),
     }
-    return catalog, gear
+    return catalog, gear, tradable
 
 
 def main():
@@ -196,7 +201,8 @@ def main():
     build_name = args.build or newest_build()
     tables = {name: read_table(name, build_name, args.cache) for name in TABLES}
     nodes = json.loads((ROOT / "catalog/gather_items.json").read_text(encoding="utf-8"))
-    catalog, gear = build(tables, build_name, nodes, fallback_icons())
+    catalog, gear, tradable = build(tables, build_name, nodes, fallback_icons())
+    (ROOT / "site" / "all_items.json").write_text(json.dumps(tradable, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     out = ROOT / "site"
     (out / "catalog.json").write_text(json.dumps(catalog, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     (out / "gear.json").write_text(json.dumps(gear, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")

@@ -49,6 +49,14 @@ test("all, favorites and professions", () => {
   assert.ok(!Categories.matches("ore", 5, item, context()));
 });
 
+test("my scan list category", () => {
+  const ctx = { ...context(), scanList: new Set([5]) };
+  assert.ok(Categories.matches("scan-list", "5", { cl: 12 }, ctx));
+  assert.ok(!Categories.matches("scan-list", 6, { cl: 12 }, ctx));
+  assert.ok(Categories.isKnown("scan-list", []));
+  assert.equal(Categories.label("scan-list"), "My scan list");
+});
+
 test("market categories", () => {
   const item = { cl: 7, sc: 9 };
   const ctx = { ...context(), mostPosted: new Set([5]), mostBought: new Set([6]) };

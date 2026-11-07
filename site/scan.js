@@ -36,7 +36,8 @@
     const rows = {};
     for (const part of String(data || "").split(";")) {
       const [id, price, quantity] = part.split(":").map(Number);
-      if (id > 0 && price > 0 && quantity >= 0) rows[id] = [price, quantity];
+      // Price 0 with quantity 0 means the addon asked and none are for sale.
+      if (id > 0 && (price > 0 ? quantity >= 0 : price === 0 && quantity === 0)) rows[id] = [price, quantity];
     }
     return rows;
   }
@@ -48,6 +49,10 @@
     for (const id of Object.keys(scanRows)) {
       const [price, quantity] = scanRows[id];
       const old = published[id];
+      if (price === 0) {
+        if (old) merged[id] = [null, old[1], 0, old[1], old[4], old[5], old[6] || 0];
+        continue;
+      }
       merged[id] = [price, price, quantity, old ? old[1] : null, old ? old[4] : null, old ? old[5] : null, old ? old[6] || 0 : 0];
     }
     return merged;
@@ -62,5 +67,26 @@
       .map(Number));
   }
 
-  return { applyScan, decodeRows, parseSavedFile, topBy };
+  // The text pasted into the addon's /ahscan list window.
+  function listString(ids) {
+    return "GT1:" + ids.join(",");
+  }
+
+  // Items for the add box: an exact ID, then names starting with the text, then containing it.
+  // items: { id: [name, quality, icon, class, subclass] }
+  function searchItems(items, text, limit) {
+    const query = String(text || "").trim().toLowerCase();
+    if (!query) return [];
+    if (/^\d+$/.test(query) && items[query]) return [Number(query)];
+    const starts = [], contains = [];
+    for (const id of Object.keys(items)) {
+      const at = items[id][0].toLowerCase().indexOf(query);
+      if (at === 0) starts.push(id);
+      else if (at > 0) contains.push(id);
+    }
+    const byName = (a, b) => items[a][0].localeCompare(items[b][0]);
+    return starts.sort(byName).concat(contains.sort(byName)).slice(0, limit).map(Number);
+  }
+
+  return { applyScan, decodeRows, listString, parseSavedFile, searchItems, topBy };
 });

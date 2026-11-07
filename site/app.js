@@ -7,7 +7,8 @@
   const POLL_MS = 5 * 60 * 1000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
-  const TABS = ["prices", "alerts", "profit", "deals"];
+  const TABS = ["prices", "alerts", "profit", "deals", "scan"];
+  const SUGGESTIONS = 12;
   const SELL_BY = { "Sell on auction": "Auction", Disenchant: "Disenchant", "Sell to vendor": "Vendor" };
   const SOURCE = { auction: "Auction", vendor: "Vendor", craft: "Craft it", none: "No price" };
 
@@ -23,12 +24,13 @@
   const state = {
     catalog: null, gear: null, meta: null, house: null, prices: {}, ts: null, history: null,
     rows: null, deals: null, professions: [], craftedBy: new Map(), mostPosted: new Set(), mostBought: new Set(),
+    scanList: store.get("scanList", []), allItems: null, suggestions: [], activeSuggestion: -1,
     fileTs: null, published: {}, scans: store.get("scans", {}), scanHandle: null,
     favorites: new Set(store.get("favorites", [])),
     tab: "prices", category: "all", search: "", limit: PAGE, detailId: null,
     sort: {
       prices: { key: "name", dir: 1 }, profit: { key: "profit", dir: -1 },
-      alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 },
+      alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 }, scan: { key: "name", dir: 1 },
     },
     alert: Object.assign({ percent: 15, amount: 10, supply: 5, basis: "previous", favorites: false }, store.get("alert", {})),
   };
@@ -39,8 +41,12 @@
     return response.json();
   }
 
-  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought });
-  const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || { n: "Item " + id, q: 1 };
+  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought, scanList: new Set(state.scanList) });
+  function tradableItem(id) {
+    const row = state.allItems && state.allItems[id];
+    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4] } : null;
+  }
+  const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || tradableItem(id) || { n: "Item " + id, q: 1 };
 
   function coins(copper) {
     const text = money(copper);
@@ -119,10 +125,12 @@
   // ---- Prices ----
   function renderPrices() {
     const basis = $("price-basis").value;
-    const listedOnly = $("price-listed").checked && state.category !== "favorites";
+    const listedOnly = $("price-listed").checked && state.category !== "favorites" && state.category !== "scan-list";
     let rows = [];
-    for (const id of Object.keys(state.catalog.items)) {
-      const item = state.catalog.items[id];
+    // These lists can hold items outside the profession catalog.
+    const special = { "scan-list": state.scanList, "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought] }[state.category];
+    for (const id of (special || Object.keys(state.catalog.items)).map(String)) {
+      const item = itemOf(id);
       if (!passesFilters(id, item)) continue;
       const row = state.prices[id];
       if (listedOnly && !(row && row[2] > 0)) continue;
@@ -239,6 +247,139 @@
       { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
     ], rows, (r) => `data-item="${r.id}"`,
     state.ts ? "No gear here is priced below its materials right now." : "Waiting for price data.", "deal");
+  }
+
+  // ---- My scans ----
+  function setScanList(ids) {
+    state.scanList = ids;
+    store.set("scanList", ids);
+    updateCopyButton();
+  }
+
+  function updateCopyButton() {
+    const changed = store.get("scanCopied", null) !== Scan.listString(state.scanList);
+    $("scan-copy").textContent = changed && state.scanList.length ? "Copy list for addon (changed)" : "Copy list for addon";
+    $("scan-copy").disabled = state.scanList.length === 0;
+  }
+
+  function addToScanList(id) {
+    const key = Number(id);
+    if (!state.scanList.includes(key)) setScanList(state.scanList.concat(key));
+  }
+
+  function removeFromScanList(id) {
+    setScanList(state.scanList.filter((key) => key !== Number(id)));
+  }
+
+  function renderScanList() {
+    const rows = sortRows(state.scanList.map((id) => ({ id, item: itemOf(id), row: state.prices[id] })).filter((r) => passesFilters(r.id, r.item)), state.sort.scan, {
+      name: (r) => r.item.n, price: (r) => (r.row ? r.row[1] : null), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item),
+    });
+    drawTable([
+      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
+      { key: "price", label: "Lowest price", cell: (r) => `${coins(r.row ? r.row[1] : null)}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "type", label: "Type", left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
+      { label: "", cell: (r) => `<button type="button" class="secondary remove" data-remove="${r.id}" aria-label="Remove ${esc(r.item.n)} from your scan list">Remove</button>` },
+    ], rows, (r) => `data-item="${r.id}"`,
+    state.scanList.length ? "No items here match your search or category." : "Your scan list is empty. Add an item above, and the addon will scan it every time. Open How it works to get started.", "item");
+  }
+
+  function closeSuggestions() {
+    state.suggestions = []; state.activeSuggestion = -1;
+    $("add-suggestions").hidden = true;
+    $("add-item").setAttribute("aria-expanded", "false");
+    $("add-item").removeAttribute("aria-activedescendant");
+  }
+
+  function drawSuggestions() {
+    const list = $("add-suggestions");
+    const input = $("add-item");
+    if (!state.suggestions.length) {
+      const text = input.value.trim();
+      if (!text) { closeSuggestions(); return; }
+      list.innerHTML = `<li class="muted" aria-disabled="true">${state.allItems ? "No items found" : "Loading items…"}</li>`;
+      list.hidden = false;
+      return;
+    }
+    list.innerHTML = state.suggestions.map((id, index) => {
+      const item = itemOf(id);
+      const added = state.scanList.includes(id);
+      return `<li id="suggestion-${index}" role="option" data-add="${id}" aria-selected="${index === state.activeSuggestion}">${iconHtml(item)}<span class="q${item.q}">${esc(item.n)}</span>${added ? '<span class="badge added">Added</span>' : ""}</li>`;
+    }).join("");
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    if (state.activeSuggestion >= 0) {
+      input.setAttribute("aria-activedescendant", `suggestion-${state.activeSuggestion}`);
+      $(`suggestion-${state.activeSuggestion}`).scrollIntoView({ block: "nearest" });
+    } else input.removeAttribute("aria-activedescendant");
+  }
+
+  function pickSuggestion(id) {
+    const added = !state.scanList.includes(id);
+    addToScanList(id);
+    toast(added ? `Added ${itemOf(id).n} to your scan list.` : `${itemOf(id).n} is already on your list.`);
+    $("add-item").value = "";
+    closeSuggestions();
+    render();
+    $("add-item").focus();
+  }
+
+  async function copyScanList() {
+    const text = Scan.listString(state.scanList);
+    try {
+      await navigator.clipboard.writeText(text);
+      store.set("scanCopied", text);
+      updateCopyButton();
+      toast("Copied. In game, type /ahscan list, paste and press Save.");
+    } catch (error) {
+      window.prompt("Copy this, then in game type /ahscan list and paste it:", text);
+      store.set("scanCopied", text);
+      updateCopyButton();
+    }
+  }
+
+  function bindScanList() {
+    const input = $("add-item");
+    let timer;
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        state.suggestions = state.allItems ? Scan.searchItems(state.allItems, input.value, SUGGESTIONS) : [];
+        state.activeSuggestion = -1;
+        drawSuggestions();
+      }, SEARCH_DELAY_MS);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { closeSuggestions(); return; }
+      const count = state.suggestions.length;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (!count) return;
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        state.activeSuggestion = (state.activeSuggestion + step + count) % count;
+        drawSuggestions();
+      } else if (event.key === "Enter" && count) {
+        event.preventDefault();
+        pickSuggestion(state.suggestions[Math.max(0, state.activeSuggestion)]);
+      }
+    });
+    input.addEventListener("blur", () => setTimeout(closeSuggestions, 150));
+    // Pointer down, so the choice lands before the input loses focus.
+    $("add-suggestions").addEventListener("pointerdown", (event) => {
+      const option = event.target.closest("[data-add]");
+      if (!option) return;
+      event.preventDefault();
+      pickSuggestion(Number(option.dataset.add));
+    });
+    $("scan-copy").addEventListener("click", copyScanList);
+    $("detail-scan").addEventListener("click", () => {
+      const key = Number(state.detailId);
+      if (state.scanList.includes(key)) removeFromScanList(key);
+      else addToScanList(key);
+      updateDetailButtons();
+      render();
+    });
   }
 
   // ---- Item tooltip ----
@@ -457,6 +598,13 @@
     return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th scope="col">Material</th><th scope="col">Chance</th><th scope="col">Amount</th><th scope="col">Price each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
+  function updateDetailButtons() {
+    const onList = state.scanList.includes(Number(state.detailId));
+    $("detail-scan").textContent = onList ? "On my scan list" : "Add to scan list";
+    $("detail-scan").setAttribute("aria-pressed", onList);
+    updateDetailFavorite();
+  }
+
   function updateDetailFavorite() {
     const on = state.favorites.has(Number(state.detailId));
     const button = $("detail-favorite");
@@ -469,7 +617,7 @@
     const row = state.prices[id];
     state.detailId = id;
     $("detail-title").innerHTML = `${iconHtml(item)}<span class="q${item.q}">${esc(item.n)}</span>`;
-    updateDetailFavorite();
+    updateDetailButtons();
     const stats = [
       statBox("Lowest price", coins(row ? row[1] : null)), statBox("Previous scan", coins(row ? row[3] : null)),
       statBox("24 hour average", coins(row ? row[4] : null)), statBox("7 day average", coins(row ? row[5] : null)),
@@ -524,6 +672,9 @@
       }
     }
     counts.set("favorites", state.favorites.size);
+    counts.set("scan-list", state.scanList.length);
+    counts.set("most-posted", state.mostPosted.size);
+    counts.set("most-bought", state.mostBought.size);
     return counts;
   }
 
@@ -531,8 +682,8 @@
     const counts = categoryCounts();
     const button = (id, label) => `<li><button type="button" class="cat" data-category="${esc(id)}" aria-current="${state.category === id}"><span>${esc(label)}</span><span>${number(counts.get(id) || 0)}</span></button></li>`;
     const select = $("category-select");
-    let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}</ul>`;
-    let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option>';
+    let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}${button("scan-list", "My scan list")}</ul>`;
+    let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option><option value="scan-list">My scan list</option>';
     for (const group of groups(state.professions)) {
       html += `<h2>${esc(group.label)}</h2><ul>${group.categories.map((c) => button(c.id, c.label)).join("")}</ul>`;
       options += `<optgroup label="${esc(group.label)}">${group.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("")}</optgroup>`;
@@ -572,10 +723,13 @@
     });
     TABS.forEach((name) => { $("tab-" + name).hidden = name !== state.tab; });
     $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
+    // The add box does the searching on this tab, and all its controls stay visible.
+    $("search").hidden = state.tab === "scan";
+    $("filters-toggle").classList.toggle("not-needed", state.tab === "scan");
     hideTip();
     updateAlertBadge();
     renderCategories();
-    ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+    ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals, scan: renderScanList })[state.tab]();
     writeHash();
   }
 
@@ -862,6 +1016,14 @@
     });
 
     $("table").addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-remove]");
+      if (remove) {
+        const name = itemOf(remove.dataset.remove).n;
+        removeFromScanList(remove.dataset.remove);
+        render();
+        toast(`Removed ${name} from your scan list.`);
+        return;
+      }
       const star = event.target.closest("[data-star]");
       if (star) {
         toggleFavorite(star.dataset.star);
@@ -932,6 +1094,13 @@
     readHash();
     bind();
     bindTip();
+    bindScanList();
+    updateCopyButton();
+    getJson("all_items.json").then((items) => {
+      state.allItems = items;
+      refreshPrices();
+      render();
+    }).catch(() => { /* Names outside the catalog stay as item numbers. */ });
     updateNotifyButton();
     await poll();
     setInterval(poll, POLL_MS);

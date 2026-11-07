@@ -44,6 +44,7 @@ test("the wrong file or a damaged scan gives nothing", () => {
 test("decodes rows and skips bad ones", () => {
   assert.deepEqual(Scan.decodeRows("2447:19:3351;2770:40:0"), { 2447: [19, 3351], 2770: [40, 0] });
   assert.deepEqual(Scan.decodeRows("1:0:5;x:1:1;5:5;;"), {});
+  assert.deepEqual(Scan.decodeRows("7:0:0"), { 7: [0, 0] });
   assert.deepEqual(Scan.decodeRows(undefined), {});
 });
 
@@ -54,6 +55,27 @@ test("scanned prices replace published ones and keep comparisons", () => {
   assert.deepEqual(merged[2], published[2]);
   assert.deepEqual(merged[3], [9, 9, 2, null, null, null, 0]);
   assert.deepEqual(published[1], [100, 100, 10, 90, 95, 80, 7], "the published data isn't changed");
+});
+
+test("an item asked for with none for sale shows zero and keeps its last price", () => {
+  const published = { 1: [100, 100, 10, 90, 95, 80, 7] };
+  const merged = Scan.applyScan(published, { 1: [0, 0], 2: [0, 0] });
+  assert.deepEqual(merged[1], [null, 100, 0, 100, 95, 80, 7]);
+  assert.equal(merged[2], undefined);
+});
+
+test("list text for the addon", () => {
+  assert.equal(Scan.listString([2447, 118]), "GT1:2447,118");
+  assert.equal(Scan.listString([]), "GT1:");
+});
+
+test("item search ranks exact ID, then name start, then name contains", () => {
+  const items = { 10: ["Copper Ore", 1], 11: ["Copper Bar", 1], 12: ["Rough Copper Bomb", 1], 13: ["Tin Ore", 1] };
+  assert.deepEqual(Scan.searchItems(items, "copper", 10), [11, 10, 12]);
+  assert.deepEqual(Scan.searchItems(items, "COPPER", 1), [11]);
+  assert.deepEqual(Scan.searchItems(items, "13", 10), [13]);
+  assert.deepEqual(Scan.searchItems(items, "  ", 10), []);
+  assert.deepEqual(Scan.searchItems(items, "zzz", 10), []);
 });
 
 test("ranks the top items by a column and ignores zero", () => {

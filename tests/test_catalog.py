@@ -38,12 +38,12 @@ class BuildTests(unittest.TestCase):
         return build_catalog.build(tables(), "1.0", {}, fallback or {})
 
     def test_recipe_and_yield(self):
-        catalog, _ = self.build()
+        catalog = self.build()[0]
         recipe = catalog["recipes"][0]
         self.assertEqual((recipe["p"], recipe["i"], recipe["c"], recipe["r"]), ("Alchemy", 2, 3, [[1, 2]]))
 
     def test_icon_comes_from_client_file_name_in_lower_case(self):
-        catalog, gear = self.build()
+        catalog, gear, _ = self.build()
         self.assertEqual(catalog["items"][1]["ic"], "inv_misc_herb_01")
         self.assertEqual(gear[3]["ic"], "inv_chest_cloth_01")
 
@@ -53,20 +53,25 @@ class BuildTests(unittest.TestCase):
 
     def test_icon_falls_back_when_the_client_has_none(self):
         self.assertNotIn("ic", self.build()[0]["items"][2])
-        catalog, _ = self.build({2: "inv_potion_01"})
+        catalog = self.build({2: "inv_potion_01"})[0]
         self.assertEqual(catalog["items"][2]["ic"], "inv_potion_01")
 
     def test_icon_comes_from_the_appearance_when_the_item_has_none(self):
         data = tables()
         data["Item"][1]["IconFileDataID"] = "0"
         data["ItemModifiedAppearance"].append({"ItemID": "2", "ItemAppearanceID": "7", "OrderIndex": "0"})
-        catalog, _ = build_catalog.build(data, "1.0", {}, {2: "not_used"})
+        catalog = build_catalog.build(data, "1.0", {}, {2: "not_used"})[0]
         self.assertEqual(catalog["items"][2]["ic"], "inv_misc_herb_01")
 
     def test_gear_keeps_type_for_categories_and_leaves_out_soulbound(self):
-        _, gear = self.build()
+        gear = self.build()[1]
         self.assertEqual((gear[3]["cl"], gear[3]["sc"]), (4, 1))
         self.assertNotIn(4, gear)
+
+    def test_tradable_list_leaves_out_soulbound_items(self):
+        tradable = self.build()[2]
+        self.assertEqual(tradable[3], ["Robe", 2, "inv_chest_cloth_01", 4, 1])
+        self.assertNotIn(4, tradable)
 
 
 if __name__ == "__main__":

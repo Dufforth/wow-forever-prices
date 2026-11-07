@@ -34,6 +34,9 @@ jobs:
         run: |
           python -m unittest discover -b -s tests
           node --test tests/*.test.js
+          pip install --quiet lupa
+          python tests/addon/nodes_sim.py > /dev/null
+          python tests/addon/scan_sim.py > /dev/null
 
       - name: Get saved prices
         env:
@@ -67,6 +70,7 @@ jobs:
         run: |
           mkdir -p _site/data
           cp -r site/. _site/
+          python tools/build_addon_zip.py _site/downloads/GatheringTracker.zip
           cp -r state/. _site/data/ || true
 
       - uses: actions/configure-pages@v5

@@ -15,6 +15,10 @@ A GitHub Actions job runs every hour. It reads the [public auctionhouse.fyi API]
 
 ## Refreshing prices from the game
 
+Anyone can download the addon from the page's **My scans** tab. Its source is in `addon/TentTimer`, and the hourly job builds the download from it. Your scan list and scans stay in your own browser. A static page can't collect them from other people.
+
+On the same tab, add or remove the items you want. **Copy list for addon** gives you text to paste in game with `/ahscan list`. **Scan my list** or `/ahscan mine` then scans just those items, and every other scan also asks for any list items it didn't find.
+
 The Gathering Tracker addon can read the auction house itself. It asks for one item category at a time (materials, consumables, ammo, bags, recipes, armor and weapons), leaving out quest and miscellaneous items. Each answer gives an item's lowest price and total quantity.
 
 1. Open the auction house and press **Scan prices**, or type `/ahscan` (`/ahscan quick` skips bags, recipes and gear).
@@ -34,8 +38,11 @@ This rebuilds `site/catalog.json` and `site/gear.json` from the client's tables 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests
+python -m unittest discover -b -s tests
 node --test tests/*.test.js
+pip install lupa
+python tests/addon/nodes_sim.py
+python tests/addon/scan_sim.py
 ```
 
 ## Notes

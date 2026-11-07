@@ -198,8 +198,9 @@ def collect(out, get, wanted, tracked, now):
 def load_wanted(root):
     catalog = json.loads((root / "site/catalog.json").read_text(encoding="utf-8"))
     gear = json.loads((root / "site/gear.json").read_text(encoding="utf-8"))
+    tradable = json.loads((root / "site/all_items.json").read_text(encoding="utf-8"))
     tracked = {int(k) for k in catalog["items"]}
-    return tracked | {int(k) for k in gear}, tracked
+    return tracked | {int(k) for k in gear} | {int(k) for k in tradable}, tracked
 
 
 def main():

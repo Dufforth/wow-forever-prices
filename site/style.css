@@ -72,13 +72,26 @@ main:focus { outline: none; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--space-3); margin-bottom: var(--space-2); }
 #search { flex: 0 1 240px; min-width: 150px; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-3); }
-.result-bar { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; font-size: 13px; white-space: nowrap; }
+.result-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-2); margin-left: auto; font-size: 13px; min-width: 0; }
 
 /* Help opens over the page instead of pushing the table down */
 .help { position: relative; font-size: 13px; }
 .help summary { cursor: pointer; color: var(--muted); list-style-position: inside; min-height: 24px; line-height: 24px; white-space: nowrap; }
 .help p { position: absolute; z-index: 15; top: 100%; left: 0; width: min(380px, 80vw); margin-top: 4px; padding: 10px 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); white-space: normal; }
 .up-help p { top: auto; bottom: 100%; margin: 0 0 4px; }
+.help .help-body { position: absolute; z-index: 15; top: 100%; left: 0; width: min(460px, 86vw); margin-top: 4px; padding: 10px 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); white-space: normal; }
+#tab-scan .help-body { left: auto; right: 0; }
+.help-body ol { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 6px; }
+.help-body p { position: static; width: auto; margin: 0; padding: 0; border: 0; box-shadow: none; background: none; }
+.button-link { display: inline-flex; align-items: center; height: var(--control); padding: 0 10px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.button-link:hover { filter: brightness(1.08); }
+.combo { position: relative; }
+.combo input { width: 250px; max-width: 100%; }
+.suggestions { position: absolute; z-index: 16; top: 100%; left: 0; width: min(340px, calc(100vw - 32px)); max-height: 320px; overflow-y: auto; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); }
+.suggestions li { display: flex; align-items: center; gap: var(--space-2); padding: 4px 6px; border-radius: 5px; cursor: pointer; min-height: 32px; }
+.suggestions li:hover, .suggestions li[aria-selected="true"] { background: var(--surface-2); }
+.suggestions .added { margin-left: auto; }
+.remove { min-height: 26px; padding: 0 8px; font-size: 12px; }
 
 /* Table */
 .table-wrap { container-type: inline-size; flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); scrollbar-width: thin; }
@@ -170,6 +183,7 @@ dialog .table-wrap { flex: none; container-type: normal; }
   main { display: block; padding: var(--space-2) var(--space-2) 0; }
   .table-wrap { overflow: visible; }
   #search { flex: 1 1 150px; }
+  #tab-scan .help-body { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; }
 }
 @media (max-width: 640px) {
   :root { --gutter: 8px; --control: 38px; }
@@ -178,7 +192,9 @@ dialog .table-wrap { flex: none; container-type: normal; }
   .bar-end { flex: 1 1 0; justify-content: flex-end; }
   .bar-end select { flex: 0 1 auto; min-width: 0; }
   .phone-only { display: inline-block; }
-  .toolbar:not(.filters-open) .filters { display: none; }
+  .toolbar:not(.filters-open) .filters:not(#tab-scan) { display: none; }
+  .combo, .combo input { width: 100%; flex-basis: 100%; }
+  .phone-only.not-needed { display: none; }
   .toolbar .filters { flex-basis: 100%; }
   .tabs { order: 3; flex: 1 0 100%; min-height: 40px; }
   #scan-load { display: none; } /* The scan file lives on the computer that runs the game. */
