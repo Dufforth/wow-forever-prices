@@ -42,13 +42,10 @@ jobs:
             || mkdir -p state
           rm -rf state/.git
 
-      - name: Fetch auction houses
+      - name: Fetch prices
         id: collect
         continue-on-error: true
-        env:
-          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
-          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
-        run: python collector/collect.py --out state --region us
+        run: python collector/collect.py --out state
 
       - name: Save prices
         if: steps.collect.outcome == 'success'
@@ -82,5 +79,5 @@ jobs:
       - name: Report a failed fetch
         if: steps.collect.outcome != 'success'
         run: |
-          echo "::warning::Prices were not updated. Check that the BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET secrets are set."
+          echo "::warning::Prices were not updated. See the Fetch prices step."
           exit 1

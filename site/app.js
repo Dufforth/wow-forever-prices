@@ -97,19 +97,19 @@
       rows.push({ id, item, row, change: row ? priceChange(row, basis) : null });
     }
     rows = sortRows(rows, state.sort.prices, {
-      name: (r) => r.item.n, low: (r) => (r.row ? r.row[0] : null), market: (r) => (r.row ? r.row[1] : null),
+      name: (r) => r.item.n, market: (r) => (r.row ? r.row[1] : null),
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null),
     });
     const shown = rows.slice(0, state.limits.prices);
     const columns = [
-      { key: "name", label: "Item", left: true }, { key: "low", label: "Lowest" }, { key: "market", label: "Market" },
+      { key: "name", label: "Item", left: true }, { key: "market", label: "Lowest price" },
       { key: "amount", label: "Change" }, { key: "percent", label: "Change %" }, { key: "supply", label: "For sale" },
     ];
     const body = shown.map((r) => {
       const row = r.row;
-      return `<tr data-item="${r.id}"><td>${itemName(r.id)}</td><td>${money(row ? row[0] : null)}</td><td>${money(row ? row[1] : null)}</td>${changeCells(r.change)}<td>${row ? row[2].toLocaleString("en-US") : "–"}</td></tr>`;
-    }).join("") || emptyRow(6, "No items match.");
+      return `<tr data-item="${r.id}"><td>${itemName(r.id)}</td><td>${money(row ? row[1] : null)}${row && !row[2] ? ' <span class="badge">last seen</span>' : ""}</td>${changeCells(r.change)}<td>${row ? row[2].toLocaleString("en-US") : "–"}</td></tr>`;
+    }).join("") || emptyRow(5, "No items match.");
     renderTable($("price-table"), "prices", columns, body);
     $("price-more").hidden = rows.length <= shown.length;
     $("price-more").textContent = `Show more (${(rows.length - shown.length).toLocaleString("en-US")} left)`;
@@ -232,7 +232,7 @@
       return `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${esc(money(v))}</text>`;
     }).join("");
     const path = points.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join("");
-    const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Market price history">${grid}
+    const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lowest price history">${grid}
       <text x="${L}" y="${H - 7}">${esc(date(t0))}</text><text x="${W - R}" y="${H - 7}" text-anchor="end">${esc(date(t1))}</text>
       <path d="${path}" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       <line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--muted)" visibility="hidden"/>
@@ -263,7 +263,7 @@
     holder.innerHTML = '<p class="muted">Loading history…</p>';
     let history;
     try {
-      state.history = state.history && state.history.house === state.house ? state.history : { house: state.house, data: await getJson(`data/hist${state.house}.json`) };
+      state.history = state.history && state.history.house === state.house ? state.history : { house: state.house, data: await getJson(`data/hist${encodeURIComponent(state.house)}.json`) };
       history = state.history.data;
     } catch (e) {
       holder.innerHTML = '<p class="muted">No history yet.</p>';
@@ -292,7 +292,7 @@
       const row = state.prices[o.id];
       return `<tr><td>${itemName(o.id)}</td><td>${Math.round(o.chance * 1000) / 10}%</td><td>${o.min === o.max ? o.min : o.min + "–" + o.max}</td><td>${money(row && row[2] > 0 ? row[1] : null)}</td></tr>`;
     }).join("");
-    return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Chance</th><th>Amount</th><th>Market each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Chance</th><th>Amount</th><th>Price each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function openItem(id, recipeSpell) {
@@ -301,7 +301,7 @@
     const dialog = $("detail");
     $("detail-title").innerHTML = `<span class="q${item.q}">${esc(item.n)}</span>`;
     const stats = [
-      statBox("Lowest", money(row ? row[0] : null)), statBox("Market", money(row ? row[1] : null)),
+      statBox("Lowest price", money(row ? row[1] : null)),
       statBox("Previous update", money(row ? row[3] : null)), statBox("24 hour average", money(row ? row[4] : null)),
       statBox("7 day average", money(row ? row[5] : null)), statBox("For sale", row ? row[2].toLocaleString("en-US") : "–"),
     ].join("");
@@ -343,7 +343,14 @@
   }
 
   function showUpdated() {
-    $("updated").textContent = state.ts ? `Prices from ${timeAgo(state.ts)}. Checks for new prices every 5 minutes.` : "Waiting for the first prices.";
+    $("updated").textContent = state.ts ? `Last scanned ${timeAgo(state.ts)}. Checks for new prices every 5 minutes.` : "Waiting for the first prices.";
+    const banner = $("banner");
+    if (state.ts && Date.now() / 1000 - state.ts > 12 * 3600) {
+      banner.hidden = false;
+      banner.textContent = `No player has scanned this auction house for ${timeAgo(state.ts).replace(" ago", "")}, so these prices may be out of date.`;
+    } else if (state.ts) {
+      banner.hidden = true;
+    }
   }
 
   function toast(text) {
@@ -385,7 +392,7 @@
     state.house = id;
     store.set("house", id);
     let file = { ts: null, items: {} };
-    try { file = await getJson(`data/h${id}.json`); } catch (e) { /* no data for this house yet */ }
+    try { file = await getJson(`data/h${encodeURIComponent(id)}.json`); } catch (e) { /* no data for this house yet */ }
     state.prices = file.items || {};
     state.ts = file.ts || null;
     state.rows = null; state.deals = null;
@@ -396,9 +403,10 @@
   function fillHouses() {
     const select = $("house");
     const houses = state.meta.houses.slice().sort((a, b) => (b.listings || 0) - (a.listings || 0));
-    select.innerHTML = houses.map((h) => `<option value="${h.id}">${esc(h.rulesetName)} – ${esc(h.name)}</option>`).join("");
+    select.innerHTML = houses.map((h) => `<option value="${h.id}">${esc(h.rulesetName)} – ${esc(h.name)} (${h.scannedAt ? esc(timeAgo(h.scannedAt)) : "no scans"})</option>`).join("");
     const saved = store.get("house", null);
     const pick = houses.find((h) => h.id === saved) || houses[0];
+    if (!pick) throw new Error("no markets");
     select.value = pick.id;
     return pick.id;
   }
@@ -408,10 +416,9 @@
       const meta = await getJson("data/meta.json");
       const first = !state.meta;
       state.meta = meta;
-      $("banner").hidden = true;
       if (first) await loadHouse(fillHouses());
       else {
-        const file = await getJson(`data/h${state.house}.json`);
+        const file = await getJson(`data/h${encodeURIComponent(state.house)}.json`);
         if (file.ts !== state.ts) {
           state.prices = file.items; state.ts = file.ts; state.rows = null; state.deals = null; state.history = null;
           render();
@@ -422,7 +429,7 @@
       if (!state.meta) {
         const banner = $("banner");
         banner.hidden = false;
-        banner.textContent = "No prices yet. They appear after the first successful update from the Blizzard API.";
+        banner.textContent = "No prices yet. They appear after the first successful update.";
         render();
       }
     }
@@ -431,7 +438,7 @@
 
   function bind() {
     document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { store.set("tab", b.dataset.tab); render(); }));
-    $("house").addEventListener("change", (e) => { state.history = null; loadHouse(Number(e.target.value)).then(notifyChanges); });
+    $("house").addEventListener("change", (e) => { state.history = null; loadHouse(e.target.value).then(notifyChanges); });
     const reset = (name) => () => { state.limits[name] = PAGE; render(); };
     ["price-search", "price-group", "price-basis"].forEach((id) => $(id).addEventListener("input", reset("prices")));
     ["profit-search", "profit-profession", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", reset("profit")));

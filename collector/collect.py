@@ -1,123 +1,64 @@
 #!/usr/bin/env python3
-"""Fetch WoW Forever auction houses from the Battle.net API and update the price files.
+"""Fetch WoW Forever prices from the public auctionhouse.fyi API and update the price files.
 
-Needs BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET in the environment.
+No key is needed. Prices come from players scanning the auction house in game, and each
+market has an hourly snapshot: https://auctionhouse.fyi/docs/api
 
-    python collector/collect.py --out state --region us
+    python collector/collect.py --out state
 
-Writes, for each auction house, h<id>.json (current prices) and hist<id>.json (history),
-plus meta.json listing the houses. Prices are asking prices in copper, not sales.
+Writes, for each market, h<market>.json (current prices) and hist<market>.json (history),
+plus meta.json listing the markets. Prices are the lowest asking price per unit in copper.
 """
 import argparse
-import base64
-import gzip
 import json
-import os
 import sys
 import time
 import urllib.error
 import urllib.request
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RULESETS = {1: "PvP", 2: "Normal", 3: "Roleplay", 15: "Roleplay PvP"}
+API = "https://auctionhouse.fyi/api/v1"
+AGENT = "wow-forever-prices (personal price page)"
+RULESETS = {"normal": "Normal", "pvp": "PvP", "rp": "Roleplay"}
 HOURLY_KEEP = 24 * 7
 DAILY_KEEP = 60
 DAY = 86400
 
 
-class HttpNotFound(Exception):
-    pass
-
-
-def get_token(client, secret):
-    basic = base64.b64encode(f"{client}:{secret}".encode()).decode()
-    request = urllib.request.Request("https://oauth.battle.net/token", data=b"grant_type=client_credentials",
-                                     headers={"Authorization": f"Basic {basic}"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)["access_token"]
-
-
-def make_fetcher(token, region):
-    base = f"https://{region}.api.blizzard.com"
-    namespace = f"dynamic-forever-{region}"
-
-    def fetch(path):
-        """The JSON body and the Last-Modified time of a GET."""
-        request = urllib.request.Request(f"{base}{path}?namespace={namespace}",
-                                         headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "gzip"})
-        for attempt, wait in enumerate((5, 20, None)):
-            try:
-                with urllib.request.urlopen(request, timeout=120) as response:
-                    body = response.read()
-                    if response.headers.get("Content-Encoding") == "gzip":
-                        body = gzip.decompress(body)
-                    modified = response.headers.get("Last-Modified")
-                    stamp = int(parsedate_to_datetime(modified).timestamp()) if modified else None
-                    return json.loads(body), stamp
-            except urllib.error.HTTPError as error:
-                if error.code == 404:
-                    raise HttpNotFound(path) from error
-                if error.code not in (429, 500, 502, 503, 504) or wait is None:
-                    raise
-            except urllib.error.URLError:
-                if wait is None:
-                    raise
-            time.sleep(wait)
-        raise RuntimeError("unreachable")
-
-    return fetch
-
-
-def list_houses(fetch):
-    houses = {}
-    for ruleset, ruleset_name in RULESETS.items():
+def fetch(path):
+    """The JSON at an API path, waiting and retrying when the service asks for that."""
+    request = urllib.request.Request(API + path, headers={"User-Agent": AGENT, "Accept": "application/json"})
+    for wait in (5, 30, None):
         try:
-            index, _ = fetch(f"/data/wow/ruleset/{ruleset}/auctions/index")
-        except HttpNotFound:
-            continue
-        for row in index.get("auctions", []):
-            house_id = row.get("id")
-            if house_id is not None and house_id not in houses:
-                houses[house_id] = {"id": house_id, "ruleset": ruleset, "rulesetName": ruleset_name,
-                                    "name": str(row.get("name") or f"House {house_id}")}
-    return list(houses.values())
+            with urllib.request.urlopen(request, timeout=120) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code not in (429, 500, 502, 503, 504) or wait is None:
+                raise
+            time.sleep(int(error.headers.get("Retry-After") or wait))
+        except urllib.error.URLError:
+            if wait is None:
+                raise
+            time.sleep(wait)
+    raise RuntimeError("unreachable")
 
 
-def unit_listings(regular, commodities):
-    """(item ID, copper per unit, quantity) for each plain listing with a buyout."""
-    for listing in regular:
-        item = listing.get("item") or {}
-        quantity, buyout = listing.get("quantity") or 0, listing.get("buyout") or 0
-        if quantity > 0 and buyout > 0 and "id" in item and not item.get("bonus_lists"):
-            yield item["id"], buyout / quantity, quantity
-    for listing in commodities:
-        item = listing.get("item") or {}
-        quantity, unit = listing.get("quantity") or 0, listing.get("unit_price") or 0
-        if quantity > 0 and unit > 0 and "id" in item:
-            yield item["id"], unit, quantity
+def market_labels(market):
+    """("Normal", "Horde") from "forever.normal.horde.us"."""
+    parts = market.split(".")
+    ruleset = parts[1] if len(parts) > 1 else market
+    faction = parts[2] if len(parts) > 2 else ""
+    return RULESETS.get(ruleset, ruleset.title()), faction.title()
 
 
-def summarize(regular, commodities, wanted):
-    """{item: [lowest, market, quantity]}. Market is the mean of the cheapest 15% of units."""
-    by_item = {}
-    for item_id, unit, quantity in unit_listings(regular, commodities):
-        if item_id in wanted:
-            by_item.setdefault(item_id, []).append((unit, quantity))
+def read_prices(snapshot, wanted):
+    """{item: [lowest, lowest, quantity]} for the wanted items that have a price."""
     prices = {}
-    for item_id, listings in by_item.items():
-        listings.sort()
-        total = sum(quantity for _, quantity in listings)
-        need = max(1, round(total * 0.15))
-        taken, cost = 0, 0.0
-        for unit, quantity in listings:
-            take = min(quantity, need - taken)
-            taken += take
-            cost += unit * take
-            if taken >= need:
-                break
-        prices[item_id] = [round(listings[0][0]), round(cost / taken), total]
+    for row in snapshot.get("rows") or []:
+        key, price, quantity = row[0], row[1], row[2]
+        if key in wanted and price:
+            prices[key] = [price, price, quantity or 0]
     return prices
 
 
@@ -128,6 +69,21 @@ def mean(values):
 
 def load_json(path, default):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+
+
+def seed_days(snapshot, tracked):
+    """A new market starts with the service's seven days of daily closes."""
+    by_item = {}
+    all_days = set()
+    for key, points in snapshot.get("days") or []:
+        if key in tracked:
+            by_item[key] = {point[0]: point[1] for point in points}
+            all_days.update(by_item[key])
+    ordered = sorted(all_days)
+    return {
+        "t": [day * DAY for day in ordered],
+        "i": {str(key): [closes.get(day) for day in ordered] for key, closes in by_item.items()},
+    }
 
 
 def add_history(history, stamp, prices, tracked):
@@ -149,17 +105,12 @@ def add_history(history, stamp, prices, tracked):
     values = {item_id: row[1] for item_id, row in prices.items() if item_id in tracked}
     append(hours, stamp, values)
 
-    # A finished UTC day becomes one daily point when the first snapshot of a later day arrives.
     day = stamp - stamp % DAY
     if days["t"] and days["t"][-1] == day:
-        count = days.setdefault("n", 1) + 1
-        days["n"] = count
         for item_id, value in values.items():
             series = days["i"].setdefault(str(item_id), [None] * len(days["t"]))
-            old = series[-1]
-            series[-1] = value if old is None else round(old + (value - old) / count)
+            series[-1] = value  # The day's point is its latest price.
     else:
-        days["n"] = 1
         append(days, day, values)
 
     for section, keep in ((hours, HOURLY_KEEP), (days, DAILY_KEEP)):
@@ -171,70 +122,65 @@ def add_history(history, stamp, prices, tracked):
 
 
 def build_house_file(stamp, prices, history, previous):
-    """{item: [lowest, market, quantity, previous market, 24 h average, 7 day average]}."""
-    hours = history["hours"]
-    last_day = 24
+    """{item: [lowest, lowest, quantity, previous, 24 h average, 7 day average]}."""
+    hours, days = history["hours"], history["days"]
     rows = {}
-    ids = set(str(i) for i in prices) | set(hours["i"])
-    for key in ids:
-        series = hours["i"].get(key, [])
+    for key in set(str(i) for i in prices) | set(hours["i"]) | set(days["i"]):
+        hourly = hours["i"].get(key, [])
+        daily = days["i"].get(key, [])
         current = prices.get(int(key))
-        known = [v for v in series if v is not None]
-        market = current[1] if current else (known[-1] if known else None)
-        if market is None:
+        known = [v for v in hourly if v is not None] or [v for v in daily if v is not None]
+        price = current[1] if current else (known[-1] if known else None)
+        if price is None:
             continue
         old = previous.get(key)
-        prev_market = old[1] if old else None
-        rows[key] = [current[0] if current else None, market, current[2] if current else 0, prev_market,
-                     mean(series[-last_day:]), mean(series)]
+        rows[key] = [current[0] if current else None, price, current[2] if current else 0,
+                     old[1] if old else None, mean(hourly[-24:]), mean(daily[-7:])]
     return {"ts": stamp, "items": rows}
 
 
-def update_house(out, house, fetch, wanted, tracked, now):
-    house_id = house["id"]
-    path = f"/data/wow/ruleset/{house['ruleset']}/auctions/{house_id}"
-    body, stamp = fetch(path)
-    regular = body.get("auctions") or []
-    try:
-        commodities_body, commodity_stamp = fetch(f"{path}/commodities")
-        commodities = commodities_body.get("auctions") or []
-        stamp = max(s for s in (stamp, commodity_stamp, 0) if s is not None) or None
-    except HttpNotFound:
-        commodities = []
-    stamp = stamp or now
-
-    house_path, history_path = out / f"h{house_id}.json", out / f"hist{house_id}.json"
+def update_market(out, house, get, wanted, tracked):
+    market = house["id"]
+    snapshot = get(f"/ah/{market}/snapshot")
+    stamp = (snapshot.get("scan") or snapshot.get("at") or 0) // 1000
+    house_path, history_path = out / f"h{market}.json", out / f"hist{market}.json"
     old_house = load_json(house_path, {})
-    house["listings"] = len(regular) + len(commodities)
-    if old_house.get("ts") == stamp:
+    if not stamp or old_house.get("ts") == stamp:
         return False
 
-    prices = summarize(regular, commodities, wanted)
-    history = add_history(load_json(history_path, {}), stamp, prices, tracked)
+    prices = read_prices(snapshot, wanted)
+    history = load_json(history_path, None)
+    if history is None:
+        history = {"hours": {"t": [], "i": {}}, "days": seed_days(snapshot, tracked)}
+    add_history(history, stamp, prices, tracked)
     house_file = build_house_file(stamp, prices, history, old_house.get("items", {}))
     house_path.write_text(json.dumps(house_file, separators=(",", ":")), encoding="utf-8")
     history_path.write_text(json.dumps(history, separators=(",", ":")), encoding="utf-8")
     return True
 
 
-def collect(out, fetch, wanted, tracked, region, now):
+def collect(out, get, wanted, tracked, now):
     out.mkdir(parents=True, exist_ok=True)
-    houses = list_houses(fetch)
+    listing = get("/ah")
+    houses = []
+    for row in listing.get("markets") or []:
+        ruleset, faction = market_labels(row["market"])
+        houses.append({"id": row["market"], "rulesetName": ruleset, "name": faction,
+                       "listings": row.get("listed") or 0, "scannedAt": (row.get("at") or 0) // 1000})
     if not houses:
-        raise RuntimeError("the API listed no auction houses")
+        raise RuntimeError("the API listed no markets")
     errors = 0
     for house in houses:
         try:
-            changed = update_house(out, house, fetch, wanted, tracked, now)
-            print(f"house {house['id']} {house['rulesetName']}/{house['name']}: "
-                  f"{house['listings']} listings, {'updated' if changed else 'unchanged'}")
-        except Exception as error:  # one failing house must not lose the others
+            changed = update_market(out, house, get, wanted, tracked)
+            print(f"{house['id']}: {house['listings']} listed, {'updated' if changed else 'unchanged'}")
+        except Exception as error:  # one failing market must not lose the others
             errors += 1
-            print(f"house {house['id']} failed: {type(error).__name__}", file=sys.stderr)
-    meta = {"updated": now, "region": region, "houses": houses}
+            print(f"{house['id']} failed: {type(error).__name__}", file=sys.stderr)
+    meta = {"updated": now, "houses": houses}
     (out / "meta.json").write_text(json.dumps(meta, separators=(",", ":")), encoding="utf-8")
     if errors == len(houses):
-        raise RuntimeError("every auction house failed")
+        raise RuntimeError("every market failed")
 
 
 def load_wanted(root):
@@ -247,14 +193,9 @@ def load_wanted(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("state"))
-    parser.add_argument("--region", default="us")
     args = parser.parse_args()
-    client, secret = os.environ.get("BLIZZARD_CLIENT_ID"), os.environ.get("BLIZZARD_CLIENT_SECRET")
-    if not client or not secret:
-        sys.exit("BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET are not set")
     wanted, tracked = load_wanted(ROOT)
-    token = get_token(client, secret)
-    collect(args.out, make_fetcher(token, args.region), wanted, tracked, args.region, int(time.time()))
+    collect(args.out, fetch, wanted, tracked, int(time.time()))
 
 
 if __name__ == "__main__":

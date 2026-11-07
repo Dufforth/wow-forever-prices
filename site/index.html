@@ -82,7 +82,7 @@
       <label>At least this many for sale <input id="profit-supply" type="number" min="0" step="1"></label>
       <label class="check"><input id="profit-only" type="checkbox" checked> Only profitable</label>
     </div>
-    <p class="muted note">Profit is per craft, using the best way to sell after the 5% auction cut. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game. Select a row for the details.</p>
+    <p class="muted note">Profit is per craft, using the best way to sell after the 5% auction cut. Prices are the single lowest listing, so a lone cheap or expensive listing can mislead; the "for sale" filter helps. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game. Select a row for the details.</p>
     <div class="table-wrap"><table id="profit-table"></table></div>
     <button id="profit-more" class="secondary more" type="button" hidden>Show more</button>
   </section>
@@ -98,7 +98,7 @@
 </main>
 
 <footer class="muted">
-  Prices are asking prices from Blizzard's API, which updates about once an hour, and not completed sales. Recipes come from the game client's tables through wago.tools.
+  Prices come from players scanning the auction house, through the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a>. They are the lowest asking price, not completed sales, and only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Not affiliated with Blizzard Entertainment.
   <span id="build"></span>
 </footer>
 
