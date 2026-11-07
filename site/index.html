@@ -9,10 +9,11 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<a class="skip" href="#results">Skip to results</a>
 <header class="top">
   <div class="brand">
     <h1>Forever Prices</h1>
-    <p id="updated" class="muted">Loading…</p>
+    <p id="updated" class="muted">Loading prices…</p>
   </div>
   <div class="controls">
     <label>Auction house
@@ -23,96 +24,105 @@
 </header>
 
 <nav class="tabs" role="tablist" aria-label="Sections">
-  <button role="tab" data-tab="prices" aria-selected="true">Prices</button>
-  <button role="tab" data-tab="alerts" aria-selected="false">Alerts <span id="alert-count" class="count" hidden></span></button>
-  <button role="tab" data-tab="profit" aria-selected="false">Profit</button>
-  <button role="tab" data-tab="deals" aria-selected="false">Disenchant deals</button>
+  <button role="tab" id="tabbtn-prices" data-tab="prices" aria-controls="results" type="button">Prices</button>
+  <button role="tab" id="tabbtn-alerts" data-tab="alerts" aria-controls="results" type="button">Alerts <span id="alert-count" class="count" hidden></span></button>
+  <button role="tab" id="tabbtn-profit" data-tab="profit" aria-controls="results" type="button">Profit</button>
+  <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Disenchant deals</button>
 </nav>
 
-<main>
-  <div id="banner" class="banner" hidden></div>
+<div class="layout">
+  <aside class="sidebar" aria-label="Categories">
+    <nav id="categories"></nav>
+  </aside>
 
-  <section id="tab-prices" class="panel">
-    <div class="filters">
-      <label class="grow">Search <input id="price-search" type="search" placeholder="Item name"></label>
-      <label>Show
-        <select id="price-group">
-          <option value="all">All items</option>
-          <option value="gathering">All gathering</option>
-          <option value="herb">Herbs</option>
-          <option value="ore">Ore, bars and stone</option>
-          <option value="leather">Leather and hides</option>
-          <option value="cloth">Cloth</option>
-          <option value="enchant">Enchanting materials</option>
-          <optgroup label="Crafted by" id="price-professions"></optgroup>
-        </select>
+  <main id="results" tabindex="-1">
+    <div id="banner" class="banner" role="status" hidden></div>
+
+    <div class="toolbar">
+      <label class="grow">Search
+        <input id="search" type="search" placeholder="Search item names" autocomplete="off">
       </label>
-      <label>Compare with
-        <select id="price-basis">
-          <option value="previous">Previous update</option>
-          <option value="day">24 hour average</option>
-          <option value="week">7 day average</option>
-        </select>
+      <label class="mobile-only">Category
+        <select id="category-select"></select>
       </label>
     </div>
-    <div class="table-wrap"><table id="price-table"></table></div>
-    <button id="price-more" class="secondary more" type="button" hidden>Show more</button>
-  </section>
 
-  <section id="tab-alerts" class="panel" hidden>
-    <div class="filters">
-      <label>Price moved by at least (%) <input id="alert-percent" type="number" min="1" step="1"></label>
-      <label>And by at least (silver) <input id="alert-amount" type="number" min="0" step="1"></label>
-      <label>With at least this many for sale <input id="alert-supply" type="number" min="1" step="1"></label>
-      <label>Compare with
-        <select id="alert-basis">
-          <option value="previous">Previous update</option>
-          <option value="day">24 hour average</option>
-          <option value="week">7 day average</option>
-        </select>
-      </label>
-    </div>
-    <p class="muted note">These limits also decide what you get notified about. Notifications only arrive while this page is open in a browser tab.</p>
-    <div class="table-wrap"><table id="alert-table"></table></div>
-  </section>
+    <section id="tab-prices" class="panel" role="tabpanel" aria-labelledby="tabbtn-prices">
+      <div class="filters">
+        <label>Compare with
+          <select id="price-basis">
+            <option value="previous">Previous scan</option>
+            <option value="day">24 hour average</option>
+            <option value="week">7 day average</option>
+          </select>
+        </label>
+        <label class="check"><input id="price-listed" type="checkbox" checked> Only items for sale</label>
+      </div>
+    </section>
 
-  <section id="tab-profit" class="panel" hidden>
-    <div class="filters">
-      <label class="grow">Search <input id="profit-search" type="search" placeholder="Item name"></label>
-      <label>Profession <select id="profit-profession"></select></label>
-      <label>At least this many for sale <input id="profit-supply" type="number" min="0" step="1"></label>
-      <label class="check"><input id="profit-only" type="checkbox" checked> Only profitable</label>
-    </div>
-    <p class="muted note">Profit is per craft, using the best way to sell after the 5% auction cut. Prices are the single lowest listing, so a lone cheap or expensive listing can mislead; the "for sale" filter helps. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game. Select a row for the details.</p>
-    <div class="table-wrap"><table id="profit-table"></table></div>
-    <button id="profit-more" class="secondary more" type="button" hidden>Show more</button>
-  </section>
+    <section id="tab-alerts" class="panel" role="tabpanel" aria-labelledby="tabbtn-alerts" hidden>
+      <div class="filters">
+        <label>Moved at least (%) <input id="alert-percent" type="number" min="1" step="1"></label>
+        <label>And at least (silver) <input id="alert-amount" type="number" min="0" step="1"></label>
+        <label>At least this many for sale <input id="alert-supply" type="number" min="1" step="1"></label>
+        <label>Compare with
+          <select id="alert-basis">
+            <option value="previous">Previous scan</option>
+            <option value="day">24 hour average</option>
+            <option value="week">7 day average</option>
+          </select>
+        </label>
+        <label class="check"><input id="alert-favorites" type="checkbox"> Favorites only</label>
+      </div>
+      <p class="muted note">These settings also decide what you get notified about. Notifications only arrive while this page is open.</p>
+    </section>
 
-  <section id="tab-deals" class="panel" hidden>
-    <div class="filters">
-      <label class="grow">Search <input id="deal-search" type="search" placeholder="Item name"></label>
+    <section id="tab-profit" class="panel" role="tabpanel" aria-labelledby="tabbtn-profit" hidden>
+      <div class="filters">
+        <label>At least this many for sale <input id="profit-supply" type="number" min="0" step="1"></label>
+        <label class="check"><input id="profit-only" type="checkbox" checked> Only profitable</label>
+      </div>
+      <details class="note">
+        <summary>How profit is worked out</summary>
+        <p class="muted">Profit is per craft, using the best way to sell after the 5% auction cut. Prices are the single lowest listing, so one unusual listing can mislead. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game.</p>
+      </details>
+    </section>
+
+    <section id="tab-deals" class="panel" role="tabpanel" aria-labelledby="tabbtn-deals" hidden>
+      <details class="note">
+        <summary>How deals are worked out</summary>
+        <p class="muted">Gear for sale below the expected value of its disenchanted materials, after the 5% auction cut. Results vary from item to item, so a small profit can turn into a small loss. Bind on pickup gear and items with random bonuses are left out.</p>
+      </details>
+    </section>
+
+    <div class="result-bar">
+      <p id="result-count" class="muted" aria-live="polite"></p>
+      <button id="clear-filters" type="button" class="linkish" hidden>Clear filters</button>
     </div>
-    <p class="muted note">Gear for sale below the expected value of its disenchanted materials, after the 5% auction cut. Results vary from item to item, so a small profit can turn into a small loss. Bind on pickup gear and items with random bonuses are left out.</p>
-    <div class="table-wrap"><table id="deal-table"></table></div>
-    <button id="deal-more" class="secondary more" type="button" hidden>Show more</button>
-  </section>
-</main>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Results"><table id="table"></table></div>
+    <button id="more" class="secondary more" type="button" hidden>Show more</button>
+  </main>
+</div>
 
 <footer class="muted">
-  Prices come from players scanning the auction house, through the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a>. They are the lowest asking price, not completed sales, and only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Not affiliated with Blizzard Entertainment.
+  Prices come from players scanning the auction house, through the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a>. They are the lowest asking price, not completed sales, and only as fresh as the latest scan. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Favorites are saved in this browser only. Not affiliated with Blizzard Entertainment.
   <span id="build"></span>
 </footer>
 
-<dialog id="detail">
+<dialog id="detail" aria-labelledby="detail-title">
   <div class="detail-head">
     <h2 id="detail-title"></h2>
-    <button id="detail-close" type="button" class="secondary" aria-label="Close">Close</button>
+    <div class="detail-actions">
+      <button id="detail-favorite" type="button" class="secondary"></button>
+      <button id="detail-close" type="button" class="secondary">Close</button>
+    </div>
   </div>
   <div id="detail-body"></div>
 </dialog>
 
 <div id="toast" class="toast" role="status" hidden></div>
 <script src="calc.js"></script>
+<script src="categories.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

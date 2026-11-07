@@ -31,7 +31,9 @@ jobs:
           python-version: "3.13"
 
       - name: Run the tests
-        run: python -m unittest discover -s tests
+        run: |
+          python -m unittest discover -b -s tests
+          node --test tests/
 
       - name: Get saved prices
         env:

@@ -25,11 +25,13 @@ This rebuilds `site/catalog.json` and `site/gear.json` from the client's tables 
 
 ```bash
 python -m unittest discover -s tests
-node --test tests/calc.test.js
+node --test tests/
 ```
 
 ## Notes
 
 GitHub turns off scheduled workflows after 60 days without repository activity. If prices stop updating, re-enable the workflow from the Actions tab.
+
+Icons load from Blizzard's image server, and favorites are saved in your browser only. To look at the page locally, copy the `data` branch into the git-ignored `site/data/` and serve `site/`.
 
 World of Warcraft is a trademark of Blizzard Entertainment. This is an unofficial fan project.

@@ -1,11 +1,18 @@
 (function () {
   "use strict";
-  const { money, priceChange, significantChanges, craftRows, disenchantDeals, disenchantOutcomes, disenchantValue, afterCut } = Calc;
+  const { money, priceChange, significantChanges, craftRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, PROFESSION_PREFIX } = Categories;
+
   const PAGE = 100;
   const POLL_MS = 5 * 60 * 1000;
-  const GATHERING = new Set(["herb", "ore", "leather", "cloth", "enchant"]);
+  const STALE_SECONDS = 12 * 3600;
+  const SEARCH_DELAY_MS = 150;
+  const TABS = ["prices", "alerts", "profit", "deals"];
+  const SOURCE = { auction: "Auction", vendor: "Vendor", craft: "Craft it", none: "No price" };
+
   const $ = (id) => document.getElementById(id);
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const number = (value) => Number(value).toLocaleString("en-US");
 
   const store = {
     get(key, fallback) { try { const v = localStorage.getItem("fp." + key); return v == null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
@@ -13,31 +20,52 @@
   };
 
   const state = {
-    catalog: null, gear: null, meta: null, house: null, prices: {}, ts: null,
-    crafted: new Map(), rows: null, deals: null,
-    limits: { prices: PAGE, profit: PAGE, deals: PAGE },
+    catalog: null, gear: null, meta: null, house: null, prices: {}, ts: null, history: null,
+    rows: null, deals: null, professions: [], craftedBy: new Map(),
+    favorites: new Set(store.get("favorites", [])),
+    tab: "prices", category: "all", search: "", limit: PAGE, detailId: null,
     sort: {
       prices: { key: "name", dir: 1 }, profit: { key: "profit", dir: -1 },
       alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 },
     },
-    alert: Object.assign({ percent: 15, amount: 10, supply: 5, basis: "previous" }, store.get("alert", {})),
+    alert: Object.assign({ percent: 15, amount: 10, supply: 5, basis: "previous", favorites: false }, store.get("alert", {})),
   };
 
   async function getJson(url) {
     const response = await fetch(url, { cache: "no-cache" });
-    if (!response.ok) throw new Error(response.status);
+    if (!response.ok) throw new Error(`${url}: ${response.status}`);
     return response.json();
   }
 
+  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy });
   const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || { n: "Item " + id, q: 1 };
-  const itemName = (id) => `<span class="item q${itemOf(id).q}">${esc(itemOf(id).n)}</span>`;
+
+  function coins(copper) {
+    const text = money(copper);
+    return text === "–" ? '<span class="muted">–</span>'
+      : esc(text).replace(/(\d)([gsc])/g, '$1<span class="u u-$2">$2</span>');
+  }
+
+  function iconHtml(item) {
+    const url = iconUrl(item.ic);
+    return url ? `<img class="icon" src="${esc(url)}" data-backup="${esc(iconBackupUrl(item.ic))}" alt="" width="28" height="28" loading="lazy" decoding="async">`
+      : '<span class="icon" aria-hidden="true"></span>';
+  }
+
+  function starHtml(id, item) {
+    const on = state.favorites.has(Number(id));
+    return `<button type="button" class="star" data-star="${Number(id)}" aria-pressed="${on}" aria-label="${on ? "Remove" : "Add"} ${esc(item.n)} ${on ? "from" : "to"} favorites">${on ? "★" : "☆"}</button>`;
+  }
+
+  function itemCell(id, extra) {
+    const item = itemOf(id);
+    return `<div class="item-cell">${starHtml(id, item)}${iconHtml(item)}<span><button type="button" class="name q${item.q}" data-open="${Number(id)}">${esc(item.n)}</button>${extra || ""}</span></div>`;
+  }
 
   function changeCells(change) {
-    if (!change || change.amount === 0) return `<td class="muted">–</td><td class="muted">–</td>`;
+    if (!change || change.amount === 0) return '<td class="muted">–</td><td class="muted">–</td>';
     const up = change.amount > 0;
-    const cls = up ? "up" : "down";
-    const arrow = up ? "▲" : "▼";
-    return `<td class="${cls}">${arrow} ${money(Math.abs(change.amount))}</td><td class="${cls}">${up ? "+" : "-"}${Math.abs(change.percent).toFixed(1)}%</td>`;
+    return `<td class="${up ? "up" : "down"}">${up ? "▲" : "▼"} ${coins(Math.abs(change.amount))}</td><td class="${up ? "up" : "down"}">${up ? "+" : "-"}${Math.abs(change.percent).toFixed(1)}%</td>`;
   }
 
   function sortRows(rows, spec, getters) {
@@ -52,91 +80,86 @@
     });
   }
 
-  function renderTable(table, name, columns, bodyHtml) {
-    const spec = state.sort[name];
-    const head = columns.map((c) => {
-      const sort = c.key === spec.key ? (spec.dir > 0 ? "ascending" : "descending") : "none";
-      const cls = c.left ? ' class="left"' : "";
-      return c.key ? `<th${cls} data-sort="${c.key}" aria-sort="${sort}" tabindex="0">${c.label}</th>` : `<th${cls}>${c.label}</th>`;
-    }).join("");
-    table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${bodyHtml}</tbody>`;
-    table.querySelectorAll("th[data-sort]").forEach((th) => {
-      const flip = () => {
-        const key = th.dataset.sort;
-        if (spec.key === key) spec.dir = -spec.dir;
-        else { spec.key = key; spec.dir = key === "name" ? 1 : -1; }
-        render();
-      };
-      th.addEventListener("click", flip);
-      th.addEventListener("keydown", (e) => { if (e.key === "Enter") flip(); });
-    });
-  }
-
   function emptyRow(columns, text) {
     return `<tr><td class="empty" colspan="${columns}">${esc(text)}</td></tr>`;
   }
 
-  // ---- Prices ----
-  function matchesGroup(id, item, group) {
-    if (group === "all") return true;
-    if (group === "gathering") return GATHERING.has(item.g);
-    if (GATHERING.has(group)) return item.g === group;
-    return (state.crafted.get(Number(id)) || []).includes(group);
+  // Every tab draws through here: one table, one count line, one Show more button.
+  function drawTable(columns, rows, rowHtml, emptyText, unit) {
+    const spec = state.sort[state.tab];
+    const head = columns.map((column) => {
+      const cls = column.left ? ' class="left"' : "";
+      if (!column.key) return `<th scope="col"${cls}>${column.label}</th>`;
+      const sort = column.key === spec.key ? (spec.dir > 0 ? "ascending" : "descending") : "none";
+      return `<th scope="col"${cls} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${column.label}</th>`;
+    }).join("");
+    const shown = rows.slice(0, state.limit);
+    const body = shown.map(rowHtml).join("") || emptyRow(columns.length, emptyText);
+    $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+    const scope = state.category === "all" ? "" : ` in ${categoryLabel(state.category)}`;
+    $("result-count").textContent = `${number(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}${scope}`;
+    $("clear-filters").hidden = state.category === "all" && !state.search;
+    const left = rows.length - shown.length;
+    $("more").hidden = left <= 0;
+    $("more").textContent = `Show ${number(Math.min(left, PAGE))} more of ${number(left)}`;
   }
 
+  function passesFilters(id, item) {
+    if (state.search && !item.n.toLowerCase().includes(state.search)) return false;
+    return matches(state.category, id, item, context());
+  }
+
+  // ---- Prices ----
   function renderPrices() {
-    const search = $("price-search").value.trim().toLowerCase();
-    const group = $("price-group").value;
     const basis = $("price-basis").value;
+    const listedOnly = $("price-listed").checked && state.category !== "favorites";
     let rows = [];
     for (const id of Object.keys(state.catalog.items)) {
       const item = state.catalog.items[id];
-      if (search && !item.n.toLowerCase().includes(search)) continue;
-      if (!matchesGroup(id, item, group)) continue;
+      if (!passesFilters(id, item)) continue;
       const row = state.prices[id];
+      if (listedOnly && !(row && row[2] > 0)) continue;
       rows.push({ id, item, row, change: row ? priceChange(row, basis) : null });
     }
     rows = sortRows(rows, state.sort.prices, {
-      name: (r) => r.item.n, market: (r) => (r.row ? r.row[1] : null),
+      name: (r) => r.item.n, price: (r) => (r.row ? r.row[1] : null),
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null),
     });
-    const shown = rows.slice(0, state.limits.prices);
-    const columns = [
-      { key: "name", label: "Item", left: true }, { key: "market", label: "Lowest price" },
+    drawTable([
+      { key: "name", label: "Item", left: true }, { key: "price", label: "Lowest price" },
       { key: "amount", label: "Change" }, { key: "percent", label: "Change %" }, { key: "supply", label: "For sale" },
-    ];
-    const body = shown.map((r) => {
+    ], rows, (r) => {
       const row = r.row;
-      return `<tr data-item="${r.id}"><td>${itemName(r.id)}</td><td>${money(row ? row[1] : null)}${row && !row[2] ? ' <span class="badge">last seen</span>' : ""}</td>${changeCells(r.change)}<td>${row ? row[2].toLocaleString("en-US") : "–"}</td></tr>`;
-    }).join("") || emptyRow(5, "No items match.");
-    renderTable($("price-table"), "prices", columns, body);
-    $("price-more").hidden = rows.length <= shown.length;
-    $("price-more").textContent = `Show more (${(rows.length - shown.length).toLocaleString("en-US")} left)`;
+      const old = row && !row[2] ? ' <span class="badge">last seen</span>' : "";
+      return `<tr class="row" data-item="${r.id}"><td>${itemCell(r.id)}</td><td>${coins(row ? row[1] : null)}${old}</td>${changeCells(r.change)}<td>${row ? number(row[2]) : "–"}</td></tr>`;
+    }, "No items match. Try another category or clear your search.", "item");
   }
 
   // ---- Alerts ----
-  function currentAlerts() {
+  function allAlerts() {
     const a = state.alert;
     return significantChanges(state.prices, { percent: a.percent, minAmount: a.amount * 100, minSupply: a.supply, basis: a.basis })
-      .filter((c) => state.catalog.items[c.id]);
+      .filter((c) => state.catalog.items[c.id] && (!a.favorites || state.favorites.has(c.id)));
+  }
+
+  function updateAlertBadge() {
+    const count = allAlerts().length;
+    $("alert-count").hidden = count === 0;
+    $("alert-count").textContent = count;
   }
 
   function renderAlerts() {
-    const rows = sortRows(currentAlerts().map((c) => ({ ...c, name: itemOf(c.id).n })), state.sort.alerts, {
-      name: (r) => r.name, market: (r) => r.market, old: (r) => r.old, amount: (r) => Math.abs(r.amount),
+    const filtered = allAlerts().filter((c) => passesFilters(c.id, itemOf(c.id))).map((c) => ({ ...c, name: itemOf(c.id).n }));
+    const rows = sortRows(filtered, state.sort.alerts, {
+      name: (r) => r.name, price: (r) => r.market, old: (r) => r.old, amount: (r) => Math.abs(r.amount),
       percent: (r) => Math.abs(r.percent), supply: (r) => r.supply,
     });
-    const columns = [
-      { key: "name", label: "Item", left: true }, { key: "market", label: "Now" }, { key: "old", label: "Before" },
+    drawTable([
+      { key: "name", label: "Item", left: true }, { key: "price", label: "Now" }, { key: "old", label: "Before" },
       { key: "amount", label: "Change" }, { key: "percent", label: "Change %" }, { key: "supply", label: "For sale" },
-    ];
-    const body = rows.map((r) => `<tr data-item="${r.id}"><td>${itemName(r.id)}</td><td>${money(r.market)}</td><td>${money(r.old)}</td>${changeCells(r)}<td>${r.supply.toLocaleString("en-US")}</td></tr>`).join("")
-      || emptyRow(6, state.ts ? "No significant price changes with these limits." : "Waiting for price data.");
-    renderTable($("alert-table"), "alerts", columns, body);
-    const count = $("alert-count");
-    count.hidden = rows.length === 0;
-    count.textContent = rows.length;
+    ], rows, (r) => `<tr class="row" data-item="${r.id}"><td>${itemCell(r.id)}</td><td>${coins(r.market)}</td><td>${coins(r.old)}</td>${changeCells(r)}<td>${number(r.supply)}</td></tr>`,
+    state.ts ? "No big price changes with these settings. Lower the limits to see more." : "Waiting for price data.", "alert");
   }
 
   // ---- Profit ----
@@ -145,14 +168,13 @@
 
   function renderProfit() {
     state.rows = state.rows || craftRows(state.catalog, state.prices);
-    const search = $("profit-search").value.trim().toLowerCase();
-    const profession = $("profit-profession").value;
-    const only = $("profit-only").checked;
+    const profession = state.category.startsWith(PROFESSION_PREFIX) ? state.category.slice(PROFESSION_PREFIX.length) : null;
+    const onlyProfitable = $("profit-only").checked;
     const supply = Number($("profit-supply").value) || 0;
     let rows = state.rows.filter((r) => {
-      if (profession !== "all" && r.recipe.p !== profession) return false;
-      if (search && !r.item.n.toLowerCase().includes(search)) return false;
-      if (only && !(r.profit > 0)) return false;
+      if (profession ? r.recipe.p !== profession : !matches(state.category, r.recipe.i, r.item, context())) return false;
+      if (state.search && !r.item.n.toLowerCase().includes(state.search)) return false;
+      if (onlyProfitable && !(r.profit > 0)) return false;
       if (supply && r.best && r.best.kind === "Sell on auction" && r.supply < supply) return false;
       return true;
     });
@@ -160,63 +182,61 @@
       name: (r) => r.item.n, profession: (r) => r.recipe.p, cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
       vendor: (r) => perCraft(r.vendor, r), profit: (r) => r.profit, margin: (r) => r.margin, supply: (r) => r.supply,
     });
-    const shown = rows.slice(0, state.limits.profit);
-    const columns = [
-      { key: "name", label: "Item", left: true }, { key: "profession", label: "Profession", left: true }, { key: "cost", label: "Craft cost" },
-      { key: "ah", label: "Auction, after cut" }, { key: "de", label: "Disenchant" }, { key: "vendor", label: "Vendor" },
-      { label: "Best choice", left: true }, { key: "profit", label: "Profit" }, { key: "margin", label: "Margin" }, { key: "supply", label: "For sale" },
-    ];
-    const body = shown.map((r) => {
-      const each = r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "";
+    drawTable([
+      { key: "name", label: "Item", left: true }, { key: "profit", label: "Profit" }, { label: "Best choice", left: true },
+      { key: "cost", label: "Craft cost" }, { key: "ah", label: "Auction, after cut" }, { key: "de", label: "Disenchant" },
+      { key: "vendor", label: "Vendor" }, { key: "margin", label: "Margin" }, { key: "supply", label: "For sale" },
+      { key: "profession", label: "Profession", left: true },
+    ], rows, (r) => {
+      const makes = r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "";
       const cls = r.profit == null ? "muted" : r.profit > 0 ? "up" : "down";
       const arrow = r.profit == null ? "" : r.profit > 0 ? "▲ " : "▼ ";
-      return `<tr data-recipe="${r.recipe.s}"><td>${itemName(r.recipe.i)}${each}</td><td class="left">${esc(r.recipe.p)}</td>
-        <td>${r.cost == null ? '<span class="muted">Missing prices</span>' : money(r.cost)}</td>
-        <td>${money(perCraft(r.ah, r))}</td><td>${money(perCraft(r.de, r))}</td><td>${money(perCraft(r.vendor, r))}</td>
+      return `<tr class="row" data-recipe="${r.recipe.s}"><td>${itemCell(r.recipe.i, makes)}</td>
+        <td class="${cls}">${arrow}${coins(r.profit)}</td>
         <td class="left">${r.best ? esc(r.best.kind) : "–"}</td>
-        <td class="${cls}">${arrow}${money(r.profit)}</td>
-        <td>${r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%"}</td><td>${r.supply ? r.supply.toLocaleString("en-US") : "0"}</td></tr>`;
-    }).join("") || emptyRow(10, state.ts ? "No recipes match. Try turning off Only profitable." : "Waiting for price data.");
-    renderTable($("profit-table"), "profit", columns, body);
-    $("profit-more").hidden = rows.length <= shown.length;
-    $("profit-more").textContent = `Show more (${(rows.length - shown.length).toLocaleString("en-US")} left)`;
+        <td>${r.cost == null ? '<span class="muted">Missing prices</span>' : coins(r.cost)}</td>
+        <td>${coins(perCraft(r.ah, r))}</td><td>${coins(perCraft(r.de, r))}</td><td>${coins(perCraft(r.vendor, r))}</td>
+        <td>${r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%"}</td><td>${number(r.supply || 0)}</td>
+        <td class="left">${esc(r.recipe.p)}</td></tr>`;
+    }, state.ts ? "No recipes match. Try another category, clear your search or turn off Only profitable." : "Waiting for price data.", "recipe");
   }
 
   // ---- Disenchant deals ----
   function renderDeals() {
     if (!state.gear) {
-      $("deal-table").innerHTML = `<tbody>${emptyRow(5, "Loading gear list…")}</tbody>`;
-      getJson("gear.json").then((gear) => { state.gear = gear; render(); });
+      $("table").innerHTML = `<tbody>${emptyRow(5, "Loading the gear list…")}</tbody>`;
+      $("result-count").textContent = "";
+      $("more").hidden = true;
+      getJson("gear.json").then((gear) => { state.gear = gear; render(); }).catch(() => {
+        $("table").innerHTML = `<tbody>${emptyRow(5, "The gear list could not load. Try refreshing.")}</tbody>`;
+      });
       return;
     }
     state.deals = state.deals || disenchantDeals(state.gear, state.prices);
-    const search = $("deal-search").value.trim().toLowerCase();
-    let rows = state.deals.filter((d) => d.profit > 0 && (!search || d.item.n.toLowerCase().includes(search)));
+    let rows = state.deals.filter((d) => d.profit > 0 && passesFilters(d.id, d.item));
     rows = sortRows(rows, state.sort.deals, {
       name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
     });
-    const shown = rows.slice(0, state.limits.deals);
-    const columns = [
+    drawTable([
       { key: "name", label: "Item", left: true }, { key: "price", label: "Lowest price" }, { key: "value", label: "Expected materials" },
       { key: "profit", label: "Expected profit" }, { key: "supply", label: "For sale" },
-    ];
-    const body = shown.map((r) => `<tr data-deal="${r.id}"><td><span class="item q${r.item.q}">${esc(r.item.n)}</span></td><td>${money(r.price)}</td><td>${money(r.value)}</td><td class="up">▲ ${money(r.profit)}</td><td>${r.supply}</td></tr>`).join("")
-      || emptyRow(5, state.ts ? "No gear is priced below its materials right now." : "Waiting for price data.");
-    renderTable($("deal-table"), "deals", columns, body);
-    $("deal-more").hidden = rows.length <= shown.length;
-    $("deal-more").textContent = `Show more (${(rows.length - shown.length).toLocaleString("en-US")} left)`;
+    ], rows, (r) => `<tr class="row" data-item="${r.id}"><td>${itemCell(r.id)}</td><td>${coins(r.price)}</td><td>${coins(r.value)}</td><td class="up">▲ ${coins(r.profit)}</td><td>${number(r.supply)}</td></tr>`,
+    state.ts ? "No gear here is priced below its materials right now." : "Waiting for price data.", "deal");
   }
 
   // ---- Item detail ----
-  const SOURCE = { auction: "Auction", vendor: "Vendor", craft: "Craft it", none: "No price" };
-
-  function statBox(label, value) {
-    return `<div class="stat"><b>${value}</b><span>${esc(label)}</span></div>`;
+  function statBox(label, html) {
+    return `<div class="stat"><b>${html}</b><span class="label">${esc(label)}</span></div>`;
   }
 
-  function lineChart(times, values, ranged) {
+  function lineChart(times, values, daily) {
     const points = times.map((t, i) => ({ t, v: values[i] })).filter((p) => p.v != null);
-    if (points.length < 2) return '<p class="muted">Not enough history yet. It builds up with each update.</p>';
+    if (points.length < 2) {
+      const none = document.createElement("p");
+      none.className = "muted";
+      none.textContent = "Not enough history yet. It builds up with each scan.";
+      return none;
+    }
     const W = 700, H = 240, L = 62, R = 14, T = 12, B = 26;
     const vs = points.map((p) => p.v);
     let lo = Math.min(...vs), hi = Math.max(...vs);
@@ -226,23 +246,22 @@
     const x = (t) => L + ((t - t0) / (t1 - t0 || 1)) * (W - L - R);
     const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
     const date = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    const stamp = (t) => new Date(t * 1000).toLocaleString(undefined, ranged ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", hour: "numeric" });
+    const stamp = (t) => new Date(t * 1000).toLocaleString(undefined, daily ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", hour: "numeric" });
     const grid = [0, 0.5, 1].map((f) => {
       const v = lo + (hi - lo) * f;
       return `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${esc(money(v))}</text>`;
     }).join("");
     const path = points.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join("");
-    const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lowest price history">${grid}
+    const box = document.createElement("div");
+    box.className = "chart";
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lowest price from ${esc(date(t0))} to ${esc(date(t1))}, between ${esc(money(Math.min(...vs)))} and ${esc(money(Math.max(...vs)))}">${grid}
       <text x="${L}" y="${H - 7}">${esc(date(t0))}</text><text x="${W - R}" y="${H - 7}" text-anchor="end">${esc(date(t1))}</text>
       <path d="${path}" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       <line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--muted)" visibility="hidden"/>
       <circle class="dot" r="4" fill="var(--series)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
-      <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg>`;
-    const box = document.createElement("div");
-    box.className = "chart";
-    box.innerHTML = svg + '<div class="tip" hidden></div>';
+      <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg><div class="tip" hidden></div>`;
     const root = box.querySelector("svg"), cross = box.querySelector(".cross"), dot = box.querySelector(".dot"), tip = box.querySelector(".tip");
-    const move = (event) => {
+    root.addEventListener("pointermove", (event) => {
       const rect = root.getBoundingClientRect();
       const px = ((event.clientX - rect.left) / rect.width) * W;
       let best = points[0];
@@ -253,37 +272,42 @@
       tip.textContent = `${stamp(best.t)}: ${money(best.v)}`;
       tip.style.left = Math.min(rect.width - 70, Math.max(70, (x(best.t) / W) * rect.width)) + "px";
       tip.style.top = (y(best.v) / H) * rect.height + "px";
-    };
-    root.addEventListener("pointermove", move);
+    });
     root.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.hidden = true; });
     return box;
   }
 
   async function loadHistory(id, holder) {
-    holder.innerHTML = '<p class="muted">Loading history…</p>';
+    holder.textContent = "Loading history…";
     let history;
     try {
-      state.history = state.history && state.history.house === state.house ? state.history : { house: state.house, data: await getJson(`data/hist${encodeURIComponent(state.house)}.json`) };
+      if (!state.history || state.history.house !== state.house) {
+        state.history = { house: state.house, data: await getJson(`data/hist${encodeURIComponent(state.house)}.json`) };
+      }
       history = state.history.data;
     } catch (e) {
-      holder.innerHTML = '<p class="muted">No history yet.</p>';
+      holder.textContent = "No history yet.";
       return;
     }
+    holder.innerHTML = '<div class="range"><button type="button" class="secondary" data-range="hours">Last 7 days, hourly</button><button type="button" class="secondary" data-range="days">Last 60 days, daily</button></div><div class="plot"></div>';
     const show = (range) => {
       const section = range === "days" ? history.days : history.hours;
-      const content = lineChart(section.t, section.i[id] || [], range === "days");
-      holder.querySelector(".plot").replaceChildren(typeof content === "string" ? Object.assign(document.createElement("div"), { innerHTML: content }) : content);
-      holder.querySelectorAll("[data-range]").forEach((b) => b.classList.toggle("on", b.dataset.range === range));
+      holder.querySelector(".plot").replaceChildren(lineChart(section.t, section.i[id] || [], range === "days"));
+      holder.querySelectorAll("[data-range]").forEach((b) => {
+        const on = b.dataset.range === range;
+        b.classList.toggle("on", on);
+        b.classList.toggle("secondary", !on);
+        b.setAttribute("aria-pressed", on);
+      });
     };
-    holder.innerHTML = '<div class="range"><button type="button" class="secondary" data-range="hours">Last 7 days, hourly</button><button type="button" class="secondary" data-range="days">Last 60 days, daily</button></div><div class="plot"></div>';
     holder.querySelectorAll("[data-range]").forEach((b) => b.addEventListener("click", () => show(b.dataset.range)));
     const hourly = (history.hours.i[id] || []).filter((v) => v != null).length;
     show(hourly >= 2 ? "hours" : "days");
   }
 
   function reagentTable(parts) {
-    const rows = parts.map((p) => `<tr><td>${itemName(p.id)}</td><td>${p.count}</td><td>${money(p.cost)}</td><td>${p.cost == null ? "–" : money(p.cost * p.count)}</td><td class="left">${SOURCE[p.source]}</td></tr>`).join("");
-    return `<div class="table-wrap"><table class="detail-table"><thead><tr><th>Reagent</th><th>Needed</th><th>Each</th><th>Total</th><th class="left">Cheapest from</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const rows = parts.map((p) => `<tr><td><div class="item-cell">${iconHtml(itemOf(p.id))}<span class="q${itemOf(p.id).q}">${esc(itemOf(p.id).n)}</span></div></td><td>${p.count}</td><td>${coins(p.cost)}</td><td>${p.cost == null ? "–" : coins(p.cost * p.count)}</td><td class="left">${SOURCE[p.source]}</td></tr>`).join("");
+    return `<div class="table-wrap"><table class="detail-table"><thead><tr><th scope="col">Reagent</th><th scope="col">Needed</th><th scope="col">Each</th><th scope="col">Total</th><th scope="col" class="left">Cheapest from</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function disenchantTable(item) {
@@ -291,48 +315,131 @@
     if (!outcomes) return "";
     const rows = outcomes.filter((o) => o.chance > 0).map((o) => {
       const row = state.prices[o.id];
-      return `<tr><td>${itemName(o.id)}</td><td>${Math.round(o.chance * 1000) / 10}%</td><td>${o.min === o.max ? o.min : o.min + "–" + o.max}</td><td>${money(row && row[2] > 0 ? row[1] : null)}</td></tr>`;
+      const material = itemOf(o.id);
+      return `<tr><td><div class="item-cell">${iconHtml(material)}<span class="q${material.q}">${esc(material.n)}</span></div></td><td>${Math.round(o.chance * 1000) / 10}%</td><td>${o.min === o.max ? o.min : o.min + "–" + o.max}</td><td>${coins(row && row[2] > 0 ? row[1] : null)}</td></tr>`;
     }).join("");
-    return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th>Material</th><th>Chance</th><th>Amount</th><th>Price each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th scope="col">Material</th><th scope="col">Chance</th><th scope="col">Amount</th><th scope="col">Price each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function updateDetailFavorite() {
+    const on = state.favorites.has(Number(state.detailId));
+    const button = $("detail-favorite");
+    button.textContent = on ? "★ Favorite" : "☆ Add to favorites";
+    button.setAttribute("aria-pressed", on);
   }
 
   function openItem(id, recipeSpell) {
     const item = itemOf(id);
     const row = state.prices[id];
-    const dialog = $("detail");
-    $("detail-title").innerHTML = `<span class="q${item.q}">${esc(item.n)}</span>`;
+    state.detailId = id;
+    $("detail-title").innerHTML = `${iconHtml(item)}<span class="q${item.q}">${esc(item.n)}</span>`;
+    updateDetailFavorite();
     const stats = [
-      statBox("Lowest price", money(row ? row[1] : null)),
-      statBox("Previous update", money(row ? row[3] : null)), statBox("24 hour average", money(row ? row[4] : null)),
-      statBox("7 day average", money(row ? row[5] : null)), statBox("For sale", row ? row[2].toLocaleString("en-US") : "–"),
+      statBox("Lowest price", coins(row ? row[1] : null)), statBox("Previous scan", coins(row ? row[3] : null)),
+      statBox("24 hour average", coins(row ? row[4] : null)), statBox("7 day average", coins(row ? row[5] : null)),
+      statBox("For sale", row ? number(row[2]) : "–"),
     ].join("");
-    const crafts = (state.rows || (state.rows = craftRows(state.catalog, state.prices))).filter((r) => r.recipe.i === Number(id));
-    const ordered = recipeSpell ? crafts.sort((a, b) => (b.recipe.s === recipeSpell) - (a.recipe.s === recipeSpell)) : crafts;
-    const craftHtml = ordered.map((r) => {
-      const options = r.options.map((o) => `${esc(o.kind)}: ${money(o.each * r.recipe.c)}`).join(" · ") || "No selling price known";
-      const buy = r.cost != null && r.ah != null && r.supply > 0 && row && row[1] * r.recipe.c < r.cost
-        ? `<p class="muted note">Buying it costs ${money(row[1] * r.recipe.c)}, less than crafting it.</p>` : "";
+    state.rows = state.rows || craftRows(state.catalog, state.prices);
+    const crafts = state.rows.filter((r) => r.recipe.i === Number(id));
+    if (recipeSpell) crafts.sort((a, b) => (b.recipe.s === recipeSpell) - (a.recipe.s === recipeSpell));
+    const craftHtml = crafts.map((r) => {
+      const options = r.options.map((o) => `${esc(o.kind)}: ${coins(o.each * r.recipe.c)}`).join(" · ") || "No selling price known";
+      const buyCost = row ? row[1] * r.recipe.c : null;
+      const buy = r.cost != null && r.supply > 0 && buyCost != null && buyCost < r.cost ? `<p class="muted note">Buying it costs ${coins(buyCost)}, less than crafting it.</p>` : "";
       return `<h3>${esc(r.recipe.p)} recipe, skill ${r.recipe.sk}${r.recipe.c > 1 ? `, makes ${r.recipe.c}` : ""}</h3>
         ${reagentTable(r.parts)}
-        <p class="note" style="margin-top:8px">Cost ${money(r.cost)} · ${options} · <b>Profit ${money(r.profit)}</b></p>${buy}`;
+        <p class="note" style="margin-top:8px">Cost ${coins(r.cost)} · ${options} · <b>Profit ${coins(r.profit)}</b></p>${buy}`;
     }).join("");
     const usedIn = state.catalog.recipes.filter((r) => r.r.some((p) => p[0] === Number(id)));
     const usedHtml = usedIn.length ? `<h3>Used in ${usedIn.length} recipe${usedIn.length > 1 ? "s" : ""}</h3><p class="muted note">${usedIn.slice(0, 12).map((r) => esc(r.n)).join(", ")}${usedIn.length > 12 ? " and more" : ""}</p>` : "";
     $("detail-body").innerHTML = `<div class="stats">${stats}</div><div id="history"></div>${craftHtml}${disenchantTable(item)}${usedHtml}
       <p class="note" style="margin-top:12px"><a href="https://forever.warcraftdb.com/data/item/${Number(id)}" target="_blank" rel="noopener">Open in Warcraft DB</a></p>`;
-    dialog.showModal();
+    $("detail").showModal();
     loadHistory(String(id), $("history"));
   }
 
+  // ---- Favorites ----
+  function toggleFavorite(id) {
+    const key = Number(id);
+    if (state.favorites.has(key)) state.favorites.delete(key);
+    else state.favorites.add(key);
+    store.set("favorites", [...state.favorites]);
+  }
+
+  // ---- Categories ----
+  function categoryCounts() {
+    const counts = new Map();
+    const add = (key) => counts.set(key, (counts.get(key) || 0) + 1);
+    const allGroups = groups(state.professions);
+    for (const id of Object.keys(state.catalog.items)) {
+      const row = state.prices[id];
+      if (!(row && row[2] > 0)) continue;
+      const item = state.catalog.items[id];
+      add("all");
+      for (const group of allGroups) {
+        for (const category of group.categories) {
+          if (matches(category.id, id, item, context())) add(category.id);
+        }
+      }
+    }
+    counts.set("favorites", state.favorites.size);
+    return counts;
+  }
+
+  function renderCategories() {
+    const counts = categoryCounts();
+    const button = (id, label) => `<li><button type="button" class="cat" data-category="${esc(id)}" aria-current="${state.category === id}"><span>${esc(label)}</span><span>${number(counts.get(id) || 0)}</span></button></li>`;
+    const select = $("category-select");
+    let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}</ul>`;
+    let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option>';
+    for (const group of groups(state.professions)) {
+      html += `<h2>${esc(group.label)}</h2><ul>${group.categories.map((c) => button(c.id, c.label)).join("")}</ul>`;
+      options += `<optgroup label="${esc(group.label)}">${group.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("")}</optgroup>`;
+    }
+    const scroll = $("categories").parentElement.scrollTop;
+    $("categories").innerHTML = html;
+    $("categories").parentElement.scrollTop = scroll;
+    select.innerHTML = options;
+    select.value = state.category;
+  }
+
   // ---- Page ----
+  function writeHash() {
+    const params = new URLSearchParams();
+    if (state.category !== "all") params.set("category", state.category);
+    if (state.search) params.set("q", state.search);
+    const query = params.toString();
+    history.replaceState(null, "", `#${state.tab}${query ? "?" + query : ""}`);
+  }
+
+  function readHash() {
+    const [tab, query] = location.hash.slice(1).split("?");
+    const params = new URLSearchParams(query || "");
+    state.tab = TABS.includes(tab) ? tab : store.get("tab", "prices");
+    if (!TABS.includes(state.tab)) state.tab = "prices";
+    const category = params.get("category") || "all";
+    state.category = isKnown(category, state.professions) ? category : "all";
+    state.search = (params.get("q") || "").toLowerCase();
+    $("search").value = state.search;
+  }
+
   function render() {
-    const tab = store.get("tab", "prices");
-    document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
-    ["prices", "alerts", "profit", "deals"].forEach((name) => { $("tab-" + name).hidden = name !== tab; });
-    renderAlerts();
-    if (tab === "prices") renderPrices();
-    if (tab === "profit") renderProfit();
-    if (tab === "deals") renderDeals();
+    document.querySelectorAll(".tabs button").forEach((b) => {
+      const on = b.dataset.tab === state.tab;
+      b.setAttribute("aria-selected", on);
+      b.tabIndex = on ? 0 : -1;
+    });
+    TABS.forEach((name) => { $("tab-" + name).hidden = name !== state.tab; });
+    updateAlertBadge();
+    renderCategories();
+    ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+    writeHash();
+  }
+
+  function resetAndRender() {
+    state.limit = PAGE;
+    render();
+    $("table").parentElement.scrollTop = 0;
   }
 
   function timeAgo(seconds) {
@@ -346,7 +453,7 @@
   function showUpdated() {
     $("updated").textContent = state.ts ? `Last scanned ${timeAgo(state.ts)}. Checks for new prices every 5 minutes.` : "Waiting for the first prices.";
     const banner = $("banner");
-    if (state.ts && Date.now() / 1000 - state.ts > 12 * 3600) {
+    if (state.ts && Date.now() / 1000 - state.ts > STALE_SECONDS) {
       banner.hidden = false;
       banner.textContent = `No player has scanned this auction house for ${timeAgo(state.ts).replace(" ago", "")}, so these prices may be out of date.`;
     } else if (state.ts) {
@@ -368,11 +475,11 @@
     if (seen === state.ts) return;
     store.set(key, state.ts);
     if (seen == null) return; // First visit: nothing has changed since you last looked.
-    const alerts = currentAlerts();
+    const alerts = allAlerts();
     if (!alerts.length) return;
     const lines = alerts.slice(0, 3).map((a) => `${itemOf(a.id).n} ${a.amount > 0 ? "+" : "-"}${Math.abs(a.percent).toFixed(0)}% (${money(Math.abs(a.amount))})`);
     const more = alerts.length > 3 ? ` and ${alerts.length - 3} more` : "";
-    const title = `${alerts.length} significant price change${alerts.length > 1 ? "s" : ""}`;
+    const title = `${alerts.length} big price change${alerts.length > 1 ? "s" : ""}`;
     toast(`${title}: ${lines.join(", ")}${more}`);
     if ("Notification" in window && Notification.permission === "granted" && store.get("notify", false)) {
       new Notification(title, { body: lines.join("\n") + more, tag: "forever-prices" });
@@ -386,25 +493,30 @@
     button.textContent = on ? "Notifications on" : "Turn on notifications";
     button.classList.toggle("on", on);
     button.classList.toggle("secondary", !on);
-    button.title = Notification.permission === "denied" ? "Notifications are blocked in your browser settings" : "";
+    button.setAttribute("aria-pressed", on);
+  }
+
+  function usePrices(file) {
+    state.prices = file.items || {};
+    state.ts = file.ts || null;
+    state.rows = null; state.deals = null; state.history = null;
   }
 
   async function loadHouse(id) {
     state.house = id;
     store.set("house", id);
-    let file = { ts: null, items: {} };
-    try { file = await getJson(`data/h${encodeURIComponent(id)}.json`); } catch (e) { /* no data for this house yet */ }
-    state.prices = file.items || {};
-    state.ts = file.ts || null;
-    state.rows = null; state.deals = null;
+    let file = {};
+    try { file = await getJson(`data/h${encodeURIComponent(id)}.json`); } catch (e) { /* no data for this market yet */ }
+    usePrices(file);
+    state.limit = PAGE;
     showUpdated();
     render();
   }
 
   function fillHouses() {
     const select = $("house");
-    const houses = state.meta.houses.slice().sort((a, b) => (b.listings || 0) - (a.listings || 0));
-    select.innerHTML = houses.map((h) => `<option value="${h.id}">${esc(h.rulesetName)} – ${esc(h.name)} (${h.scannedAt ? esc(timeAgo(h.scannedAt)) : "no scans"})</option>`).join("");
+    const houses = state.meta.houses.slice().sort((a, b) => (b.scannedAt || 0) - (a.scannedAt || 0));
+    select.innerHTML = houses.map((h) => `<option value="${esc(h.id)}">${esc(h.rulesetName)} – ${esc(h.name)} (${h.scannedAt ? esc(timeAgo(h.scannedAt)) : "no scans"})</option>`).join("");
     const saved = store.get("house", null);
     const pick = houses.find((h) => h.id === saved) || houses[0];
     if (!pick) throw new Error("no markets");
@@ -420,33 +532,60 @@
       if (first) await loadHouse(fillHouses());
       else {
         const file = await getJson(`data/h${encodeURIComponent(state.house)}.json`);
-        if (file.ts !== state.ts) {
-          state.prices = file.items; state.ts = file.ts; state.rows = null; state.deals = null; state.history = null;
-          render();
-        }
+        if (file.ts !== state.ts) { usePrices(file); render(); }
       }
       notifyChanges();
     } catch (e) {
       if (!state.meta) {
-        const banner = $("banner");
-        banner.hidden = false;
-        banner.textContent = "No prices yet. They appear after the first successful update.";
+        $("banner").hidden = false;
+        $("banner").textContent = "No prices yet. They appear after the first successful update.";
         render();
       }
     }
     showUpdated();
   }
 
+  function setCategory(id) {
+    state.category = id;
+    resetAndRender();
+  }
+
   function bind() {
-    document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { store.set("tab", b.dataset.tab); render(); }));
-    $("house").addEventListener("change", (e) => { state.history = null; loadHouse(e.target.value).then(notifyChanges); });
-    const reset = (name) => () => { state.limits[name] = PAGE; render(); };
-    ["price-search", "price-group", "price-basis"].forEach((id) => $(id).addEventListener("input", reset("prices")));
-    ["profit-search", "profit-profession", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", reset("profit")));
-    $("deal-search").addEventListener("input", reset("deals"));
-    $("price-more").addEventListener("click", () => { state.limits.prices += PAGE; render(); });
-    $("profit-more").addEventListener("click", () => { state.limits.profit += PAGE; render(); });
-    $("deal-more").addEventListener("click", () => { state.limits.deals += PAGE; render(); });
+    const tabs = [...document.querySelectorAll(".tabs button")];
+    tabs.forEach((button, index) => {
+      button.addEventListener("click", () => { state.tab = button.dataset.tab; store.set("tab", state.tab); resetAndRender(); });
+      button.addEventListener("keydown", (event) => {
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const next = tabs[(index + step + tabs.length) % tabs.length];
+        next.click();
+        next.focus();
+      });
+    });
+
+    $("categories").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-category]");
+      if (!button) return;
+      setCategory(button.dataset.category);
+      $("categories").querySelector(`[data-category="${CSS.escape(state.category)}"]`).focus();
+    });
+    $("category-select").addEventListener("change", (event) => setCategory(event.target.value));
+
+    let searchTimer;
+    $("search").addEventListener("input", (event) => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { state.search = event.target.value.trim().toLowerCase(); resetAndRender(); }, SEARCH_DELAY_MS);
+    });
+    $("clear-filters").addEventListener("click", () => {
+      state.search = ""; $("search").value = ""; state.category = "all";
+      resetAndRender();
+      $("search").focus();
+    });
+
+    $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
+    ["price-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
+    $("more").addEventListener("click", () => { state.limit += PAGE; render(); });
 
     [["alert-percent", "percent"], ["alert-amount", "amount"], ["alert-supply", "supply"], ["alert-basis", "basis"]].forEach(([id, key]) => {
       const input = $(id);
@@ -457,19 +596,55 @@
         render();
       });
     });
-
-    $("price-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-item]"); if (tr) openItem(tr.dataset.item); });
-    $("alert-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-item]"); if (tr) openItem(tr.dataset.item); });
-    $("profit-table").addEventListener("click", (e) => {
-      const tr = e.target.closest("tr[data-recipe]");
-      if (!tr) return;
-      const recipe = state.catalog.recipes.find((r) => r.s === Number(tr.dataset.recipe));
-      openItem(String(recipe.i), recipe.s);
+    $("alert-favorites").checked = state.alert.favorites;
+    $("alert-favorites").addEventListener("input", (event) => {
+      state.alert.favorites = event.target.checked;
+      store.set("alert", state.alert);
+      render();
     });
-    $("deal-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-deal]"); if (tr) openItem(tr.dataset.deal); });
+
+    $("table").addEventListener("click", (event) => {
+      const star = event.target.closest("[data-star]");
+      if (star) {
+        toggleFavorite(star.dataset.star);
+        const id = star.dataset.star;
+        render();
+        const again = $("table").querySelector(`[data-star="${id}"]`);
+        (again || $("search")).focus();
+        return;
+      }
+      const head = event.target.closest("th[data-sort]");
+      if (head) { changeSort(head.dataset.sort); return; }
+      const row = event.target.closest("tr.row");
+      if (!row) return;
+      if (row.dataset.recipe) {
+        const recipe = state.catalog.recipes.find((r) => r.s === Number(row.dataset.recipe));
+        openItem(String(recipe.i), recipe.s);
+      } else openItem(row.dataset.item);
+    });
+    $("table").addEventListener("keydown", (event) => {
+      const head = event.target.closest("th[data-sort]");
+      if (head && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        const key = head.dataset.sort;
+        changeSort(key);
+        $("table").querySelector(`th[data-sort="${key}"]`).focus();
+      }
+    });
+    // A missing icon tries the backup server, then leaves an empty square, never a broken image.
+    document.addEventListener("error", (event) => {
+      const image = event.target;
+      if (!image.matches || !image.matches("img.icon")) return;
+      if (image.dataset.backup) {
+        image.src = image.dataset.backup;
+        delete image.dataset.backup;
+      } else image.removeAttribute("src");
+    }, true);
+
     $("detail-close").addEventListener("click", () => $("detail").close());
-    $("detail").addEventListener("click", (e) => { if (e.target === $("detail")) $("detail").close(); });
-    $("toast").addEventListener("click", () => { $("toast").hidden = true; store.set("tab", "alerts"); render(); });
+    $("detail").addEventListener("click", (event) => { if (event.target === $("detail")) $("detail").close(); });
+    $("detail-favorite").addEventListener("click", () => { toggleFavorite(state.detailId); updateDetailFavorite(); render(); });
+    $("toast").addEventListener("click", () => { $("toast").hidden = true; state.tab = "alerts"; resetAndRender(); });
 
     $("notify").addEventListener("click", async () => {
       if (Notification.permission === "default") await Notification.requestPermission();
@@ -477,32 +652,38 @@
       else toast("Notifications are blocked. Allow them for this site in your browser settings.");
       updateNotifyButton();
     });
+    window.addEventListener("hashchange", () => { readHash(); state.limit = PAGE; render(); });
+  }
+
+  function changeSort(key) {
+    const spec = state.sort[state.tab];
+    if (spec.key === key) spec.dir = -spec.dir;
+    else { spec.key = key; spec.dir = key === "name" || key === "profession" ? 1 : -1; }
+    state.limit = PAGE;
+    render();
   }
 
   async function start() {
     state.catalog = await getJson("catalog.json");
     $("build").textContent = `Game data build ${state.catalog.build}.`;
-    const professions = [...new Set(state.catalog.recipes.map((r) => r.p))].sort();
+    state.professions = [...new Set(state.catalog.recipes.map((r) => r.p))].sort();
     for (const recipe of state.catalog.recipes) {
-      if (!state.crafted.has(recipe.i)) state.crafted.set(recipe.i, []);
-      state.crafted.get(recipe.i).push(recipe.p);
+      if (!state.craftedBy.has(recipe.i)) state.craftedBy.set(recipe.i, []);
+      state.craftedBy.get(recipe.i).push(recipe.p);
     }
-    $("price-professions").innerHTML = professions.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
-    $("profit-profession").innerHTML = '<option value="all">All professions</option>' + professions.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+    readHash();
     bind();
     updateNotifyButton();
     await poll();
-    render();
     setInterval(poll, POLL_MS);
     setInterval(showUpdated, 60000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   }
 
   start().catch((error) => {
-    const banner = $("banner");
-    banner.hidden = false;
-    banner.textContent = "The page could not load its data. Try refreshing.";
+    $("banner").hidden = false;
+    $("banner").textContent = "The page could not load its data. Try refreshing.";
+    $("updated").textContent = "";
     console.error(error);
   });
-  window.ForeverPrices = { state, afterCut, disenchantValue };
 })();

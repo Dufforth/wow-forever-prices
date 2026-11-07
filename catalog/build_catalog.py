@@ -17,7 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SITE = "https://wago.tools"
 AGENT = "wow-forever-prices (personal price page)"
-TABLES = ("SkillLineAbility", "SpellReagents", "SpellEffect", "SpellName", "ItemSparse", "Item")
+TABLES = ("SkillLineAbility", "SpellReagents", "SpellEffect", "SpellName", "ItemSparse", "Item", "ManifestInterfaceData",
+          "ItemModifiedAppearance", "ItemAppearance")
+ICON_INDEX = "https://auctionhouse.fyi/api/v1/items/search-index"
 CREATE_ITEM = 24
 
 PROFESSIONS = {
@@ -64,6 +66,20 @@ def number(row, column, default=0):
         return default
 
 
+def fallback_icons():
+    """{item: icon name} for items the client tables give no icon, mostly gear."""
+    request = urllib.request.Request(ICON_INDEX, headers={"User-Agent": AGENT})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        rows = json.load(response)["items"]
+    return {row[0]: row[3] for row in rows if len(row) > 3 and row[3]}
+
+
+def icon_name(file_id, manifest):
+    """"inv_ore_copper_01" from the client's "INV_Ore_Copper_01.blp", or None."""
+    name = manifest.get(file_id)
+    return name.rsplit(".", 1)[0].lower().replace(" ", "") if name else None
+
+
 def gather_group(item_id, item, nodes):
     if item_id in ENCHANT_MATERIALS:
         return "enchant"
@@ -74,13 +90,21 @@ def gather_group(item_id, item, nodes):
     return {5: "cloth", 6: "leather", 7: "ore", 9: "herb", 12: "enchant"}.get(item["sc"])
 
 
-def build(tables, build_name, nodes):
+def build(tables, build_name, nodes, icons):
     item_class = {number(r, "ID"): r for r in tables["Item"]}
+    manifest = {number(r, "ID"): r.get("FileName", "") for r in tables["ManifestInterfaceData"]}
+    appearance_icon = {number(r, "ID"): number(r, "DefaultIconFileDataID") for r in tables["ItemAppearance"]}
+    item_appearance = {}
+    for row in sorted(tables["ItemModifiedAppearance"], key=lambda r: number(r, "OrderIndex")):
+        item_appearance.setdefault(number(row, "ItemID"), number(row, "ItemAppearanceID"))
     items = {}
     for row in tables["ItemSparse"]:
         item_id = number(row, "ID")
         base = item_class.get(item_id, {})
         stack = max(number(row, "VendorStackCount", 1), 1)
+        icon = (icon_name(number(base, "IconFileDataID"), manifest)
+                or icon_name(appearance_icon.get(item_appearance.get(item_id)), manifest)
+                or icons.get(item_id))
         items[item_id] = {
             "n": row.get("Display_lang", ""),
             "q": number(row, "OverallQualityID"),
@@ -93,6 +117,8 @@ def build(tables, build_name, nodes):
             "inv": number(row, "InventoryType"),
             "bop": 1 if number(row, "Bonding") == 1 else 0,
         }
+        if icon:
+            items[item_id]["ic"] = icon
 
     reagents = {}
     for row in tables["SpellReagents"]:
@@ -148,8 +174,11 @@ def build(tables, build_name, nodes):
     gear = {}
     for item_id, item in items.items():
         if (item["cl"] in (WEAPON, ARMOR) and 2 <= item["q"] <= 4 and item["il"] > 0 and item["n"]
+                and "[DNT]" not in item["n"] and item["n"] != "Template Item"
                 and item["inv"] not in NEVER_DISENCHANT_SLOTS and not item["bop"]):
-            gear[item_id] = {"n": item["n"], "q": item["q"], "il": item["il"], "cl": item["cl"]}
+            gear[item_id] = {"n": item["n"], "q": item["q"], "il": item["il"], "cl": item["cl"], "sc": item["sc"]}
+            if "ic" in item:
+                gear[item_id]["ic"] = item["ic"]
 
     catalog = {
         "build": build_name,
@@ -167,7 +196,7 @@ def main():
     build_name = args.build or newest_build()
     tables = {name: read_table(name, build_name, args.cache) for name in TABLES}
     nodes = json.loads((ROOT / "catalog/gather_items.json").read_text(encoding="utf-8"))
-    catalog, gear = build(tables, build_name, nodes)
+    catalog, gear = build(tables, build_name, nodes, fallback_icons())
     out = ROOT / "site"
     (out / "catalog.json").write_text(json.dumps(catalog, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     (out / "gear.json").write_text(json.dumps(gear, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
