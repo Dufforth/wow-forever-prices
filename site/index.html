@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forever Prices</title>
+<meta name="description" content="WoW Forever auction prices for profession and gathering items, with price alerts and crafting profit.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Forever Prices</h1>
+    <p id="updated" class="muted">Loading…</p>
+  </div>
+  <div class="controls">
+    <label>Auction house
+      <select id="house"></select>
+    </label>
+    <button id="notify" type="button" class="secondary">Turn on notifications</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button role="tab" data-tab="prices" aria-selected="true">Prices</button>
+  <button role="tab" data-tab="alerts" aria-selected="false">Alerts <span id="alert-count" class="count" hidden></span></button>
+  <button role="tab" data-tab="profit" aria-selected="false">Profit</button>
+  <button role="tab" data-tab="deals" aria-selected="false">Disenchant deals</button>
+</nav>
+
+<main>
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="tab-prices" class="panel">
+    <div class="filters">
+      <label class="grow">Search <input id="price-search" type="search" placeholder="Item name"></label>
+      <label>Show
+        <select id="price-group">
+          <option value="all">All items</option>
+          <option value="gathering">All gathering</option>
+          <option value="herb">Herbs</option>
+          <option value="ore">Ore, bars and stone</option>
+          <option value="leather">Leather and hides</option>
+          <option value="cloth">Cloth</option>
+          <option value="enchant">Enchanting materials</option>
+          <optgroup label="Crafted by" id="price-professions"></optgroup>
+        </select>
+      </label>
+      <label>Compare with
+        <select id="price-basis">
+          <option value="previous">Previous update</option>
+          <option value="day">24 hour average</option>
+          <option value="week">7 day average</option>
+        </select>
+      </label>
+    </div>
+    <div class="table-wrap"><table id="price-table"></table></div>
+    <button id="price-more" class="secondary more" type="button" hidden>Show more</button>
+  </section>
+
+  <section id="tab-alerts" class="panel" hidden>
+    <div class="filters">
+      <label>Price moved by at least (%) <input id="alert-percent" type="number" min="1" step="1"></label>
+      <label>And by at least (silver) <input id="alert-amount" type="number" min="0" step="1"></label>
+      <label>With at least this many for sale <input id="alert-supply" type="number" min="1" step="1"></label>
+      <label>Compare with
+        <select id="alert-basis">
+          <option value="previous">Previous update</option>
+          <option value="day">24 hour average</option>
+          <option value="week">7 day average</option>
+        </select>
+      </label>
+    </div>
+    <p class="muted note">These limits also decide what you get notified about. Notifications only arrive while this page is open in a browser tab.</p>
+    <div class="table-wrap"><table id="alert-table"></table></div>
+  </section>
+
+  <section id="tab-profit" class="panel" hidden>
+    <div class="filters">
+      <label class="grow">Search <input id="profit-search" type="search" placeholder="Item name"></label>
+      <label>Profession <select id="profit-profession"></select></label>
+      <label>At least this many for sale <input id="profit-supply" type="number" min="0" step="1"></label>
+      <label class="check"><input id="profit-only" type="checkbox" checked> Only profitable</label>
+    </div>
+    <p class="muted note">Profit is per craft, using the best way to sell after the 5% auction cut. Reagents use the cheapest of auction, vendor or crafting them yourself. Disenchant values are expected averages from Classic tables, so check them in game. Select a row for the details.</p>
+    <div class="table-wrap"><table id="profit-table"></table></div>
+    <button id="profit-more" class="secondary more" type="button" hidden>Show more</button>
+  </section>
+
+  <section id="tab-deals" class="panel" hidden>
+    <div class="filters">
+      <label class="grow">Search <input id="deal-search" type="search" placeholder="Item name"></label>
+    </div>
+    <p class="muted note">Gear for sale below the expected value of its disenchanted materials, after the 5% auction cut. Results vary from item to item, so a small profit can turn into a small loss. Bind on pickup gear and items with random bonuses are left out.</p>
+    <div class="table-wrap"><table id="deal-table"></table></div>
+    <button id="deal-more" class="secondary more" type="button" hidden>Show more</button>
+  </section>
+</main>
+
+<footer class="muted">
+  Prices are asking prices from Blizzard's API, which updates about once an hour, and not completed sales. Recipes come from the game client's tables through wago.tools.
+  <span id="build"></span>
+</footer>
+
+<dialog id="detail">
+  <div class="detail-head">
+    <h2 id="detail-title"></h2>
+    <button id="detail-close" type="button" class="secondary" aria-label="Close">Close</button>
+  </div>
+  <div id="detail-body"></div>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

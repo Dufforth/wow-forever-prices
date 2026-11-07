@@ -1,0 +1,7 @@
+site/data/
+state/
+_site/
+.claude/
+__pycache__/
+*.pyc
+.env
