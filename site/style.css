@@ -221,3 +221,33 @@ dialog .table-wrap { flex: none; container-type: normal; }
   .result-bar { margin-left: 0; }
   .help p { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; }
 }
+
+/* ---- Janine's page guide ---- */
+.guide-spot { position: fixed; z-index: 900; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 3px var(--accent), 0 0 0 9999px rgb(0 0 0 / 0.55); transition: all .35s ease; }
+.guide { position: fixed; z-index: 901; display: flex; align-items: flex-end; gap: 4px; width: min(420px, calc(100vw - 32px));
+  transition: left .35s ease, top .35s ease; }
+.guide-avatar { flex: none; width: 120px; height: 140px;
+  filter: drop-shadow(0 0 1.5px rgb(255 255 255 / .9)) drop-shadow(0 0 6px rgb(255 255 255 / .35)) drop-shadow(0 4px 6px rgb(0 0 0 / .35)); }
+.guide-balloon { position: relative; flex: 1; margin-bottom: 56px; padding: 10px 12px; background: var(--surface); color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 14px; box-shadow: 0 6px 18px rgb(0 0 0 / .25); }
+.guide-balloon::before { content: ""; position: absolute; left: -11px; bottom: 14px; border: 10px solid transparent;
+  border-right-color: var(--ink); border-left: 0; }
+.guide-balloon::after { content: ""; position: absolute; left: -7px; bottom: 16px; border: 8px solid transparent;
+  border-right-color: var(--surface); border-left: 0; }
+.guide-title { margin: 0 22px 2px 0; font-weight: 700; }
+.guide-text { margin: 0 0 8px; line-height: 1.4; }
+.guide-nav { display: flex; align-items: center; gap: 6px; }
+.guide-step { margin-right: auto; font-size: .85em; }
+.guide-close { position: absolute; top: 2px; right: 4px; min-height: 0; padding: 2px 8px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.guide.docked { left: 16px; right: 16px; bottom: 16px; top: auto; width: auto; }
+.guide.docked .guide-avatar { width: 84px; height: 98px; }
+.guide.docked .guide-balloon { margin-bottom: 34px; }
+.guide-bob { animation: guide-bob 2.4s ease-in-out infinite; }
+.guide-tail { transform-origin: 86px 122px; animation: guide-tail 1.8s ease-in-out infinite; }
+@keyframes guide-bob { 50% { transform: translateY(-4px); } }
+@keyframes guide-tail { 50% { transform: rotate(-10deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .guide, .guide-spot { transition: none; }
+  .guide-bob, .guide-tail { animation: none; }
+}
