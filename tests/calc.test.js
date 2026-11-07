@@ -193,3 +193,28 @@ test("significant changes respect every limit and sort by size", () => {
   const big = Calc.significantChanges(prices, { percent: 15, minAmount: 95, minSupply: 5, basis: "previous" });
   assert.deepEqual(big.map((c) => c.id), [3, 1]);
 });
+
+test("ranks the top items by a column and ignores zero", () => {
+  const rows = { 1: [0, 0, 5, 0, 0, 0, 0], 2: [0, 0, 50, 0, 0, 0, 9], 3: [0, 0, 20, 0, 0, 0, 3], 4: [0, 0, 0] };
+  assert.deepEqual([...Calc.topBy(rows, 2, 2)], [2, 3]);
+  assert.deepEqual([...Calc.topBy(rows, 6, 5)], [2, 3]);
+});
+
+test("sorts by item level, then by name to break ties", () => {
+  const rows = [{ n: "Bolt", il: 20 }, { n: "Axe", il: 30 }, { n: "Cloak", il: 20 }, { n: "Dust", il: null }, { n: "Arrow", il: 20 }];
+  const getters = { level: (r) => r.il, name: (r) => r.n };
+  const down = Calc.sortBy(rows, [{ key: "level", dir: -1 }, { key: "name", dir: 1 }], getters).map((r) => r.n);
+  assert.deepEqual(down, ["Axe", "Arrow", "Bolt", "Cloak", "Dust"], "empty values go last");
+  const up = Calc.sortBy(rows, [{ key: "level", dir: 1 }, { key: "name", dir: -1 }], getters).map((r) => r.n);
+  assert.deepEqual(up, ["Cloak", "Bolt", "Arrow", "Axe", "Dust"]);
+  assert.deepEqual(Calc.sortBy(rows, [{ key: "missing", dir: 1 }], getters).map((r) => r.n), rows.map((r) => r.n), "unknown keys are ignored");
+});
+
+test("columns follow the viewer's order and hidden list; the first column stays", () => {
+  const cols = [{ key: "name", label: "Item" }, { key: "a", label: "A" }, { key: "b", label: "B" }, { label: "Sell by" }, { key: "roi", id: "return", label: "Return" }];
+  const ids = (list) => list.map(Calc.columnId);
+  assert.deepEqual(ids(Calc.arrangeColumns(cols, null).shown), ["name", "a", "b", "Sell by", "return"]);
+  const arranged = Calc.arrangeColumns(cols, { order: ["return", "gone", "b"], hidden: ["b", "name"] });
+  assert.deepEqual(ids(arranged.all), ["name", "return", "b", "a", "Sell by"], "new columns go at the end");
+  assert.deepEqual(ids(arranged.shown), ["name", "return", "a", "Sell by"], "the first column can't be hidden");
+});

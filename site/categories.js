@@ -83,7 +83,6 @@
   function matches(categoryId, id, item, context) {
     if (categoryId === "all") return true;
     if (categoryId === "favorites") return context.favorites.has(Number(id));
-    if (categoryId === "scan-list") return Boolean(context.scanList && context.scanList.has(Number(id)));
     if (categoryId === "most-posted") return Boolean(context.mostPosted && context.mostPosted.has(Number(id)));
     if (categoryId === "most-bought") return Boolean(context.mostBought && context.mostBought.has(Number(id)));
     if (categoryId.startsWith(PROFESSION_PREFIX)) {
@@ -94,7 +93,7 @@
   }
 
   function isKnown(categoryId, professions) {
-    if (categoryId === "all" || categoryId === "favorites" || categoryId === "scan-list" || byId.has(categoryId)) return true;
+    if (categoryId === "all" || categoryId === "favorites" || byId.has(categoryId)) return true;
     if (MARKET_CATEGORIES.some((category) => category.id === categoryId)) return true;
     return categoryId.startsWith(PROFESSION_PREFIX) && professions.includes(categoryId.slice(PROFESSION_PREFIX.length));
   }
@@ -102,7 +101,6 @@
   function label(categoryId) {
     if (categoryId === "all") return "All items";
     if (categoryId === "favorites") return "Favorites";
-    if (categoryId === "scan-list") return "My scan list";
     const market = MARKET_CATEGORIES.find((category) => category.id === categoryId);
     if (market) return market.label;
     if (categoryId.startsWith(PROFESSION_PREFIX)) return "Crafted by " + categoryId.slice(PROFESSION_PREFIX.length);

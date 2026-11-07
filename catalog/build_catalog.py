@@ -183,7 +183,7 @@ def build(tables, build_name, nodes, icons):
     tradable = {}
     for item_id, item in items.items():
         if item["n"] and not item["bop"] and "[DNT]" not in item["n"] and item["n"] != "Template Item":
-            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"], item["sell"]]
+            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"], item["sell"], item["il"]]
 
     catalog = {
         "build": build_name,

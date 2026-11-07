@@ -36,14 +36,14 @@
       text: "Pick your auction house here. Prices refresh about once an hour, straight from Blizzard." },
     { targets: [".sidebar", "#category-select"], title: "Categories",
       text: "Choose a group, like herbs, ores or gear. Tap the star on any item to keep it in Favorites." },
-    { targets: ["#tabbtn-prices"], title: "Prices",
-      text: "What every item costs right now, and whether that's cheap or pricey. Hover any number for a short explanation." },
-    { targets: ["#tabbtn-alerts"], title: "Alerts",
-      text: "Items whose price jumped or dropped a lot. Got cheaper means buy; got pricier means sell." },
+    { targets: ["#tabbtn-prices"], title: "Prices and Alerts",
+      text: "Prices shows what everything costs now. Alerts lists big price jumps and drops. Hover any number for a short explanation." },
     { targets: ["#tabbtn-profit", "#tabbtn-deals"], title: "Profit and Disenchant",
       text: "What's worth crafting, and which gear is worth more as enchanting materials. Green Good deal rows are the best chances." },
-    { targets: ["#tabbtn-scan"], title: "My scans",
-      text: "Pick items for the free in-game addon to scan, then load your scan for fresh prices. Happy trading!" },
+    { targets: ["#columns-toggle"], title: "Columns and sorting",
+      text: "Show, hide or reorder columns, and sort by more than one, like item level and then name. Click a column title to sort." },
+    { targets: ["#addon-download"], title: "The addon",
+      text: "Get the free Dufforth AH Scanner addon for your game here. Happy trading!" },
   ];
 
   const visible = (el) => el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";

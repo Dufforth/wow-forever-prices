@@ -77,7 +77,8 @@ class BuildTests(unittest.TestCase):
 
     def test_tradable_list_leaves_out_soulbound_items(self):
         tradable = self.build()[2]
-        self.assertEqual(tradable[3], ["Robe", 2, "inv_chest_cloth_01", 4, 1, 0])
+        self.assertEqual(tradable[3][:6], ["Robe", 2, "inv_chest_cloth_01", 4, 1, 0])
+        self.assertIsInstance(tradable[3][6], int, "item level")
         self.assertNotIn(4, tradable)
 
 

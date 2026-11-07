@@ -1,10 +1,11 @@
 (function () {
   "use strict";
-  const { money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { arrangeColumns, columnId, sortBy, topBy, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
   const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
   // Plain explanations for column titles, shown on hover or keyboard focus.
   const HINTS = {
+    "Item level": "How advanced the item is. On gear, higher usually means stronger. On materials, it roughly matches the level of the zones where you find them.",
     "Item": "The item. Select it for details, history and recipes. Hover it to see its in-game tooltip.",
     "Lowest price": "The cheapest price anyone is asking for one right now.",
     "Market": "The typical price: the average of the cheapest 15% of items for sale. One unusually cheap or expensive listing barely moves it.",
@@ -38,8 +39,9 @@
   const POLL_MS = 5 * 60 * 1000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
-  const TABS = ["prices", "alerts", "profit", "deals", "scan"];
-  const SUGGESTIONS = 12;
+  const TABS = ["prices", "alerts", "profit", "deals"];
+  const MAX_SORTS = 3;
+  const TEXT_KEYS = new Set(["name", "profession", "type", "source", "material"]);
   const SELL_BY = { "Sell on auction": "Auction", Disenchant: "Disenchant", "Sell to vendor": "Vendor" };
   const SOURCE = { auction: "Auction", vendor: "Vendor", craft: "Craft it", none: "No price" };
 
@@ -55,17 +57,22 @@
   const state = {
     catalog: null, gear: null, meta: null, house: null, prices: {}, ts: null, history: null,
     rows: null, deals: null, professions: [], craftedBy: new Map(), mostPosted: new Set(), mostBought: new Set(),
-    scanList: store.get("scanList", []), allItems: null, suggestions: [], activeSuggestion: -1,
-    fileTs: null, published: {}, scans: store.get("scans", {}), scanHandle: null,
+    allItems: null, fileTs: null, columns: store.get("columns", {}),
     favorites: new Set(store.get("favorites", [])),
     loading: true, tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), limit: PAGE, detailId: null,
+    // Each tab sorts by up to MAX_SORTS columns in turn.
     sort: {
-      prices: { key: "name", dir: 1 }, profit: { key: "profit", dir: -1 },
-      alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 }, scan: { key: "name", dir: 1 },
+      prices: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
+      alerts: [{ key: "percent", dir: -1 }], deals: [{ key: "profit", dir: -1 }],
     },
     de: Object.assign({ mode: "buy", skill: "", supply: "" }, store.get("de", {})),
     alert: Object.assign({ percent: 15, amount: 10, supply: 5, basis: "previous", favorites: false }, store.get("alert", {})),
   };
+
+  for (const [tab, levels] of Object.entries(store.get("sort", {}))) {
+    const valid = Array.isArray(levels) ? levels.filter((l) => l && typeof l.key === "string" && (l.dir === 1 || l.dir === -1)).slice(0, MAX_SORTS) : [];
+    if (state.sort[tab] && valid.length) state.sort[tab] = valid;
+  }
 
   async function getJson(url) {
     const response = await fetch(url, { cache: "no-cache" });
@@ -73,10 +80,10 @@
     return response.json();
   }
 
-  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought, scanList: new Set(state.scanList) });
+  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought });
   function tradableItem(id) {
     const row = state.allItems && state.allItems[id];
-    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4], sell: row[5] } : null;
+    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4], sell: row[5], il: row[6] } : null;
   }
   const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || tradableItem(id) || { n: "Item " + id, q: 1 };
 
@@ -160,20 +167,24 @@
   };
 
 
-  function sortRows(rows, spec, getters) {
-    const get = getters[spec.key];
-    return rows.slice().sort((a, b) => {
-      const x = get(a), y = get(b);
-      if (x == null && y == null) return 0;
-      if (x == null) return 1;
-      if (y == null) return -1;
-      if (typeof x === "string") return x.localeCompare(y) * spec.dir;
-      return (x - y) * spec.dir;
-    });
-  }
+  const sortRows = (rows, levels, getters) => sortBy(rows, levels, getters);
 
   function emptyRow(columns, text) {
     return `<tr><td class="empty" colspan="${columns}">${esc(text)}</td></tr>`;
+  }
+
+  // Item level: the same column on every tab; `itemFor` finds the row's item.
+  function levelColumn(itemFor) {
+    return {
+      key: "level", label: "Item level", hint: HINTS["Item level"], p: 2,
+      say: (r) => {
+        const il = itemFor(r).il;
+        if (!il) return "Item level not known.";
+        const gear = itemFor(r).cl === 2 || itemFor(r).cl === 4;
+        return `Item level ${number(il)}. ${gear ? "Higher usually means stronger gear." : "For materials, it roughly matches the level of the zones where you find them."}`;
+      },
+      cell: (r) => (itemFor(r).il ? number(itemFor(r).il) : "–"),
+    };
   }
 
   // Every tab draws through here: one table, one count line, one Show more button.
@@ -186,8 +197,10 @@
     return text ? ` data-cell="${esc(text)}"` : "";
   }
 
-  function drawTable(columns, rows, rowAttributes, emptyText, unit, rowClass) {
-    const spec = state.sort[state.tab];
+  function drawTable(allColumns, rows, rowAttributes, emptyText, unit, rowClass) {
+    const levels = state.sort[state.tab];
+    state.tableColumns = allColumns;
+    const columns = arrangeColumns(allColumns, state.columns[state.tab]).shown;
     const classes = (column, extra) => {
       const list = [column.left && "left", column.p && `p${column.p}`, extra].filter(Boolean);
       return list.length ? ` class="${list.join(" ")}"` : "";
@@ -196,13 +209,17 @@
       const hint = column.hint ? ` data-hint="${esc(column.hint)}"` : "";
       const label = column.hint ? `<span class="hinted">${column.label}</span>` : column.label;
       if (!column.key) return `<th scope="col"${classes(column)}${hint}${column.hint ? ' tabindex="0"' : ""}>${label}</th>`;
-      const sort = column.key === spec.key ? (spec.dir > 0 ? "ascending" : "descending") : "none";
-      return `<th scope="col"${classes(column)}${hint} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${label}</th>`;
+      const at = levels.findIndex((l) => l.key === column.key);
+      const sort = at === 0 ? (levels[0].dir > 0 ? "ascending" : "descending") : "none";
+      const mark = at < 0 ? "" : `<span class="sort-mark" aria-hidden="true">${levels[at].dir > 0 ? "▲" : "▼"}${levels.length > 1 ? `<sup>${at + 1}</sup>` : ""}</span>`
+        + (at > 0 ? `<span class="sr-only">, sort ${at + 1}</span>` : "");
+      return `<th scope="col"${classes(column)}${hint} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${label}${mark}</th>`;
     }).join("");
     const shown = rows.slice(0, state.limit);
     const body = shown.map((row) => `<tr class="row${rowClass && rowClass(row) ? " " + rowClass(row) : ""}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}${cellHint(column, row)}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
       || emptyRow(columns.length, state.loading ? "Loading prices…" : emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+    if (state.columnsOpen) renderColumnsPanel();
     const parts = [];
     if (state.category !== "all") parts.push(categoryLabel(state.category));
     if (state.source !== "all" && state.tab !== "profit") parts.push(sourceLabel(state.source).toLowerCase());
@@ -231,10 +248,10 @@
   // ---- Prices ----
   function renderPrices() {
     const basis = $("price-basis").value;
-    const listedOnly = $("price-listed").checked && state.category !== "favorites" && state.category !== "scan-list";
+    const listedOnly = $("price-listed").checked && state.category !== "favorites";
     let rows = [];
     // These lists can hold items outside the profession catalog.
-    const special = { "scan-list": state.scanList, "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought] }[state.category];
+    const special = { "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought] }[state.category];
     for (const id of (special || allItemIds()).map(String)) {
       const item = itemOf(id);
       if (!passesFilters(id, item)) continue;
@@ -243,7 +260,7 @@
       rows.push({ id, item, row, change: row ? priceChange(row, basis) : null });
     }
     rows = sortRows(rows, state.sort.prices, {
-      name: (r) => r.item.n, price: (r) => lowestOf(r.row), market: (r) => (r.row ? r.row[1] : null),
+      name: (r) => r.item.n, level: (r) => r.item.il || null, price: (r) => lowestOf(r.row), market: (r) => (r.row ? r.row[1] : null),
       amount: (r) => (r.change ? r.change.amount : null), percent: (r) => (r.change ? r.change.percent : null),
       supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
       bought: (r) => (r.row ? r.row[6] || 0 : null),
@@ -253,6 +270,7 @@
     });
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      levelColumn((r) => itemOf(r.id)),
       { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
       { key: "market", label: "Market", hint: HINTS["Market"], say: (r) => say.market(r.row), p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
       { key: "now", label: "Price now", hint: "Is today's typical price cheap, usual or pricey compared with its 7-day average? Cheap is a good time to buy; pricey is a good time to sell.", say: (r) => say.now(r.row), cell: (r) => badge(ratePriceNow(r.row)) },
@@ -293,11 +311,12 @@
   function renderAlerts() {
     const filtered = allAlerts().filter((c) => passesFilters(c.id, itemOf(c.id))).map((c) => ({ ...c, name: itemOf(c.id).n }));
     const rows = sortRows(filtered, state.sort.alerts, {
-      name: (r) => r.name, price: (r) => r.market, old: (r) => r.old, amount: (r) => Math.abs(r.amount),
+      name: (r) => r.name, level: (r) => itemOf(r.id).il || null, price: (r) => r.market, old: (r) => r.old, amount: (r) => Math.abs(r.amount),
       percent: (r) => Math.abs(r.percent), supply: (r) => r.supply, meaning: (r) => r.amount, vendor: (r) => vendorPays(itemOf(r.id)),
     });
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      levelColumn((r) => itemOf(r.id)),
       { key: "price", label: "Now", hint: HINTS["Now"], say: (r) => `It costs about ${money(r.market)} now.`, cell: (r) => coins(r.market) },
       { key: "meaning", label: "What it means", hint: "Got cheaper: a chance to buy for less than before. Got pricier: a chance to sell for more than before.", say: (r) => `${say.change(r, state.alert.basis)} ${r.amount < 0 ? "A chance to buy for less." : "A chance to sell for more."}`, cell: (r) => badge(r.amount < 0 ? "cheaper" : "pricier") },
       { key: "percent", label: "Change %", hint: HINTS["Change %"], say: (r) => say.change(r, state.alert.basis), p: 1, tone: (r) => changeTone(r), cell: (r) => changePercent(r) },
@@ -326,13 +345,14 @@
       return true;
     });
     rows = sortRows(rows, state.sort.profit, {
-      name: (r) => r.item.n, profession: (r) => r.recipe.p, cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
+      name: (r) => r.item.n, level: (r) => r.item.il || null, profession: (r) => r.recipe.p, cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
       vendor: (r) => perCraft(r.vendor, r), deal: (r) => (r.profit == null ? null : r.cost > 0 ? r.profit / r.cost : 0), profit: (r) => r.profit, margin: (r) => r.margin, supply: (r) => r.supply,
     });
     const profitTone = (r) => (r.profit == null ? "muted" : r.profit > 0 ? "up" : "down");
     const profitArrow = (r) => (r.profit == null ? "" : r.profit > 0 ? "▲ " : "▼ ");
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.recipe.i, r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "") },
+      levelColumn((r) => r.item),
       { key: "deal", label: "Deal", hint: "Good deal: you get back at least 20% more than you spend. Fair: a small profit. Loss: you lose money.", say: (r) => say.deal(r.profit, r.cost, "spend"), cell: (r) => badge(rateReturn(r.profit, r.cost)) },
       { key: "profit", label: "Profit", hint: HINTS["Profit"], say: (r) => (r.profit == null ? "Some reagent prices are missing, so profit can't be worked out." : `Making it costs ${money(r.cost)} and the best way to sell brings ${money(r.cost + r.profit)}, so you ${r.profit > 0 ? "keep" : "lose"} ${money(Math.abs(r.profit))}.`), tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
       { label: "Sell by", hint: HINTS["Sell by"], say: (r) => (r.best ? { "Sell on auction": "Selling it on the auction house earns the most.", Disenchant: "Disenchanting it and selling the materials earns the most.", "Sell to vendor": "Selling it to a vendor earns the most." }[r.best.kind] : "No way to sell it has a price yet."), left: true, p: 1, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
@@ -378,18 +398,19 @@
       && (crafting || d.supply >= supply)
       && passesFilters(d.id, d.item));
     rows = sortRows(rows, state.sort.deals, {
-      name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
+      name: (r) => r.item.n, level: (r) => r.item.il || null, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
       roi: (r) => r.roi, skill: (r) => r.skill, material: (r) => (r.material ? itemOf(r.material).n : null),
       profession: (r) => (r.recipe ? r.recipe.p : null), vendor: (r) => vendorPays(r.item),
     });
     const makes = (r) => (r.recipe && r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "");
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id, makes(r)) },
+      levelColumn((r) => r.item),
       { key: "roi", label: "Deal", hint: "Good deal: on average you get back at least 20% more than you spend. Fair: a small expected profit.", say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), cell: (r) => badge(rateReturn(r.profit, r.price)) },
       { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by ${crafting ? "crafting" : "buying"} it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
       { key: "price", label: crafting ? "Craft cost" : "Lowest price", hint: crafting ? HINTS["Craft cost"] : HINTS["Lowest price"], say: (r) => (crafting ? `Getting all the reagents costs ${money(r.price)}.` : `The cheapest one for sale costs ${money(r.price)}.`), p: 1, cell: (r) => coins(r.price) },
       { key: "value", label: "Expected materials", hint: HINTS["Expected materials"], say: (r) => `Disenchanting gives materials worth about ${money(r.value)} on average, after the 5% cut.`, p: 1, cell: (r) => coins(r.value) },
-      { key: "roi", label: "Return", hint: HINTS["Return"], say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
+      { key: "roi", id: "return", label: "Return", hint: HINTS["Return"], say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
       { key: "skill", label: "Skill needed", hint: HINTS["Skill needed"], say: (r) => (r.skill == null ? "Not known." : `You need ${number(r.skill)} Enchanting skill to disenchant it.`), p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
       { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], say: (r) => (r.material ? `Disenchanting it mostly gives ${itemOf(r.material).n}. Hover the material for its details.` : "Not known."), left: true, p: 2, cell: (r) => materialCell(r.material) },
       crafting
@@ -399,140 +420,6 @@
     ], rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
     state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
     crafting ? "craft" : "item", (r) => goodRow(rateReturn(r.profit, r.price)));
-  }
-
-  // ---- My scans ----
-  function setScanList(ids) {
-    state.scanList = ids;
-    store.set("scanList", ids);
-    updateCopyButton();
-  }
-
-  function updateCopyButton() {
-    const changed = store.get("scanCopied", null) !== Scan.listString(state.scanList);
-    $("scan-copy").textContent = changed && state.scanList.length ? "Copy list for addon (changed)" : "Copy list for addon";
-    $("scan-copy").disabled = state.scanList.length === 0;
-  }
-
-  function addToScanList(id) {
-    const key = Number(id);
-    if (!state.scanList.includes(key)) setScanList(state.scanList.concat(key));
-  }
-
-  function removeFromScanList(id) {
-    setScanList(state.scanList.filter((key) => key !== Number(id)));
-  }
-
-  function renderScanList() {
-    const rows = sortRows(state.scanList.map((id) => ({ id, item: itemOf(id), row: state.prices[id] })).filter((r) => passesFilters(r.id, r.item)), state.sort.scan, {
-      name: (r) => r.item.n, price: (r) => lowestOf(r.row), supply: (r) => (r.row ? r.row[2] : null), type: (r) => typeLabel(r.item), vendor: (r) => vendorPays(r.item),
-    });
-    drawTable([
-      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
-      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
-      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.row ? r.row[2] : 0), p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
-      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, r.row), p: 1, cell: (r) => coins(vendorPays(r.item)) },
-      { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 2, cell: (r) => esc(typeLabel(r.item)) },
-      { label: "", cell: (r) => `<button type="button" class="secondary remove" data-remove="${r.id}" aria-label="Remove ${esc(r.item.n)} from your scan list">Remove</button>` },
-    ], rows, (r) => `data-item="${r.id}"`,
-    state.scanList.length ? "No items here match your search or category." : "Your scan list is empty. Add an item above, and the addon will scan it every time. Open How it works to get started.", "item");
-  }
-
-  function closeSuggestions() {
-    state.suggestions = []; state.activeSuggestion = -1;
-    $("add-suggestions").hidden = true;
-    $("add-item").setAttribute("aria-expanded", "false");
-    $("add-item").removeAttribute("aria-activedescendant");
-  }
-
-  function drawSuggestions() {
-    const list = $("add-suggestions");
-    const input = $("add-item");
-    if (!state.suggestions.length) {
-      const text = input.value.trim();
-      if (!text) { closeSuggestions(); return; }
-      list.innerHTML = `<li class="muted" aria-disabled="true">${state.allItems ? "No items found" : "Loading items…"}</li>`;
-      list.hidden = false;
-      return;
-    }
-    list.innerHTML = state.suggestions.map((id, index) => {
-      const item = itemOf(id);
-      const added = state.scanList.includes(id);
-      return `<li id="suggestion-${index}" role="option" data-add="${id}" aria-selected="${index === state.activeSuggestion}">${iconHtml(item)}<span class="q${item.q}">${esc(item.n)}</span>${added ? '<span class="badge added">Added</span>' : ""}</li>`;
-    }).join("");
-    list.hidden = false;
-    input.setAttribute("aria-expanded", "true");
-    if (state.activeSuggestion >= 0) {
-      input.setAttribute("aria-activedescendant", `suggestion-${state.activeSuggestion}`);
-      $(`suggestion-${state.activeSuggestion}`).scrollIntoView({ block: "nearest" });
-    } else input.removeAttribute("aria-activedescendant");
-  }
-
-  function pickSuggestion(id) {
-    const added = !state.scanList.includes(id);
-    addToScanList(id);
-    toast(added ? `Added ${itemOf(id).n} to your scan list.` : `${itemOf(id).n} is already on your list.`);
-    $("add-item").value = "";
-    closeSuggestions();
-    render();
-    $("add-item").focus();
-  }
-
-  async function copyScanList() {
-    const text = Scan.listString(state.scanList);
-    try {
-      await navigator.clipboard.writeText(text);
-      store.set("scanCopied", text);
-      updateCopyButton();
-      toast("Copied. In game, type /ahscan list, paste and press Save.");
-    } catch (error) {
-      window.prompt("Copy this, then in game type /ahscan list and paste it:", text);
-      store.set("scanCopied", text);
-      updateCopyButton();
-    }
-  }
-
-  function bindScanList() {
-    const input = $("add-item");
-    let timer;
-    input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        state.suggestions = state.allItems ? Scan.searchItems(state.allItems, input.value, SUGGESTIONS) : [];
-        state.activeSuggestion = -1;
-        drawSuggestions();
-      }, SEARCH_DELAY_MS);
-    });
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { closeSuggestions(); return; }
-      const count = state.suggestions.length;
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        if (!count) return;
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        state.activeSuggestion = (state.activeSuggestion + step + count) % count;
-        drawSuggestions();
-      } else if (event.key === "Enter" && count) {
-        event.preventDefault();
-        pickSuggestion(state.suggestions[Math.max(0, state.activeSuggestion)]);
-      }
-    });
-    input.addEventListener("blur", () => setTimeout(closeSuggestions, 150));
-    // Pointer down, so the choice lands before the input loses focus.
-    $("add-suggestions").addEventListener("pointerdown", (event) => {
-      const option = event.target.closest("[data-add]");
-      if (!option) return;
-      event.preventDefault();
-      pickSuggestion(Number(option.dataset.add));
-    });
-    $("scan-copy").addEventListener("click", copyScanList);
-    $("detail-scan").addEventListener("click", () => {
-      const key = Number(state.detailId);
-      if (state.scanList.includes(key)) removeFromScanList(key);
-      else addToScanList(key);
-      updateDetailButtons();
-      render();
-    });
   }
 
   // ---- Item tooltip ----
@@ -707,7 +594,7 @@
     if (points.length < 2) {
       const none = document.createElement("p");
       none.className = "muted";
-      none.textContent = "Not enough history yet. It builds up with each scan.";
+      none.textContent = "Not enough history yet. It builds up with each update.";
       return none;
     }
     const W = 700, H = 240, L = 62, R = 14, T = 12, B = 26;
@@ -794,13 +681,6 @@
     return `<h3>Disenchant results (expected)</h3><div class="table-wrap"><table class="detail-table"><thead><tr><th scope="col">Material</th><th scope="col">Chance</th><th scope="col">Amount</th><th scope="col">Price each</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
-  function updateDetailButtons() {
-    const onList = state.scanList.includes(Number(state.detailId));
-    $("detail-scan").textContent = onList ? "On my scan list" : "Add to scan list";
-    $("detail-scan").setAttribute("aria-pressed", onList);
-    updateDetailFavorite();
-  }
-
   function updateDetailFavorite() {
     const on = state.favorites.has(Number(state.detailId));
     const button = $("detail-favorite");
@@ -813,7 +693,7 @@
     const row = state.prices[id];
     state.detailId = id;
     $("detail-title").innerHTML = `${iconHtml(item)}<span class="q${item.q}">${esc(item.n)}</span>`;
-    updateDetailButtons();
+    updateDetailFavorite();
     const stats = [
       statBox("Lowest price", coins(lowestOf(row))), statBox("Market", coins(row ? row[1] : null)), statBox("Previous update", coins(row ? row[3] : null)),
       statBox("24 hour average", coins(row ? row[4] : null)), statBox("7 day average", coins(row ? row[5] : null)),
@@ -857,7 +737,7 @@
   // only redone when something it depends on changes.
   let countsCache = { key: null, counts: null };
   function categoryCounts() {
-    const key = [state.house, state.ts, state.source, state.favorites.size, state.scanList.length, Boolean(state.allItems), state.mostPosted.size].join("|");
+    const key = [state.house, state.ts, state.source, state.favorites.size, Boolean(state.allItems), state.mostPosted.size].join("|");
     if (countsCache.key === key) return countsCache.counts;
     const counts = new Map();
     const add = (key) => counts.set(key, (counts.get(key) || 0) + 1);
@@ -875,7 +755,6 @@
       }
     }
     counts.set("favorites", state.favorites.size);
-    counts.set("scan-list", state.scanList.length);
     counts.set("most-posted", state.mostPosted.size);
     counts.set("most-bought", state.mostBought.size);
     countsCache = { key, counts };
@@ -886,8 +765,8 @@
     const counts = categoryCounts();
     const button = (id, label) => `<li><button type="button" class="cat" data-category="${esc(id)}" aria-current="${state.category === id}"><span>${esc(label)}</span><span>${number(counts.get(id) || 0)}</span></button></li>`;
     const select = $("category-select");
-    let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}${button("scan-list", "My scan list")}</ul>`;
-    let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option><option value="scan-list">My scan list</option>';
+    let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}</ul>`;
+    let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option>';
     for (const group of groups(state.professions)) {
       // A group opens by itself when the chosen category is inside it.
       const holdsCurrent = group.categories.some((c) => c.id === state.category);
@@ -929,7 +808,6 @@
     alerts: () => `Items whose price moved a lot. ${badge("cheaper")} is a chance to buy, and ${badge("pricier")} is a chance to sell. Hover a column title to see what it means.`,
     profit: () => `${badge("good")} pays back at least 20% more than you spend · ${badge("fair")} small profit · ${badge("poor")} loses money. Profit is per craft, after the 5% auction cut.`,
     deals: () => `Items worth more as enchanting materials than they cost. ${badge("good")} expected to return at least 20% more than you spend · ${badge("fair")} small expected profit. Results vary item by item.`,
-    scan: () => "Items your addon scans every time. Add or remove items here, then copy the list into the game. Open How it works for the steps.",
   };
 
   function render() {
@@ -942,14 +820,11 @@
     $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
     $("legend").innerHTML = LEGENDS[state.tab]();
     $("table").parentElement.setAttribute("aria-busy", state.loading ? "true" : "false");
-    // The add box does the searching on this tab, and all its controls stay visible.
-    $("search").hidden = state.tab === "scan";
     $("source-filter").hidden = state.tab === "profit"; // Every recipe is crafted.
-    $("filters-toggle").classList.toggle("not-needed", state.tab === "scan");
     hideTip();
     updateAlertBadge();
     renderCategories();
-    ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals, scan: renderScanList })[state.tab]();
+    ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
     writeHash();
   }
 
@@ -967,23 +842,9 @@
     return hours < 48 ? `${hours} hour${hours > 1 ? "s" : ""} ago` : `${Math.round(hours / 24)} days ago`;
   }
 
-  // Published markets, plus any you scanned that nobody has published yet.
-  function allHouses() {
-    const houses = state.meta ? state.meta.houses.slice() : [];
-    for (const id of Object.keys(state.scans)) {
-      if (!houses.some((h) => h.id === id)) {
-        const [, ruleset = "", faction = ""] = id.split(".");
-        const title = (word) => word.charAt(0).toUpperCase() + word.slice(1);
-        houses.push({ id, rulesetName: ruleset === "pvp" ? "PvP" : ruleset === "rp" ? "Roleplay" : title(ruleset), name: title(faction), scannedAt: 0 });
-      }
-    }
-    return houses.map((h) => {
-      const scan = state.scans[h.id];
-      return scan && scan.at > (h.scannedAt || 0) ? { ...h, scannedAt: scan.at } : h;
-    });
-  }
+  const allHouses = () => (state.meta ? state.meta.houses.slice() : []);
 
-  const houseLabel = (h) => `${h.rulesetName} ${h.name} · ${h.scannedAt ? timeAgo(h.scannedAt).replace(" ago", "") : "no scans"}`;
+  const houseLabel = (h) => `${h.rulesetName} ${h.name} · ${h.scannedAt ? timeAgo(h.scannedAt).replace(" ago", "") : "no data"}`;
 
   function showUpdated() {
     if (state.meta) {
@@ -1038,71 +899,14 @@
     button.setAttribute("aria-pressed", on);
   }
 
-  function activeScan() {
-    const scan = state.scans[state.house];
-    return scan && scan.at > (state.fileTs || 0) ? scan : null;
-  }
-
-  // Everything that reads prices reads state.prices: published data, plus a newer scan if there is one.
-  function refreshPrices() {
-    const scan = activeScan();
-    state.prices = scan ? Scan.applyScan(state.published, Scan.decodeRows(scan.data)) : state.published;
-    state.ts = scan ? scan.at : state.fileTs;
-    state.mostPosted = Scan.topBy(state.prices, 2, TOP_ITEMS);
-    state.mostBought = Scan.topBy(state.prices, 6, TOP_ITEMS);
-    state.rows = null; state.deals = null; state.craftDeals = null;
-    const status = $("scan-status");
-    const saved = state.scans[state.house];
-    status.hidden = !saved;
-    $("scan-remove").hidden = !saved;
-    if (saved) {
-      const count = Object.keys(Scan.decodeRows(saved.data)).length;
-      status.textContent = `${scan ? "Your scan" : "Your older scan, not in use"}: ${number(count)} item${count === 1 ? "" : "s"}, ${timeAgo(saved.at)}${saved.complete ? "" : " (partial)"} ·`;
-    }
-    $("scan-load").textContent = state.scanHandle ? "Refresh scan" : "Load scan";
-  }
-
+  // Everything that reads prices reads state.prices.
   function usePrices(file) {
-    state.published = file.items || {};
-    state.fileTs = file.ts || null;
+    state.prices = file.items || {};
+    state.ts = state.fileTs = file.ts || null;
     state.history = null;
-    refreshPrices();
-  }
-
-  function useScanText(text) {
-    const scans = Scan.parseSavedFile(text);
-    const markets = Object.keys(scans);
-    if (!markets.length) {
-      toast("No scan found in that file. Pick DufforthAHScanner.lua after scanning and typing /reload in game.");
-      return;
-    }
-    state.scans = { ...state.scans, ...scans };
-    store.set("scans", state.scans);
-    const known = allHouses().some((h) => h.id === state.house);
-    const target = scans[state.house] ? state.house : markets[0];
-    fillHouses();
-    $("house").value = known ? target : markets[0];
-    loadHouse($("house").value).then(() => {
-      const count = Object.keys(Scan.decodeRows(state.scans[state.house].data)).length;
-      toast(`Loaded your scan of ${number(count)} item${count === 1 ? "" : "s"}.`);
-    });
-  }
-
-  async function loadScan() {
-    if (state.scanHandle) {
-      const file = await state.scanHandle.getFile();
-      useScanText(await file.text());
-    } else if (window.showOpenFilePicker) {
-      try {
-        const [handle] = await window.showOpenFilePicker({ types: [{ description: "Addon data", accept: { "text/plain": [".lua"] } }] });
-        state.scanHandle = handle;
-        useScanText(await (await handle.getFile()).text());
-      } catch (error) {
-        if (error.name !== "AbortError") toast("That file could not be opened. Try again.");
-      }
-    } else {
-      $("scan-file").click();
-    }
+    state.mostPosted = topBy(state.prices, 2, TOP_ITEMS);
+    state.mostBought = topBy(state.prices, 6, TOP_ITEMS);
+    state.rows = null; state.deals = null; state.craftDeals = null;
   }
 
   async function loadHouse(id) {
@@ -1155,8 +959,8 @@
   function setCategory(id) {
     state.category = id;
     // These lists only make sense ranked, so they open sorted by what they measure.
-    if (id === "most-posted") state.sort.prices = { key: "supply", dir: -1 };
-    if (id === "most-bought") state.sort.prices = { key: "bought", dir: -1 };
+    if (id === "most-posted") state.sort.prices = [{ key: "supply", dir: -1 }];
+    if (id === "most-bought") state.sort.prices = [{ key: "bought", dir: -1 }];
     resetAndRender();
   }
 
@@ -1206,28 +1010,6 @@
 
     $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
     ["price-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
-    $("scan-load").addEventListener("click", () => {
-      loadScan().catch(() => { state.scanHandle = null; toast("That file could not be read. Press Load scan and pick it again."); refreshPrices(); });
-    });
-    $("scan-file").addEventListener("change", async (event) => {
-      const file = event.target.files[0];
-      if (file) useScanText(await file.text());
-      event.target.value = "";
-    });
-    $("scan-remove").addEventListener("click", () => {
-      delete state.scans[state.house];
-      store.set("scans", state.scans);
-      state.scanHandle = null;
-      if (!state.meta.houses.some((h) => h.id === state.house)) {
-        loadHouse(fillHouses());
-      } else {
-        fillHouses();
-        $("house").value = state.house;
-        refreshPrices();
-        render();
-      }
-      toast("Scan removed. Showing published prices.");
-    });
     [["de-mode", "mode"], ["de-skill", "skill"], ["de-supply", "supply"]].forEach(([id, key]) => {
       const input = $(id);
       input.value = state.de[key];
@@ -1260,14 +1042,6 @@
     });
 
     $("table").addEventListener("click", (event) => {
-      const remove = event.target.closest("[data-remove]");
-      if (remove) {
-        const name = itemOf(remove.dataset.remove).n;
-        removeFromScanList(remove.dataset.remove);
-        render();
-        toast(`Removed ${name} from your scan list.`);
-        return;
-      }
       const star = event.target.closest("[data-star]");
       if (star) {
         toggleFavorite(star.dataset.star);
@@ -1278,7 +1052,7 @@
         return;
       }
       const head = event.target.closest("th[data-sort]");
-      if (head) { changeSort(head.dataset.sort); return; }
+      if (head) { changeSort(head.dataset.sort, event.shiftKey); return; }
       const row = event.target.closest("tr.row");
       if (!row) return;
       if (row.dataset.recipe) {
@@ -1291,7 +1065,7 @@
       if (head && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
         const key = head.dataset.sort;
-        changeSort(key);
+        changeSort(key, event.shiftKey);
         $("table").querySelector(`th[data-sort="${key}"]`).focus();
       }
     });
@@ -1319,12 +1093,177 @@
     window.addEventListener("hashchange", () => { readHash(); state.limit = PAGE; render(); });
   }
 
-  function changeSort(key) {
-    const spec = state.sort[state.tab];
-    if (spec.key === key) spec.dir = -spec.dir;
-    else { spec.key = key; spec.dir = key === "name" || key === "profession" ? 1 : -1; }
+  const firstDirection = (key) => (TEXT_KEYS.has(key) ? 1 : -1);
+
+  function changeSort(key, add) {
+    const levels = state.sort[state.tab];
+    const at = levels.findIndex((l) => l.key === key);
+    if (add && at >= 0) levels[at].dir = -levels[at].dir;
+    else if (add) levels.splice(Math.min(levels.length, MAX_SORTS - 1), MAX_SORTS, { key, dir: firstDirection(key) });
+    else state.sort[state.tab] = [{ key, dir: at === 0 ? -levels[0].dir : firstDirection(key) }];
+    saveSort();
+  }
+
+  function saveSort() {
+    store.set("sort", state.sort);
     state.limit = PAGE;
     render();
+  }
+
+  // ---- Columns and sorting panel ----
+  // Show, hide and reorder columns, and choose up to three sort levels. Saved in this browser only.
+  function sortableColumns() {
+    const seen = new Set();
+    return state.tableColumns.filter((c) => c.key && !seen.has(c.key) && seen.add(c.key));
+  }
+
+  function directionLabel(key, dir) {
+    if (TEXT_KEYS.has(key)) return dir > 0 ? "A to Z" : "Z to A";
+    return dir > 0 ? "Low to high" : "High to low";
+  }
+
+  function renderColumnsPanel() {
+    const panel = $("columns-panel");
+    if (!state.tableColumns) return;
+    const saved = state.columns[state.tab] || {};
+    const hidden = new Set(saved.hidden || []);
+    const all = arrangeColumns(state.tableColumns, saved).all.slice(1);
+    const plain = (c) => esc(c.label);
+    const columnRows = all.map((c, i) => {
+      const id = esc(columnId(c));
+      return `<li draggable="true" data-col="${id}"><span class="cp-grip" aria-hidden="true">⠿</span>
+        <label><input type="checkbox" data-show="${id}"${hidden.has(columnId(c)) ? "" : " checked"}> ${plain(c)}</label>
+        <button type="button" class="secondary cp-move" data-move="-1" data-col="${id}" aria-label="Move ${plain(c)} earlier"${i === 0 ? " disabled" : ""}>↑</button>
+        <button type="button" class="secondary cp-move" data-move="1" data-col="${id}" aria-label="Move ${plain(c)} later"${i === all.length - 1 ? " disabled" : ""}>↓</button></li>`;
+    }).join("");
+    const sortable = sortableColumns();
+    const levels = state.sort[state.tab];
+    const sortRowsHtml = levels.map((level, i) => `<li><span class="cp-then">${i === 0 ? "Sort by" : "then by"}</span>
+        <select data-sort-level="${i}" aria-label="${i === 0 ? "Sort by" : `Then by, level ${i + 1}`}">${sortable.map((c) => `<option value="${esc(c.key)}"${c.key === level.key ? " selected" : ""}>${plain(c)}</option>`).join("")}</select>
+        <button type="button" class="secondary" data-sort-dir="${i}">${directionLabel(level.key, level.dir)}</button>
+        ${i > 0 ? `<button type="button" class="linkish" data-sort-remove="${i}" aria-label="Remove sort level ${i + 1}">Remove</button>` : ""}</li>`).join("");
+    const canAdd = levels.length < MAX_SORTS && sortable.some((c) => !levels.some((l) => l.key === c.key));
+    panel.innerHTML = `<div class="cp-head"><b>Columns</b><button type="button" class="linkish" data-reset>Reset</button>
+        <button type="button" class="cp-close" data-close aria-label="Close">×</button></div>
+      <p class="muted cp-note">Tick to show or hide. Drag, or use the arrows, to reorder. Saved in this browser only.</p>
+      <ul class="cp-list">${columnRows}</ul>
+      <div class="cp-head"><b>Sort</b></div>
+      <p class="muted cp-note">Later levels break ties, for example item level and then name. Shortcut: Shift+click a column title.</p>
+      <ol class="cp-sorts">${sortRowsHtml}</ol>
+      ${canAdd ? '<button type="button" class="secondary" data-sort-add>Add another sort</button>' : ""}`;
+  }
+
+  function saveColumns(order, hidden) {
+    state.columns[state.tab] = { order, hidden };
+    store.set("columns", state.columns);
+    render();
+  }
+
+  function currentColumns() {
+    const saved = state.columns[state.tab] || {};
+    return { order: arrangeColumns(state.tableColumns, saved).all.slice(1).map(columnId), hidden: (saved.hidden || []).slice() };
+  }
+
+  function moveColumn(id, to) {
+    const { order, hidden } = currentColumns();
+    const from = order.indexOf(id);
+    if (from < 0 || to < 0 || to >= order.length) return;
+    order.splice(to, 0, ...order.splice(from, 1));
+    saveColumns(order, hidden);
+  }
+
+  // Redrawing replaces the panel, so focus goes back to the control with the same job.
+  function keepFocus(selector) {
+    const again = selector && $("columns-panel").querySelector(selector);
+    if (again && !again.disabled) again.focus();
+    else $("columns-panel").focus();
+  }
+
+  function setColumnsOpen(open) {
+    state.columnsOpen = open;
+    $("columns-panel").hidden = !open;
+    $("columns-toggle").setAttribute("aria-expanded", open);
+    if (open) { renderColumnsPanel(); $("columns-panel").focus(); }
+  }
+
+  function bindColumns() {
+    const panel = $("columns-panel");
+    $("columns-toggle").addEventListener("click", () => setColumnsOpen(!state.columnsOpen));
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { setColumnsOpen(false); $("columns-toggle").focus(); }
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (state.columnsOpen && !panel.contains(event.target) && !$("columns-toggle").contains(event.target)) setColumnsOpen(false);
+    });
+    panel.addEventListener("change", (event) => {
+      const show = event.target.dataset.show;
+      if (show != null) {
+        const { order, hidden } = currentColumns();
+        const set = new Set(hidden);
+        if (event.target.checked) set.delete(show); else set.add(show);
+        saveColumns(order, [...set]);
+        keepFocus(`[data-show="${CSS.escape(show)}"]`);
+        return;
+      }
+      const level = event.target.dataset.sortLevel;
+      if (level != null) {
+        const key = event.target.value;
+        // A column sorts at one level only, so choosing it here takes it off any other level.
+        const levels = state.sort[state.tab].filter((l, i) => i !== Number(level) && l.key !== key);
+        const at = Math.min(Number(level), levels.length);
+        levels.splice(at, 0, { key, dir: firstDirection(key) });
+        state.sort[state.tab] = levels;
+        saveSort();
+        keepFocus(`[data-sort-level="${at}"]`);
+      }
+    });
+    panel.addEventListener("click", (event) => {
+      const target = event.target.closest("button");
+      if (!target) return;
+      const data = target.dataset;
+      if (data.close != null) { setColumnsOpen(false); $("columns-toggle").focus(); return; }
+      if (data.reset != null) {
+        delete state.columns[state.tab];
+        store.set("columns", state.columns);
+        render();
+        keepFocus("[data-reset]");
+      } else if (data.move) {
+        const { order } = currentColumns();
+        const to = order.indexOf(data.col) + Number(data.move);
+        moveColumn(data.col, to);
+        keepFocus(`[data-move="${data.move}"][data-col="${CSS.escape(data.col)}"]`);
+      } else if (data.sortDir != null) {
+        const level = state.sort[state.tab][Number(data.sortDir)];
+        level.dir = -level.dir;
+        saveSort();
+        keepFocus(`[data-sort-dir="${data.sortDir}"]`);
+      } else if (data.sortRemove != null) {
+        state.sort[state.tab].splice(Number(data.sortRemove), 1);
+        saveSort();
+        keepFocus("[data-sort-add]");
+      } else if (data.sortAdd != null) {
+        const levels = state.sort[state.tab];
+        const next = sortableColumns().find((c) => !levels.some((l) => l.key === c.key));
+        if (next) levels.push({ key: next.key, dir: firstDirection(next.key) });
+        saveSort();
+        keepFocus(`[data-sort-level="${levels.length - 1}"]`);
+      }
+    });
+    // Drag a column onto another to put it there.
+    let dragged = null;
+    panel.addEventListener("dragstart", (event) => {
+      const row = event.target.closest("[data-col]");
+      dragged = row ? row.dataset.col : null;
+      if (dragged) event.dataTransfer.effectAllowed = "move";
+    });
+    panel.addEventListener("dragover", (event) => { if (dragged && event.target.closest(".cp-list [data-col]")) event.preventDefault(); });
+    panel.addEventListener("drop", (event) => {
+      const row = event.target.closest(".cp-list li[data-col]");
+      if (!dragged || !row) return;
+      event.preventDefault();
+      moveColumn(dragged, currentColumns().order.indexOf(row.dataset.col));
+      dragged = null;
+    });
   }
 
   async function start() {
@@ -1339,17 +1278,16 @@
     readHash();
     bind();
     bindTip();
-    bindScanList();
-    updateCopyButton();
+    bindColumns();
     getJson("downloads/latest.json").then((latest) => {
       if (!/^[\w.-]+\.zip$/.test(latest.file)) return;
       const link = $("addon-download");
       link.href = `downloads/${latest.file}`;
-      link.textContent = `Download Dufforth AH Scanner v${latest.version}`;
+      link.title = `Download the free Dufforth AH Scanner addon, version ${latest.version}`;
+      link.setAttribute("aria-label", link.title);
     }).catch(() => { /* The plain link still works. */ });
     getJson("all_items.json").then((items) => {
       state.allItems = items;
-      refreshPrices();
       render();
     }).catch(() => { /* Names outside the catalog stay as item numbers. */ });
     updateNotifyButton();

@@ -17,12 +17,10 @@
     <button role="tab" id="tabbtn-alerts" data-tab="alerts" aria-controls="results" type="button">Alerts <span id="alert-count" class="count" hidden></span></button>
     <button role="tab" id="tabbtn-profit" data-tab="profit" aria-controls="results" type="button">Profit</button>
     <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Disenchant</button>
-    <button role="tab" id="tabbtn-scan" data-tab="scan" aria-controls="results" type="button">My scans</button>
   </nav>
   <div class="bar-end">
-    <button id="scan-load" type="button" class="secondary">Load scan</button>
-    <input id="scan-file" type="file" accept=".lua" hidden>
-    <select id="house" aria-label="Auction house and time since its last scan" title="Auction house and time since its last scan"></select>
+    <select id="house" aria-label="Auction house and time since its last update" title="Auction house and time since its last update"></select>
+    <a id="addon-download" class="button-link secondary-link" href="downloads/DufforthAHScanner.zip" download title="Download the free Dufforth AH Scanner addon" aria-label="Download the free Dufforth AH Scanner addon"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span class="hide-narrow">Addon</span></a>
     <button id="guide-start" type="button" class="secondary" aria-label="Start the page guide with Janine" title="Page guide">Guide</button>
     <button id="notify" type="button" class="secondary icon-button">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
@@ -100,33 +98,12 @@
         </details>
       </div>
 
-      <div id="tab-scan" class="filters" hidden>
-        <div class="combo">
-          <input id="add-item" type="search" role="combobox" aria-expanded="false" aria-controls="add-suggestions" aria-autocomplete="list" aria-label="Add an item to your scan list" placeholder="Add an item by name or ID" autocomplete="off">
-          <ul id="add-suggestions" class="suggestions" role="listbox" aria-label="Matching items" hidden></ul>
-        </div>
-        <button id="scan-copy" type="button" class="secondary">Copy list for addon</button>
-        <a id="addon-download" class="button-link" href="downloads/DufforthAHScanner.zip" download>Download Dufforth AH Scanner</a>
-        <details class="help">
-          <summary>How it works</summary>
-          <div class="help-body">
-            <ol>
-              <li><b>Install:</b> download Dufforth AH Scanner and unzip it into <code>World of Warcraft\_forever_\Interface\AddOns</code>, then restart the game. If you have an older <code>TentTimer</code> folder there, delete it.</li>
-              <li><b>Choose items:</b> add the items you want here, press <b>Copy list for addon</b>, then type <code>/ahscan list</code> in game, paste and save. Do this again whenever your list changes.</li>
-              <li><b>Scan:</b> opening the auction house runs a light scan of materials, consumables, rare and epic gear, popular crafted gear and your items, in at most 30 seconds. Type <code>/ahscan</code> for the full scan. Press <b>Scan my list</b> for just your items. To turn the automatic scan off, type <code>/ahscan auto off</code>.</li>
-              <li><b>See prices:</b> type <code>/reload</code>, press <b>Load scan</b> here and pick <code>WTF\Account\(your account)\SavedVariables\DufforthAHScanner.lua</code>.</li>
-            </ol>
-            <p class="muted">Your list and scans stay in this browser. They aren't shared with other people.</p>
-          </div>
-        </details>
-      </div>
-
       <div class="result-bar">
         <button id="filters-toggle" type="button" class="secondary phone-only" aria-expanded="false">Filters</button>
-        <span id="scan-status" class="muted" hidden></span>
-        <button id="scan-remove" type="button" class="linkish" aria-label="Remove your scan" hidden>Remove</button>
         <span id="result-count" class="muted" aria-live="polite"></span>
         <button id="clear-filters" type="button" class="linkish" hidden>Clear</button>
+        <button id="columns-toggle" type="button" class="secondary" aria-expanded="false" aria-controls="columns-panel">Columns</button>
+        <div id="columns-panel" class="columns-panel" role="dialog" aria-label="Columns and sorting" tabindex="-1" hidden></div>
       </div>
     </div>
 
@@ -142,7 +119,7 @@
   <span>Asking prices, not completed sales. Market is the average of the cheapest 15%.</span>
   <details class="help up-help">
     <summary>About this data</summary>
-    <p>Prices come from Blizzard's API, about once an hour. Markets it can't provide use player scans from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a>, where Market just repeats the lowest price. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. To refresh prices yourself, open the auction house in game, wait for the automatic scan, type /reload, then press Load scan here and pick <code>World of Warcraft\_forever_\WTF\Account\(your account)\SavedVariables\DufforthAHScanner.lua</code>. Scans and favorites are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
+    <p>Prices come from Blizzard's API, about once an hour. Markets it can't provide come from the public <a href="https://auctionhouse.fyi/docs/api" rel="noopener">auctionhouse.fyi API</a>, where Market just repeats the lowest price. Recipes come from the game client's tables through <a href="https://wago.tools" rel="noopener">wago.tools</a>. Item details come from <a href="https://www.wowhead.com" rel="noopener">Wowhead</a>. Favorites, columns and sorting are saved in this browser only. Not affiliated with Blizzard Entertainment. <span id="build"></span></p>
   </details>
 </footer>
 
@@ -150,7 +127,6 @@
   <div class="detail-head">
     <h2 id="detail-title"></h2>
     <div class="detail-actions">
-      <button id="detail-scan" type="button" class="secondary"></button>
       <button id="detail-favorite" type="button" class="secondary"></button>
       <button id="detail-close" type="button" class="secondary">Close</button>
     </div>
@@ -163,7 +139,6 @@
 <script src="calc.js"></script>
 <script src="categories.js"></script>
 <script src="tooltip.js"></script>
-<script src="scan.js"></script>
 <script src="app.js"></script>
 <script src="guide.js"></script>
 </body>

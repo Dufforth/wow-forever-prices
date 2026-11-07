@@ -49,14 +49,6 @@ test("all, favorites and professions", () => {
   assert.ok(!Categories.matches("ore", 5, item, context()));
 });
 
-test("my scan list category", () => {
-  const ctx = { ...context(), scanList: new Set([5]) };
-  assert.ok(Categories.matches("scan-list", "5", { cl: 12 }, ctx));
-  assert.ok(!Categories.matches("scan-list", 6, { cl: 12 }, ctx));
-  assert.ok(Categories.isKnown("scan-list", []));
-  assert.equal(Categories.label("scan-list"), "My scan list");
-});
-
 test("sources: crafted first, then gathered, vendor, and everything else", () => {
   const ctx = context([], { 1: ["Tailoring"] });
   assert.equal(Categories.sourceOf(1, { cl: 4 }, ctx), "crafted");

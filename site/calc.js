@@ -274,7 +274,48 @@
     return `${sign}${rest}c`;
   }
 
+  // The IDs of the top items by a column of a price row.
+  function topBy(rows, column, count) {
+    return new Set(Object.keys(rows)
+      .filter((id) => rows[id][column] > 0)
+      .sort((a, b) => rows[b][column] - rows[a][column])
+      .slice(0, count)
+      .map(Number));
+  }
+
+  // Sorts by several columns in turn: the first decides, later ones only break ties
+  // (for example item level, then name). Empty values always go last.
+  function sortBy(rows, levels, getters) {
+    const usable = levels.filter((level) => getters[level.key]);
+    return rows.slice().sort((a, b) => {
+      for (const { key, dir } of usable) {
+        const x = getters[key](a), y = getters[key](b);
+        if (x == null && y == null) continue;
+        if (x == null) return 1;
+        if (y == null) return -1;
+        const order = typeof x === "string" ? x.localeCompare(y) : x - y;
+        if (order) return order * dir;
+      }
+      return 0;
+    });
+  }
+
+  // A viewer's column choices: the first column stays first and always shows; saved order
+  // comes next, and columns added later go at the end. Unknown saved names are ignored.
+  const columnId = (column) => column.id || column.key || column.label;
+  function arrangeColumns(columns, saved) {
+    if (!saved || !columns.length) return { all: columns, shown: columns };
+    const [first, ...rest] = columns;
+    const byId = new Map(rest.map((c) => [columnId(c), c]));
+    const ordered = (saved.order || []).map((id) => byId.get(id)).filter(Boolean);
+    for (const c of rest) if (!ordered.includes(c)) ordered.push(c);
+    const hidden = new Set(saved.hidden || []);
+    const all = [first, ...ordered];
+    return { all, shown: all.filter((c, i) => i === 0 || !hidden.has(columnId(c))) };
+  }
+
   return {
+    topBy, sortBy, arrangeColumns, columnId,
     AUCTION_CUT, GOOD_RETURN, USUAL_BAND, rateReturn, ratePriceNow, afterCut, craftDisenchantRows, craftRows, disenchantDeals, disenchantOutcomes, disenchantSkill, disenchantValue, likelyMaterial,
     indexRecipes, money, priceChange, significantChanges,
   };
