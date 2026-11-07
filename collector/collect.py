@@ -290,6 +290,19 @@ def house_entry(market, listings, stamp, source):
     return {"id": market, "rulesetName": ruleset, "name": faction, "listings": listings, "scannedAt": stamp, "source": source}
 
 
+def log_bonus_only(regular, prices, wanted):
+    """Logs wanted items listed only with bonus lists, which summarize() leaves out."""
+    found = {}
+    for listing in regular:
+        item = listing.get("item") or {}
+        if item.get("bonus_lists") and item.get("id") in wanted and item["id"] not in prices:
+            entry = found.setdefault(item["id"], [0, item["bonus_lists"]])
+            entry[0] += 1
+    print(f"bonus only: {len(found)} wanted items have only listings with bonus lists")
+    for item_id, (count, bonuses) in sorted(found.items(), key=lambda pair: -pair[1][0])[:12]:
+        print(f"bonus only: item {item_id}, {count} listings, for example {bonuses}")
+
+
 def collect_blizzard(out, get, wanted, tracked, region, now, snapshots=None):
     """Blizzard's houses that have listings, as meta entries. A failed house is left out."""
     entries = []
@@ -308,6 +321,8 @@ def collect_blizzard(out, get, wanted, tracked, region, now, snapshots=None):
                 continue
             stamp = max(s for s in (stamp, commodity_stamp, 0) if s is not None) or now
             prices = summarize(regular, commodities, wanted)
+            if house_id == 114:
+                log_bonus_only(regular, prices, wanted)
             if snapshots is not None:
                 snapshots[market] = (house_id, prices)
             changed = write_market(out, market, stamp, prices, tracked)

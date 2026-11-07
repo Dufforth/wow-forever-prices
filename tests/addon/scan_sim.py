@@ -3,6 +3,7 @@ import lupa.lua51 as L
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = open(os.path.join(ROOT, "addon", "DufforthAHScanner", "Scan.lua"), encoding="utf-8").read()
+WATCH = "DufforthAHScannerWatch = { 5001, 5002 }"
 
 MOCK = r"""
 NOW, UPTIME = 1000000, 500
@@ -24,7 +25,7 @@ C_Timer = { NewTicker = function(_, f) TICKS[#TICKS+1] = f end, After = function
 hooksecurefunc = function(t, name, f) HOOKS[name] = f end
 C_AuctionHouse = {
   IsThrottledMessageSystemReady = function() return READY end,
-  SendBrowseQuery = function(q) QUERIES[#QUERIES+1] = q.itemClassFilters[1].classID; if HOOKS.SendBrowseQuery then HOOKS.SendBrowseQuery() end end,
+  SendBrowseQuery = function(q) QUERIES[#QUERIES+1] = q.itemClassFilters[1].classID; FILTERS[#QUERIES] = q.filters; if HOOKS.SendBrowseQuery then HOOKS.SendBrowseQuery() end end,
   RequestMoreBrowseResults = function() MORE = MORE + 1 end,
   HasFullBrowseResults = function() return FULL end,
   GetBrowseResults = function() return RESULTS end,
@@ -36,7 +37,8 @@ C_AuctionHouse = {
   GetItemSearchResultInfo = function(key, i) return ITEMS[key.itemID][i] end,
 }
 SEARCHES, COMMODITY, ITEMS = {}, {}, {}
-Enum = { AuctionHouseSortOrder = { Price = 0 } }
+Enum = { AuctionHouseSortOrder = { Price = 0 }, AuctionHouseFilter = { RareQuality = 7, EpicQuality = 8 } }
+FILTERS = {}
 ChatFontNormal = {}
 function CreateFrame(kind, name)
   local f = { scripts = {}, events = {} }
@@ -215,6 +217,7 @@ check("results older than a day are dropped", lua.eval("SAVED().data") == "1:70:
 def auto_lua(saved="nil"):
     lua = L.LuaRuntime(unpack_returned_tuples=True)
     lua.execute(MOCK)
+    lua.execute(WATCH)
     lua.execute(SRC)
     lua.execute(f'DufforthAHScannerDB = {saved}; FIRE("ADDON_LOADED", "DufforthAHScanner")')
     return lua
@@ -226,11 +229,16 @@ lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
 check("waits a moment after the window opens", lua.eval("#QUERIES") == 0)
 run_afters(lua)
 check("scans automatically by default", queries(lua) == [7], queries(lua))
-check("says how to turn it off", "/ahscan auto off" in lua.eval("CHAT[1]"), lua.eval("CHAT[1]"))
-for rows in ['{R(1, 5, 2)}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}']:
+check("says how long it should take and how to turn it off", "about 12 seconds, never more than 30" in lua.eval("CHAT[1]") and "/ahscan auto off" in lua.eval("CHAT[1]"), lua.eval("CHAT[1]"))
+for rows in ['{R(1, 5, 2)}', '{}', '{}', '{}', '{}']:
     lua.execute(f"ANSWER({rows})")
-check("finishes a full scan and saves it", lua.eval("SAVED().mode") == "full" and lua.eval("SAVED().complete") is True)
+check("light scan: materials, consumables, then rare and epic gear only", queries(lua) == [7, 5, 0, 4, 2], queries(lua))
+check("gear asks for rare and epic quality", lua.eval("FILTERS[4][1]") == 7 and lua.eval("FILTERS[4][2]") == 8 and lua.eval("#FILTERS[1]") == 0)
+check("then the popular crafted gear, one item at a time", searches(lua) == [5001], searches(lua))
+lua.execute('NOW = NOW + 6; FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 5001); FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 5002)')
+check("finishes a light scan and saves it", lua.eval("SAVED().mode") == "light" and lua.eval("SAVED().complete") is True)
 check("chat stays quiet: start and finish only", lua.eval("#CHAT") == 2, lua.eval("#CHAT"))
+check("learns how long requests take", lua.eval("DufforthAHScannerDB.secondsPerRequest") is not None)
 lua.execute('FIRE("AUCTION_HOUSE_CLOSED"); NOW = NOW + 30; FIRE("AUCTION_HOUSE_SHOW")')
 n = lua.eval("#QUERIES"); run_afters(lua)
 check("reopening within a minute doesn't scan again", lua.eval("#QUERIES") == n)
@@ -253,19 +261,42 @@ lua = auto_lua()
 lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
 lua.execute("ANSWER({R(1, 5, 2)})")
 other_search(lua)
-check("another search pauses the automatic scan", lua.eval("#AFTERS") == 1 and queries(lua) == [7, 0, 99], queries(lua))
+check("another search pauses the automatic scan", lua.eval("#AFTERS") == 1 and queries(lua) == [7, 5, 99], queries(lua))
 run_afters(lua)
-check("then it tries once more", queries(lua) == [7, 0, 99, 0], queries(lua))
+check("then it tries once more", queries(lua) == [7, 5, 99, 5], queries(lua))
 other_search(lua)
 check("a second search stops it and keeps the partial scan", lua.eval("SAVED().complete") is False and lua.eval("SAVED().data") == "1:5:2", lua.eval("SAVED().data"))
 n = lua.eval("#QUERIES"); run_afters(lua); lua.execute("TICK(100)")
 check("it stays stopped", lua.eval("#QUERIES") == n)
 
-lua = auto_lua('{ scanList = {777} }')
+lua = auto_lua('{ scanList = {777, 5001} }')
 lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
-for _ in range(9): lua.execute("ANSWER({})")
-check("the automatic scan includes your list", searches(lua) == [777], searches(lua))
+for _ in range(5): lua.execute("ANSWER({})")
+lua.execute('FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 5001); FIRE("COMMODITY_SEARCH_RESULTS_UPDATED", 5002)')
+check("the automatic scan includes your list, without repeats", searches(lua) == [5001, 5002, 777], searches(lua))
 lua.execute("C_AuctionHouse.SendSearchQuery({ itemID = 5 })")
 check("a search also counts as another search", lua.eval("#AFTERS") == 1)
+
+lua = auto_lua()
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
+lua.execute("ANSWER({R(1, 5, 2)})")
+lua.execute("TICK(16)"); check("keeps going within 30 seconds", lua.eval("SAVED()") is None)
+lua.execute("TICK(16)")
+check("stops at 30 seconds and keeps what it read", lua.eval("SAVED().complete") is False and lua.eval("SAVED().data") == "1:5:2", lua.eval("SAVED() and SAVED().data"))
+check("explains why it stopped", any("30 second limit" in lua.eval("CHAT")[i] for i in range(1, lua.eval("#CHAT") + 1)))
+
+lua = auto_lua('{ secondsPerRequest = 0.25 }')
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
+check("the estimate uses the learned speed", "about 3 seconds" in lua.eval("CHAT[1]"), lua.eval("CHAT[1]"))
+
+lua = auto_lua(); lua.execute("Enum.AuctionHouseFilter = nil")
+lua.execute('FIRE("AUCTION_HOUSE_SHOW")'); run_afters(lua)
+for _ in range(3): lua.execute("ANSWER({})")
+check("without quality filters it skips gear instead of reading all of it", queries(lua) == [7, 5, 0], queries(lua))
+
+lua = fresh(); lua.execute('FIRE("AUCTION_HOUSE_SHOW")')
+slash(lua, "")
+for _ in range(9): lua.execute("ANSWER({})")
+check("a manual scan is still the full scan with no time limit", queries(lua) == [7, 0, 5, 6, 1, 11, 9, 4, 2] and lua.eval("#FILTERS[8]") == 0, queries(lua))
 
 sys.exit(1 if failed else 0)

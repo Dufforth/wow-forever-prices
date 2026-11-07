@@ -110,6 +110,27 @@
     return category ? category.label : "All items";
   }
 
+  // Where an item comes from, as far as the game data shows. The data has no drop tables,
+  // so anything not crafted, gathered or sold by a vendor is "Drop or other".
+  const SOURCES = [
+    { id: "crafted", label: "Crafted" },
+    { id: "gathered", label: "Gathered" },
+    { id: "vendor", label: "Sold by vendors" },
+    { id: "other", label: "Drop or other" },
+  ];
+  const GATHERED = new Set(["herb", "ore", "leather", "cloth", "enchant"]);
+
+  function sourceOf(id, item, context) {
+    if ((context.craftedBy.get(Number(id)) || []).length) return "crafted";
+    if (GATHERED.has(item.g)) return "gathered";
+    if (item.v) return "vendor";
+    return "other";
+  }
+
+  function sourceLabel(sourceId) {
+    return (SOURCES.find((source) => source.id === sourceId) || { label: "All sources" }).label;
+  }
+
   function iconUrl(name) {
     return name ? ICON_BASE + encodeURIComponent(name) + ".jpg" : null;
   }
@@ -118,5 +139,5 @@
     return name ? ICON_BACKUP + encodeURIComponent(name) + ".jpg" : null;
   }
 
-  return { groups, iconBackupUrl, iconUrl, isKnown, label, matches, typeLabel, typeOf, PROFESSION_PREFIX };
+  return { groups, iconBackupUrl, iconUrl, isKnown, label, matches, sourceLabel, sourceOf, SOURCES, typeLabel, typeOf, PROFESSION_PREFIX };
 });

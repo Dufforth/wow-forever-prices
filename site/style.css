@@ -58,6 +58,11 @@ label.inline input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 /* Layout: categories on the left, the table takes everything else */
 .layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
 .sidebar { overflow-y: auto; border-right: 1px solid var(--line); padding: var(--space-2); scrollbar-width: thin; }
+.group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; background: none; text-align: left; min-height: 26px; padding: 0 8px; margin-top: var(--space-2); border-radius: 5px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.group-toggle:hover { background: var(--surface-2); color: var(--ink); }
+.group-toggle::before { content: "▸"; font-size: 10px; transition: transform 0.15s; }
+.group-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .group-toggle::before { transition: none; } }
 .sidebar h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: var(--space-3) 0 2px; padding: 0 8px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .cat { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; width: 100%; text-align: left; background: none; padding: 2px 8px; min-height: 26px; border-radius: 5px; font-size: 13px; }
@@ -71,6 +76,7 @@ main:focus { outline: none; }
 .banner { border: 1px solid var(--line); background: var(--surface); padding: 6px 10px; border-radius: 6px; margin-bottom: var(--space-2); font-size: 13px; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--space-3); margin-bottom: var(--space-2); }
 #search { flex: 0 1 240px; min-width: 150px; }
+#source-filter { flex: 0 0 auto; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-3); }
 .result-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-2); margin-left: auto; font-size: 13px; min-width: 0; }
 
@@ -192,7 +198,7 @@ dialog .table-wrap { flex: none; container-type: normal; }
   .bar-end { flex: 1 1 0; justify-content: flex-end; }
   .bar-end select { flex: 0 1 auto; min-width: 0; }
   .phone-only { display: inline-block; }
-  .toolbar:not(.filters-open) .filters:not(#tab-scan) { display: none; }
+  .toolbar:not(.filters-open) .filters:not(#tab-scan), .toolbar:not(.filters-open) #source-filter { display: none; }
   .combo, .combo input { width: 100%; flex-basis: 100%; }
   .phone-only.not-needed { display: none; }
   .toolbar .filters { flex-basis: 100%; }

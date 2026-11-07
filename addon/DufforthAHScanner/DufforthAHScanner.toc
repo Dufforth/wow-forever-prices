@@ -1,9 +1,10 @@
 ## Interface: 16001
 ## Title: Dufforth AH Scanner
 ## Notes: Scans auction prices for the Forever Prices page, keeps herb and ore icons on the minimap when you swap tracking, swaps tracking automatically, and shows gathering skill tooltips.
-## Version: 3.0.0
+## Version: 3.1.0
 ## IconTexture: Interface\Icons\INV_Misc_Flower_02
 ## SavedVariables: DufforthAHScannerDB
 
 Nodes.lua
+Watch.lua
 Scan.lua

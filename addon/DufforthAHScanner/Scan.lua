@@ -16,6 +16,19 @@ local LIST_PREFIX = "^%s*GT1:"
 local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
 
 -- Quest items and miscellaneous items are left out, so this is not a full scan.
+-- The light scan, used when the auction house opens: materials and consumables, rare and
+-- epic gear, then a short list of popular crafted gear (Watch.lua) and your own list.
+-- It stops at LIGHT_TIME_LIMIT seconds and keeps what it has read.
+local LIGHT_TIME_LIMIT = 30
+local DEFAULT_SECONDS_PER_REQUEST = 1
+local LIGHT_CATEGORIES = {
+    { class = 7, name = "Trade goods" },
+    { class = 5, name = "Reagents" },
+    { class = 0, name = "Consumables" },
+    { class = 4, name = "Rare and epic armor", rareAndEpic = true },
+    { class = 2, name = "Rare and epic weapons", rareAndEpic = true },
+}
+
 local CATEGORIES = {
     { class = 7, name = "Trade goods" },
     { class = 0, name = "Consumables" },
@@ -36,6 +49,7 @@ local needsReload = false
 local lastAutoStart
 local button, listButton, listFrame, listEdit
 local frame = CreateFrame("Frame", "DufforthAHScannerScanFrame", UIParent)
+local RareAndEpicFilters, ExtraItems
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. message)
@@ -113,6 +127,11 @@ end
 local function FinishScan(complete, reason)
     local count = SaveScan(complete)
     local seconds = time() - scan.startedAt
+    -- Learn how long a request takes here, so the next estimate is closer.
+    if scan.requests >= 3 and seconds > 0 then
+        local measured = seconds / scan.requests
+        db.secondsPerRequest = (db.secondsPerRequest or DEFAULT_SECONDS_PER_REQUEST) * 0.6 + measured * 0.4
+    end
     local skipped = scan.skipped
     scan = nil
     needsReload = count > 0
@@ -178,6 +197,14 @@ end
 
 local NextStep
 
+-- Asks only for rare and epic items. Nil if this game version has no such filters.
+RareAndEpicFilters = function()
+    local filters = Enum and Enum.AuctionHouseFilter
+    if filters and filters.RareQuality and filters.EpicQuality then
+        return { filters.RareQuality, filters.EpicQuality }
+    end
+end
+
 local function SendStep()
     if not scan then
         return
@@ -198,10 +225,11 @@ local function SendStep()
         C_AuctionHouse.SendBrowseQuery({
             searchString = "",
             sorts = {},
-            filters = {},
+            filters = step.rareAndEpic and RareAndEpicFilters() or {},
             itemClassFilters = { { classID = step.class } },
         })
     end
+    scan.requests = scan.requests + 1
     sending = false
 end
 
@@ -212,7 +240,26 @@ local function RequestMore()
     end
     scan.waitingForMore = false
     scan.lastAnswer = GetTime()
+    scan.requests = scan.requests + 1
     C_AuctionHouse.RequestMoreBrowseResults()
+end
+
+-- Items asked for one at a time: the popular crafted gear for a light scan, then your list.
+ExtraItems = function(mode)
+    local ids, seen = {}, {}
+    local function add(list)
+        for _, id in ipairs(list or {}) do
+            if not seen[id] then
+                seen[id] = true
+                ids[#ids + 1] = id
+            end
+        end
+    end
+    if mode == "light" then
+        add(DufforthAHScannerWatch)
+    end
+    add(ScanList())
+    return ids
 end
 
 -- List items wait until the categories are done, so only the ones they missed are asked for.
@@ -221,7 +268,7 @@ local function AddListSteps()
         return
     end
     scan.listAdded = true
-    for _, id in ipairs(ScanList()) do
+    for _, id in ipairs(ExtraItems(scan.mode)) do
         if not scan.items[id] then
             scan.steps[#scan.steps + 1] = { itemID = id, name = "Item " .. id }
         end
@@ -282,7 +329,13 @@ local function StartScan(mode, auto)
         return
     end
     local steps = {}
-    if mode ~= "list" then
+    if mode == "light" then
+        for _, category in ipairs(LIGHT_CATEGORIES) do
+            if not category.rareAndEpic or RareAndEpicFilters() then
+                steps[#steps + 1] = category
+            end
+        end
+    elseif mode ~= "list" then
         for _, category in ipairs(CATEGORIES) do
             if not (mode == "quick" and category.full) then
                 steps[#steps + 1] = category
@@ -295,9 +348,15 @@ local function StartScan(mode, auto)
     needsReload = false
     scan = {
         steps = steps, step = 0, tries = 0, items = {}, market = MarketName(), skipped = 0,
-        mode = mode, startedAt = time(), lastAnswer = GetTime(), auto = auto, interruptions = 0,
+        mode = mode, startedAt = time(), lastAnswer = GetTime(), auto = auto, interruptions = 0, requests = 0,
     }
-    if auto then
+    if mode == "light" then
+        -- One request per category, plus some for categories that come in parts, plus one per extra item.
+        local requests = #steps * 2 + #ExtraItems(mode)
+        local estimate = math.min(LIGHT_TIME_LIMIT, math.ceil(requests * (db.secondsPerRequest or DEFAULT_SECONDS_PER_REQUEST)))
+        Print(string.format("%s light scan: about %d seconds, never more than %d. Type /ahscan stop to stop%s.",
+            auto and "Automatic" or "Starting a", estimate, LIGHT_TIME_LIMIT, auto and ", or /ahscan auto off to turn this off" or ""))
+    elseif auto then
         Print("Scanning prices automatically. Type /ahscan stop to stop, or /ahscan auto off to turn this off.")
     else
         Print(mode == "list" and string.format("Scanning your list of %d items in %s.", #ScanList(), scan.market)
@@ -318,7 +377,7 @@ local function MaybeAutoScan()
         return
     end
     lastAutoStart = time()
-    StartScan("full", true)
+    StartScan("light", true)
 end
 
 -- Results are shared, so someone else's search replaces what this scan asked for.
@@ -346,6 +405,10 @@ local function OnOtherQuery(isBrowse)
 end
 
 local function CheckTimeout()
+    if scan and scan.mode == "light" and time() - scan.startedAt >= LIGHT_TIME_LIMIT then
+        FinishScan(false, string.format("The light scan reached its %d second limit.", LIGHT_TIME_LIMIT))
+        return
+    end
     if not scan or scan.waitingToSend or scan.step < 1 then
         return
     end
@@ -472,6 +535,8 @@ SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
         else
             Print("No scan is running.")
         end
+    elseif command == "light" then
+        StartScan("light")
     elseif command == "quick" then
         StartScan("quick")
     elseif command == "mine" then
@@ -492,6 +557,7 @@ SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
         StartScan("full")
     else
         Print("/ahscan - scan materials, consumables, recipes, gear and your list")
+        Print("/ahscan light - the automatic scan: materials, rare and epic gear, popular crafted gear and your list, at most 30 seconds")
         Print("/ahscan quick - scan only materials, consumables, ammo and your list")
         Print("/ahscan mine - scan only your list")
         Print("/ahscan list - paste your list from the Forever Prices page")

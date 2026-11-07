@@ -57,6 +57,16 @@ test("my scan list category", () => {
   assert.equal(Categories.label("scan-list"), "My scan list");
 });
 
+test("sources: crafted first, then gathered, vendor, and everything else", () => {
+  const ctx = context([], { 1: ["Tailoring"] });
+  assert.equal(Categories.sourceOf(1, { cl: 4 }, ctx), "crafted");
+  assert.equal(Categories.sourceOf("2", { cl: 7, g: "herb" }, ctx), "gathered");
+  assert.equal(Categories.sourceOf(3, { cl: 7, v: 1 }, ctx), "vendor");
+  assert.equal(Categories.sourceOf(4, { cl: 4 }, ctx), "other");
+  assert.equal(Categories.sourceLabel("other"), "Drop or other");
+  assert.equal(Categories.sourceLabel("all"), "All sources");
+});
+
 test("market categories", () => {
   const item = { cl: 7, sc: 9 };
   const ctx = { ...context(), mostPosted: new Set([5]), mostBought: new Set([6]) };

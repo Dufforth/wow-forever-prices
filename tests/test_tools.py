@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_addon_zip  # noqa: E402
+import build_watch_list  # noqa: E402
 import install_addon  # noqa: E402
 
 NAME = "DufforthAHScanner"
@@ -46,6 +47,20 @@ class AddonZipTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("Gathering Tracker", text, path.name)
             self.assertNotIn("TentTimer", text, path.name)
+
+
+class WatchListTests(unittest.TestCase):
+    def test_picks_traded_uncommon_crafted_gear_only(self):
+        catalog = {
+            "recipes": [{"i": 1}, {"i": 2}, {"i": 3}, {"i": 5}],
+            "items": {"1": {"cl": 4, "q": 2}, "2": {"cl": 2, "q": 2}, "3": {"cl": 4, "q": 3}, "4": {"cl": 4, "q": 2}, "5": {"cl": 7, "q": 1}},
+        }
+        houses = [
+            {"1": [0, 0, 5, 0, 0, 0, 1], "2": [0, 0, 1, 0, 0, 0, 0], "3": [0, 0, 99, 0, 0, 0, 9], "4": [0, 0, 99, 0, 0, 0, 9], "5": [0, 0, 99, 0, 0, 0, 9]},
+            {"2": [0, 0, 30, 0, 0, 0, 0]},
+        ]
+        self.assertEqual(build_watch_list.pick(catalog, houses), [2, 1])
+        self.assertEqual(build_watch_list.pick(catalog, houses, 1), [2])
 
 
 class InstallTests(unittest.TestCase):

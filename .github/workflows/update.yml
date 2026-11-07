@@ -99,6 +99,7 @@ jobs:
         run: |
           mkdir -p _site/data
           cp -r site/. _site/
+          python tools/build_watch_list.py state addon/DufforthAHScanner/Watch.lua || true
           python tools/build_addon_zip.py _site/downloads
           cp -r state/. _site/data/ || true
 

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
   const { money, priceChange, significantChanges, craftRows, disenchantDeals, disenchantOutcomes } = Calc;
-  const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, typeLabel, PROFESSION_PREFIX } = Categories;
+  const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
   const PAGE = 100;
   const POLL_MS = 5 * 60 * 1000;
@@ -27,7 +27,7 @@
     scanList: store.get("scanList", []), allItems: null, suggestions: [], activeSuggestion: -1,
     fileTs: null, published: {}, scans: store.get("scans", {}), scanHandle: null,
     favorites: new Set(store.get("favorites", [])),
-    tab: "prices", category: "all", search: "", limit: PAGE, detailId: null,
+    tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), limit: PAGE, detailId: null,
     sort: {
       prices: { key: "name", dir: 1 }, profit: { key: "profit", dir: -1 },
       alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 }, scan: { key: "name", dir: 1 },
@@ -115,9 +115,12 @@
     const body = shown.map((row) => `<tr class="row" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
       || emptyRow(columns.length, emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
-    const scope = state.category === "all" ? "" : ` in ${categoryLabel(state.category)}`;
+    const parts = [];
+    if (state.category !== "all") parts.push(categoryLabel(state.category));
+    if (state.source !== "all" && state.tab !== "profit") parts.push(sourceLabel(state.source).toLowerCase());
+    const scope = parts.length ? ` in ${parts.join(", ")}` : "";
     $("result-count").textContent = `${number(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}${scope}`;
-    $("clear-filters").hidden = state.category === "all" && !state.search;
+    $("clear-filters").hidden = state.category === "all" && !state.search && (state.source === "all" || state.tab === "profit");
     const left = rows.length - shown.length;
     $("more").hidden = left <= 0;
     $("more").textContent = `Show ${number(Math.min(left, PAGE))} more of ${number(left)}`;
@@ -125,7 +128,16 @@
 
   function passesFilters(id, item) {
     if (state.search && !item.n.toLowerCase().includes(state.search)) return false;
+    if (state.source !== "all" && sourceOf(id, item, context()) !== state.source) return false;
     return matches(state.category, id, item, context());
+  }
+
+  // Every item people can trade, not only profession items. The full list loads after the page.
+  function allItemIds() {
+    if (!state.allItems) return Object.keys(state.catalog.items);
+    const ids = new Set(Object.keys(state.allItems));
+    for (const id of Object.keys(state.catalog.items)) ids.add(id);
+    return [...ids];
   }
 
   // ---- Prices ----
@@ -135,7 +147,7 @@
     let rows = [];
     // These lists can hold items outside the profession catalog.
     const special = { "scan-list": state.scanList, "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought] }[state.category];
-    for (const id of (special || Object.keys(state.catalog.items)).map(String)) {
+    for (const id of (special || allItemIds()).map(String)) {
       const item = itemOf(id);
       if (!passesFilters(id, item)) continue;
       const row = state.prices[id];
@@ -148,7 +160,7 @@
       supply: (r) => (r.row ? r.row[2] : null), day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null),
       bought: (r) => (r.row ? r.row[6] || 0 : null),
       vendor: (r) => vendorPays(r.item), vendorBuy: (r) => vendorCharges(r.item),
-      type: (r) => typeLabel(r.item),
+      type: (r) => typeLabel(r.item), source: (r) => sourceLabel(sourceOf(r.id, r.item, context())),
     });
     drawTable([
       { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
@@ -159,11 +171,12 @@
       { key: "supply", label: "For sale", p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
       { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
       { key: "vendorBuy", label: "Vendor sells at", p: 3, cell: (r) => coins(vendorCharges(r.item)) },
-      { key: "bought", label: "Bought, 7 days (est.)", p: 2, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
-      { key: "day", label: "24 hour average", p: 2, cell: (r) => coins(r.row ? r.row[4] : null) },
-      { key: "week", label: "7 day average", p: 2, cell: (r) => coins(r.row ? r.row[5] : null) },
+      { key: "bought", label: "Bought, 7 days (est.)", p: 3, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
+      { key: "day", label: "24 hour average", p: 3, cell: (r) => coins(r.row ? r.row[4] : null) },
+      { key: "week", label: "7 day average", p: 3, cell: (r) => coins(r.row ? r.row[5] : null) },
+      { key: "source", label: "Source", left: true, p: 2, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
       { key: "type", label: "Type", left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
-    ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or clear your search.", "item");
+    ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or source, or clear your search.", "item");
   }
 
   // ---- Alerts ----
@@ -677,10 +690,11 @@
     const counts = new Map();
     const add = (key) => counts.set(key, (counts.get(key) || 0) + 1);
     const allGroups = groups(state.professions);
-    for (const id of Object.keys(state.catalog.items)) {
+    for (const id of allItemIds()) {
       const row = state.prices[id];
       if (!(row && row[2] > 0)) continue;
-      const item = state.catalog.items[id];
+      const item = itemOf(id);
+      if (state.source !== "all" && sourceOf(id, item, context()) !== state.source) continue;
       add("all");
       for (const group of allGroups) {
         for (const category of group.categories) {
@@ -702,7 +716,12 @@
     let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}${button("scan-list", "My scan list")}</ul>`;
     let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option><option value="scan-list">My scan list</option>';
     for (const group of groups(state.professions)) {
-      html += `<h2>${esc(group.label)}</h2><ul>${group.categories.map((c) => button(c.id, c.label)).join("")}</ul>`;
+      // A group opens by itself when the chosen category is inside it.
+      const holdsCurrent = group.categories.some((c) => c.id === state.category);
+      const open = holdsCurrent || !state.collapsed[group.label];
+      const listId = `group-${group.label.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+      html += `<button type="button" class="group-toggle" data-group="${esc(group.label)}" aria-expanded="${open}" aria-controls="${listId}">${esc(group.label)}</button>`
+        + `<ul id="${listId}"${open ? "" : " hidden"}>${group.categories.map((c) => button(c.id, c.label)).join("")}</ul>`;
       options += `<optgroup label="${esc(group.label)}">${group.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("")}</optgroup>`;
     }
     const scroll = $("categories").parentElement.scrollTop;
@@ -742,6 +761,7 @@
     $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
     // The add box does the searching on this tab, and all its controls stay visible.
     $("search").hidden = state.tab === "scan";
+    $("source-filter").hidden = state.tab === "profit"; // Every recipe is crafted.
     $("filters-toggle").classList.toggle("not-needed", state.tab === "scan");
     hideTip();
     updateAlertBadge();
@@ -968,12 +988,22 @@
     });
 
     $("categories").addEventListener("click", (event) => {
+      const toggle = event.target.closest("[data-group]");
+      if (toggle) {
+        const group = toggle.dataset.group;
+        state.collapsed[group] = toggle.getAttribute("aria-expanded") === "true";
+        store.set("collapsed", state.collapsed);
+        renderCategories();
+        $("categories").querySelector(`[data-group="${CSS.escape(group)}"]`).focus();
+        return;
+      }
       const button = event.target.closest("[data-category]");
       if (!button) return;
       setCategory(button.dataset.category);
       $("categories").querySelector(`[data-category="${CSS.escape(state.category)}"]`).focus();
     });
     $("category-select").addEventListener("change", (event) => setCategory(event.target.value));
+    $("source-filter").addEventListener("change", (event) => { state.source = event.target.value; resetAndRender(); });
 
     let searchTimer;
     $("search").addEventListener("input", (event) => {
@@ -982,6 +1012,7 @@
     });
     $("clear-filters").addEventListener("click", () => {
       state.search = ""; $("search").value = ""; state.category = "all";
+      state.source = "all"; $("source-filter").value = "all";
       resetAndRender();
       $("search").focus();
     });
