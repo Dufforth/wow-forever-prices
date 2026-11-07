@@ -33,7 +33,7 @@ jobs:
       - name: Run the tests
         run: |
           python -m unittest discover -b -s tests
-          node --test tests/
+          node --test tests/*.test.js
 
       - name: Get saved prices
         env:

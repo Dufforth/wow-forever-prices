@@ -25,7 +25,7 @@ This rebuilds `site/catalog.json` and `site/gear.json` from the client's tables 
 
 ```bash
 python -m unittest discover -s tests
-node --test tests/
+node --test tests/*.test.js
 ```
 
 ## Notes
