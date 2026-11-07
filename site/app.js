@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  const { money, priceChange, significantChanges, craftRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { money, priceChange, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
   const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
   const PAGE = 100;
@@ -32,6 +32,7 @@
       prices: { key: "name", dir: 1 }, profit: { key: "profit", dir: -1 },
       alerts: { key: "percent", dir: -1 }, deals: { key: "profit", dir: -1 }, scan: { key: "name", dir: 1 },
     },
+    de: Object.assign({ mode: "buy", skill: "", supply: "" }, store.get("de", {})),
     alert: Object.assign({ percent: 15, amount: 10, supply: 5, basis: "previous", favorites: false }, store.get("alert", {})),
   };
 
@@ -248,8 +249,15 @@
   }
 
   // ---- Disenchant deals ----
+  function materialCell(id) {
+    if (!id) return "–";
+    const material = itemOf(id);
+    return `<div class="item-cell">${iconHtml(material)}<span class="q${material.q}">${esc(material.n)}</span></div>`;
+  }
+
   function renderDeals() {
-    if (!state.gear) {
+    const crafting = state.de.mode === "craft";
+    if (!crafting && !state.gear) {
       $("table").innerHTML = `<tbody>${emptyRow(5, "Loading the gear list…")}</tbody>`;
       $("result-count").textContent = "";
       $("more").hidden = true;
@@ -258,20 +266,39 @@
       });
       return;
     }
-    state.deals = state.deals || disenchantDeals(state.gear, state.prices);
-    let rows = state.deals.filter((d) => d.profit > 0 && passesFilters(d.id, d.item));
+    if (crafting) {
+      state.rows = state.rows || craftRows(state.catalog, state.prices);
+      state.craftDeals = state.craftDeals || craftDisenchantRows(state.rows);
+    } else {
+      state.deals = state.deals || disenchantDeals(state.gear, state.prices);
+    }
+    const skill = Number(state.de.skill) || null;
+    const supply = Number(state.de.supply) || 0;
+    let rows = (crafting ? state.craftDeals : state.deals).filter((d) => d.profit > 0
+      && (!skill || d.skill <= skill)
+      && (crafting || d.supply >= supply)
+      && passesFilters(d.id, d.item));
     rows = sortRows(rows, state.sort.deals, {
-      name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply, vendor: (r) => vendorPays(r.item),
+      name: (r) => r.item.n, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
+      roi: (r) => r.roi, skill: (r) => r.skill, material: (r) => (r.material ? itemOf(r.material).n : null),
+      profession: (r) => (r.recipe ? r.recipe.p : null), vendor: (r) => vendorPays(r.item),
     });
+    const makes = (r) => (r.recipe && r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "");
     drawTable([
-      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id) },
+      { key: "name", label: "Item", left: true, cell: (r) => itemCell(r.id, makes(r)) },
       { key: "profit", label: "Expected profit", tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
-      { key: "price", label: "Lowest price", cell: (r) => coins(r.price) },
+      { key: "price", label: crafting ? "Craft cost" : "Lowest price", cell: (r) => coins(r.price) },
       { key: "value", label: "Expected materials", p: 1, cell: (r) => coins(r.value) },
-      { key: "supply", label: "For sale", p: 1, cell: (r) => number(r.supply) },
-      { key: "vendor", label: "Vendor pays", p: 1, cell: (r) => coins(vendorPays(r.item)) },
-    ], rows, (r) => `data-item="${r.id}"`,
-    state.ts ? "No gear here is priced below its materials right now." : "Waiting for price data.", "deal");
+      { key: "roi", label: "Return", p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
+      { key: "skill", label: "Skill needed", p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
+      { key: "material", label: "Mostly gives", left: true, p: 2, cell: (r) => materialCell(r.material) },
+      crafting
+        ? { key: "profession", label: "Profession", left: true, p: 3, cell: (r) => esc(r.recipe.p) }
+        : { key: "supply", label: "For sale", p: 2, cell: (r) => number(r.supply) },
+      { key: "vendor", label: "Vendor pays", p: 3, cell: (r) => coins(vendorPays(r.item)) },
+    ], rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
+    state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
+    crafting ? "craft" : "item");
   }
 
   // ---- My scans ----
@@ -867,7 +894,7 @@
     state.ts = scan ? scan.at : state.fileTs;
     state.mostPosted = Scan.topBy(state.prices, 2, TOP_ITEMS);
     state.mostBought = Scan.topBy(state.prices, 6, TOP_ITEMS);
-    state.rows = null; state.deals = null;
+    state.rows = null; state.deals = null; state.craftDeals = null;
     const status = $("scan-status");
     const saved = state.scans[state.house];
     status.hidden = !saved;
@@ -1040,6 +1067,15 @@
         render();
       }
       toast("Scan removed. Showing published prices.");
+    });
+    [["de-mode", "mode"], ["de-skill", "skill"], ["de-supply", "supply"]].forEach(([id, key]) => {
+      const input = $(id);
+      input.value = state.de[key];
+      input.addEventListener("input", () => {
+        state.de[key] = input.value;
+        store.set("de", state.de);
+        resetAndRender();
+      });
     });
     $("filters-toggle").addEventListener("click", (event) => {
       const open = document.querySelector(".toolbar").classList.toggle("filters-open");

@@ -174,6 +174,22 @@
     return catalog.recipes.filter((r) => catalog.items[r.i]).map((r) => craftRow(r, catalog, prices, coster));
   }
 
+  // The Enchanting skill needed to disenchant an item, by the Classic rule.
+  function disenchantSkill(item) {
+    if (!disenchantOutcomes(item)) return null;
+    const level = item.il;
+    if (item.q >= RARE && level <= 25) return 25;
+    if (level <= 20) return 1;
+    return Math.max(25, (Math.ceil(level / 5) - 4) * 25);
+  }
+
+  // The material most likely to come out, for a quick label.
+  function likelyMaterial(item) {
+    const outcomes = disenchantOutcomes(item);
+    if (!outcomes) return null;
+    return outcomes.slice().sort((a, b) => b.chance - a.chance)[0].id;
+  }
+
   // Gear for sale below what its materials are worth.
   function disenchantDeals(gear, prices) {
     const rows = [];
@@ -182,9 +198,28 @@
       if (!row || !(row[2] > 0) || row[0] == null) continue;
       const value = disenchantValue(gear[id], prices);
       if (value == null) continue;
-      rows.push({ id: Number(id), item: gear[id], price: row[0], value, profit: value - row[0], supply: row[2] });
+      const profit = value - row[0];
+      rows.push({
+        id: Number(id), item: gear[id], price: row[0], value, profit, supply: row[2],
+        roi: row[0] > 0 ? profit / row[0] : null, skill: disenchantSkill(gear[id]), material: likelyMaterial(gear[id]),
+      });
     }
     return rows.sort((a, b) => b.profit - a.profit);
+  }
+
+  // Crafts whose disenchanted materials are worth more than the reagents.
+  function craftDisenchantRows(rows) {
+    return rows
+      .filter((r) => r.de != null && r.cost != null)
+      .map((r) => {
+        const value = r.de * r.recipe.c;
+        const profit = value - r.cost;
+        return {
+          id: r.recipe.i, item: r.item, recipe: r.recipe, price: r.cost, value, profit, supply: r.supply,
+          roi: r.cost > 0 ? profit / r.cost : null, skill: disenchantSkill(r.item), material: likelyMaterial(r.item),
+        };
+      })
+      .sort((a, b) => b.profit - a.profit);
   }
 
   const BASIS_COLUMN = { previous: 3, day: 4, week: 5 };
@@ -220,7 +255,7 @@
   }
 
   return {
-    AUCTION_CUT, afterCut, craftRows, disenchantDeals, disenchantOutcomes, disenchantValue,
+    AUCTION_CUT, afterCut, craftDisenchantRows, craftRows, disenchantDeals, disenchantOutcomes, disenchantSkill, disenchantValue, likelyMaterial,
     indexRecipes, money, priceChange, significantChanges,
   };
 });

@@ -118,6 +118,33 @@ test("disenchant tables by quality and type", () => {
   assert.equal(Calc.disenchantOutcomes({ q: 2, il: 30, cl: 7 }), null);
 });
 
+test("enchanting skill needed to disenchant, by the Classic rule", () => {
+  assert.equal(Calc.disenchantSkill({ q: 2, il: 15, cl: 4, inv: 1 }), 1);
+  assert.equal(Calc.disenchantSkill({ q: 2, il: 21, cl: 4, inv: 1 }), 25);
+  assert.equal(Calc.disenchantSkill({ q: 2, il: 30, cl: 4, inv: 1 }), 50);
+  assert.equal(Calc.disenchantSkill({ q: 2, il: 45, cl: 4, inv: 1 }), 125);
+  assert.equal(Calc.disenchantSkill({ q: 3, il: 20, cl: 2, inv: 13 }), 25);
+  assert.equal(Calc.disenchantSkill({ q: 4, il: 60, cl: 4, inv: 1 }), 200);
+  assert.equal(Calc.disenchantSkill({ q: 1, il: 30, cl: 4, inv: 1 }), null);
+});
+
+test("most likely material: dust for armor, essence for weapons", () => {
+  assert.equal(Calc.likelyMaterial({ q: 2, il: 10, cl: 4, inv: 1 }), 10940);
+  assert.equal(Calc.likelyMaterial({ q: 2, il: 10, cl: 2, inv: 13 }), 10938);
+  assert.equal(Calc.likelyMaterial({ q: 1, il: 10, cl: 2, inv: 13 }), null);
+});
+
+test("crafting to disenchant: whole-craft value against cost", () => {
+  const prices = { [ORE]: row(10), [HELM]: row(100), [DUST]: row(1000), [ESS]: row(1000) };
+  const de = Calc.craftDisenchantRows(Calc.craftRows(catalog, prices));
+  const helm = de.find((r) => r.recipe.s === 2);
+  assert.equal(helm.price, helm.recipe ? Calc.craftRows(catalog, prices).find((r) => r.recipe.s === 2).cost : null);
+  assert.ok(helm.profit > 0);
+  assert.equal(helm.skill, 1);
+  assert.ok(Math.abs(helm.roi - helm.profit / helm.price) < 1e-9);
+  assert.ok(!de.some((r) => r.recipe.s === 1), "bars can't be disenchanted");
+});
+
 test("deals list gear priced under its materials, best first", () => {
   const gear = { 1: { n: "A", q: 3, il: 20, cl: 4 }, 2: { n: "B", q: 3, il: 20, cl: 4 }, 3: { n: "C", q: 3, il: 20, cl: 4 } };
   const prices = { 1: row(100), 2: row(800), [SHARD]: row(1000) };
@@ -125,6 +152,9 @@ test("deals list gear priced under its materials, best first", () => {
   assert.deepEqual(deals.map((d) => d.id), [1, 2]);
   assert.equal(deals[0].profit, 850);
   assert.equal(deals[1].profit, 150);
+  assert.equal(deals[0].roi, 8.5);
+  assert.equal(deals[0].skill, 25);
+  assert.equal(deals[0].material, SHARD);
 });
 
 test("significant changes respect every limit and sort by size", () => {

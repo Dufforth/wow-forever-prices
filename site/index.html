@@ -16,7 +16,7 @@
     <button role="tab" id="tabbtn-prices" data-tab="prices" aria-controls="results" type="button">Prices</button>
     <button role="tab" id="tabbtn-alerts" data-tab="alerts" aria-controls="results" type="button">Alerts <span id="alert-count" class="count" hidden></span></button>
     <button role="tab" id="tabbtn-profit" data-tab="profit" aria-controls="results" type="button">Profit</button>
-    <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Deals</button>
+    <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Disenchant</button>
     <button role="tab" id="tabbtn-scan" data-tab="scan" aria-controls="results" type="button">My scans</button>
   </nav>
   <div class="bar-end">
@@ -87,9 +87,15 @@
       </div>
 
       <div id="tab-deals" class="filters" hidden>
+        <select id="de-mode" aria-label="How you get the item">
+          <option value="buy">Buy on auction</option>
+          <option value="craft">Craft it</option>
+        </select>
+        <label class="inline">My Enchanting <input id="de-skill" type="number" min="1" max="300" step="1" placeholder="Any" aria-label="My Enchanting skill"></label>
+        <label class="inline">At least <input id="de-supply" type="number" min="1" step="1"> for sale</label>
         <details class="help">
           <summary>Help</summary>
-          <p>Gear for sale below the expected value of its disenchanted materials, after the 5% auction cut. Results vary from item to item, so a small profit can turn into a small loss. Bind on pickup gear and items with random bonuses are left out.</p>
+          <p>Items worth more as enchanting materials than they cost, after the 5% auction cut on the materials. Values are expected averages from the Classic disenchant tables, by item level, so single results vary and a small profit can turn into a small loss. Materials with no auction price are left out, so high-level gear can be missing. Bind on pickup gear and items with random bonuses are left out. Select an item for its full material odds.</p>
         </details>
       </div>
 
