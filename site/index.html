@@ -110,7 +110,19 @@
     <p id="legend" class="legend"></p>
     <div class="table-wrap" tabindex="0" role="region" aria-label="Results" aria-busy="true">
       <table id="table"><tbody><tr><td class="empty">Loading prices…</td></tr></tbody></table>
-      <button id="more" class="secondary more" type="button" hidden>Show more</button>
+      <nav id="pager" class="pager" aria-label="Pages" hidden>
+        <span id="pager-range" class="muted" aria-live="polite"></span>
+        <label class="inline">Rows per page
+          <select id="page-size"><option>25</option><option>50</option><option>100</option><option>250</option></select>
+        </label>
+        <span class="pager-buttons">
+          <button id="page-first" type="button" class="secondary" aria-label="First page">«</button>
+          <button id="page-prev" type="button" class="secondary">‹ Previous</button>
+          <span id="page-now"></span>
+          <button id="page-next" type="button" class="secondary">Next ›</button>
+          <button id="page-last" type="button" class="secondary" aria-label="Last page">»</button>
+        </span>
+      </nav>
     </div>
   </main>
 </div>

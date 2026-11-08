@@ -35,7 +35,7 @@
     "Skill needed": "The Enchanting skill needed to disenchant it.",
     "Mostly gives": "The material it gives most often when disenchanted. Select the item for all the odds.",
   };
-  const PAGE = 100;
+  const PAGE_SIZES = [25, 50, 100, 250];
   const POLL_MS = 5 * 60 * 1000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
@@ -59,7 +59,7 @@
     rows: null, deals: null, professions: [], craftedBy: new Map(), mostPosted: new Set(), mostBought: new Set(),
     allItems: null, fileTs: null, columns: store.get("columns", {}),
     favorites: new Set(store.get("favorites", [])),
-    loading: true, tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), limit: PAGE, detailId: null,
+    loading: true, tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), page: 0, pageSize: PAGE_SIZES.includes(store.get("pageSize", 100)) ? store.get("pageSize", 100) : 100, detailId: null,
     // Each tab sorts by up to MAX_SORTS columns in turn.
     sort: {
       prices: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
@@ -187,7 +187,7 @@
     };
   }
 
-  // Every tab draws through here: one table, one count line, one Show more button.
+  // Every tab draws through here: one table, one count line, one set of page buttons.
   // A column has a label and a cell, and optionally a sort key, alignment (left),
   // tone (a class for the cell) and priority (p: 1 to 3; higher hides sooner on small screens).
   // A cell explains its own value with `say`, or falls back to what the column means.
@@ -215,9 +215,12 @@
         + (at > 0 ? `<span class="sr-only">, sort ${at + 1}</span>` : "");
       return `<th scope="col"${classes(column)}${hint} data-sort="${column.key}" aria-sort="${sort}" tabindex="0">${label}${mark}</th>`;
     }).join("");
-    const shown = rows.slice(0, state.limit);
+    const pages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+    state.page = Math.min(state.page, pages - 1);
+    const from = state.page * state.pageSize;
+    const shown = rows.slice(from, from + state.pageSize);
     const body = shown.map((row) => `<tr class="row${rowClass && rowClass(row) ? " " + rowClass(row) : ""}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}${cellHint(column, row)}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
-      || emptyRow(columns.length, state.loading ? "Loading prices…" : emptyText);
+      || emptyRow(columns.length, state.loading ? "Loading prices…" : favoritesEmpty() || emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
     if (state.columnsOpen) renderColumnsPanel();
     const parts = [];
@@ -226,9 +229,34 @@
     const scope = parts.length ? ` in ${parts.join(", ")}` : "";
     $("result-count").textContent = `${number(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}${scope}`;
     $("clear-filters").hidden = state.category === "all" && !state.search && (state.source === "all" || state.tab === "profit");
-    const left = rows.length - shown.length;
-    $("more").hidden = left <= 0;
-    $("more").textContent = `Show ${number(Math.min(left, PAGE))} more of ${number(left)}`;
+    drawPager(rows.length, from, shown.length, pages);
+  }
+
+  // An empty Favorites list says why, so it doesn't look like the page failed to load.
+  function favoritesEmpty() {
+    if (state.category !== "favorites") return "";
+    return state.favorites.size
+      ? "None of your favorites match here. Clear your search or filters, or pick All items."
+      : "You have no favorites yet. Select the ☆ next to any item to add it, or pick All items on the left.";
+  }
+
+  // Pages: how many rows show at once is the viewer's choice; the range and total are always shown.
+  function drawPager(total, from, count, pages) {
+    $("pager").hidden = total === 0;
+    $("pager-range").textContent = `Showing ${number(from + 1)}–${number(from + count)} of ${number(total)}`;
+    $("page-now").textContent = `Page ${number(state.page + 1)} of ${number(pages)}`;
+    document.querySelector(".pager-buttons").hidden = pages === 1;
+    $("page-first").disabled = $("page-prev").disabled = state.page === 0;
+    $("page-last").disabled = $("page-next").disabled = state.page >= pages - 1;
+    $("page-size").value = String(state.pageSize);
+  }
+
+  function goToPage(page) {
+    state.page = Math.max(0, page);
+    render();
+    const wrap = $("table").parentElement;
+    wrap.scrollTop = 0;
+    if (wrap.getBoundingClientRect().top < 0) wrap.scrollIntoView({ block: "start" });
   }
 
   function passesFilters(id, item) {
@@ -379,7 +407,7 @@
     if (!crafting && !state.gear) {
       $("table").innerHTML = `<tbody>${emptyRow(5, "Loading the gear list…")}</tbody>`;
       $("result-count").textContent = "";
-      $("more").hidden = true;
+      $("pager").hidden = true;
       getJson("gear.json").then((gear) => { state.gear = gear; render(); }).catch(() => {
         $("table").innerHTML = `<tbody>${emptyRow(5, "The gear list could not load. Try refreshing.")}</tbody>`;
       });
@@ -829,7 +857,7 @@
   }
 
   function resetAndRender() {
-    state.limit = PAGE;
+    state.page = 0;
     render();
     $("table").parentElement.scrollTop = 0;
   }
@@ -915,7 +943,7 @@
     let file = {};
     try { file = await getJson(`data/h${encodeURIComponent(id)}.json`); } catch (e) { /* no data for this market yet */ }
     usePrices(file);
-    state.limit = PAGE;
+    state.page = 0;
     showUpdated();
     render();
   }
@@ -1023,7 +1051,15 @@
       const open = document.querySelector(".toolbar").classList.toggle("filters-open");
       event.currentTarget.setAttribute("aria-expanded", open);
     });
-    $("more").addEventListener("click", () => { state.limit += PAGE; render(); });
+    $("page-first").addEventListener("click", () => goToPage(0));
+    $("page-prev").addEventListener("click", () => goToPage(state.page - 1));
+    $("page-next").addEventListener("click", () => goToPage(state.page + 1));
+    $("page-last").addEventListener("click", () => goToPage(Number.MAX_SAFE_INTEGER));
+    $("page-size").addEventListener("change", (event) => {
+      state.pageSize = Number(event.target.value);
+      store.set("pageSize", state.pageSize);
+      goToPage(0);
+    });
 
     [["alert-percent", "percent"], ["alert-amount", "amount"], ["alert-supply", "supply"], ["alert-basis", "basis"]].forEach(([id, key]) => {
       const input = $(id);
@@ -1090,7 +1126,7 @@
       else toast("Notifications are blocked. Allow them for this site in your browser settings.");
       updateNotifyButton();
     });
-    window.addEventListener("hashchange", () => { readHash(); state.limit = PAGE; render(); });
+    window.addEventListener("hashchange", () => { readHash(); state.page = 0; render(); });
   }
 
   const firstDirection = (key) => (TEXT_KEYS.has(key) ? 1 : -1);
@@ -1106,7 +1142,7 @@
 
   function saveSort() {
     store.set("sort", state.sort);
-    state.limit = PAGE;
+    state.page = 0;
     render();
   }
 
