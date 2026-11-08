@@ -224,3 +224,22 @@ test("items the game flags as not disenchantable have no outcomes", () => {
   assert.equal(Calc.disenchantSkill({ q: 2, il: 15, cl: 2, inv: 26, nd: 1 }), null);
   assert.ok(Calc.disenchantOutcomes({ q: 2, il: 15, cl: 2, inv: 26 }));
 });
+
+test("columns marked off start hidden until the viewer chooses", () => {
+  const cols = [{ key: "name", label: "Item" }, { key: "a", label: "A" }, { key: "b", label: "B", off: true }];
+  assert.deepEqual(Calc.arrangeColumns(cols, null).shown.map(Calc.columnId), ["name", "a"]);
+  assert.deepEqual(Calc.arrangeColumns(cols, { hidden: [] }).shown.map(Calc.columnId), ["name", "a", "b"]);
+});
+
+test("crafts available: the scarcest auction reagent decides; vendor reagents don't limit", () => {
+  const parts = [{ id: 1, count: 2, source: "auction" }, { id: 2, count: 1, source: "auction" }, { id: 3, count: 5, source: "vendor" }];
+  const prices = { 1: [1, 1, 9], 2: [1, 1, 3] };
+  assert.equal(Calc.craftsAvailable(parts, prices), 3);
+  assert.equal(Calc.craftsAvailable([{ id: 1, count: 20, source: "auction" }], prices), 0);
+  assert.equal(Calc.craftsAvailable([{ id: 3, count: 1, source: "vendor" }], prices), null);
+});
+
+test("least sold: plenty listed, fewest bought first", () => {
+  const rows = { 1: [0, 0, 50, 0, 0, 0, 0], 2: [0, 0, 9, 0, 0, 0, 0], 3: [0, 0, 80, 0, 0, 0, 30], 4: [0, 0, 2, 0, 0, 0, 0] };
+  assert.deepEqual([...Calc.leastSold(rows, 3)], [1, 2, 3]);
+});

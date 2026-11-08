@@ -65,7 +65,9 @@ test("market categories", () => {
   assert.ok(Categories.matches("most-bought", 6, item, ctx));
   assert.ok(!Categories.matches("most-bought", 6, item, context()));
   assert.ok(Categories.isKnown("most-bought", []));
-  assert.equal(Categories.label("most-posted"), "Most posted");
+  assert.equal(Categories.label("most-posted"), "Most listed");
+  assert.equal(Categories.label("least-sold"), "Least sold (estimate)");
+  assert.ok(Categories.matches("least-sold", "7", {}, { leastSold: new Set([7]) }));
 });
 
 test("unknown categories from a link are rejected", () => {

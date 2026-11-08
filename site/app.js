@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  const { arrangeColumns, columnId, sortBy, topBy, disenchantValue, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { arrangeColumns, columnId, sortBy, topBy, leastSold, disenchantValue, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
   const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
   // Plain explanations for column titles, shown on hover or keyboard focus.
@@ -8,6 +8,10 @@
     "Big move": "Whether the price moved enough to count as an alert, using your Alerts settings. Got cheaper: a chance to buy. Got pricier: a chance to sell.",
     "Craft profit": "What you keep if you craft it yourself with the best recipe and sell it the best way, after the 5% auction cut.",
     "Disenchant value": "What the enchanting materials from disenchanting one are worth on average, after the 5% auction cut. Only gear can be disenchanted.",
+    "Recipe": "The profession that makes it and the skill the recipe needs.",
+    "Can craft now": "How many crafts the reagents listed on the auction house cover right now. Reagents from vendors don't limit it.",
+    "Mats sold, 7 days": "About how many of the main material sold in the last 7 days: a guide to how fast you can sell what you disenchant.",
+    "Enchanting needed": "The Enchanting skill needed to disenchant it.",
     "Item level": "How advanced the item is. On gear, higher usually means stronger. On materials, it roughly matches the level of the zones where you find them.",
     "Item": "The item. Select it for details, history and recipes. Hover it to see its in-game tooltip.",
     "Lowest price": "The cheapest price anyone is asking for one right now.",
@@ -39,10 +43,11 @@
     "Mostly gives": "The material it gives most often when disenchanted. Select the item for all the odds.",
   };
   const PAGE_SIZES = [25, 50, 100, 250];
-  const POLL_MS = 5 * 60 * 1000;
+  const POLL_MS = 60 * 1000; // a 1 KB check; prices download only when they change
+  const FLASH_MS = 4000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
-  const TABS = ["prices", "favorites", "alerts", "profit", "deals"];
+  const TABS = ["auction", "prices", "favorites", "alerts", "profit", "deals"];
   const MAX_SORTS = 3;
   const TEXT_KEYS = new Set(["name", "profession", "type", "source", "material"]);
   const SELL_BY = { "Sell on auction": "Auction", Disenchant: "Disenchant", "Sell to vendor": "Vendor" };
@@ -59,16 +64,17 @@
 
   const state = {
     catalog: null, gear: null, meta: null, house: null, prices: {}, ts: null, history: null,
-    rows: null, deals: null, professions: [], craftedBy: new Map(), mostPosted: new Set(), mostBought: new Set(),
-    allItems: null, fileTs: null, columns: store.get("columns", {}),
+    rows: null, deals: null, professions: [], craftedBy: new Map(), mostPosted: new Set(), mostBought: new Set(), leastSold: new Set(),
+    allItems: null, fileTs: null, columns: store.get("columns", {}), views: {},
     favorites: new Set(store.get("favorites", [])),
     loading: true, tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), page: 0, pageSize: PAGE_SIZES.includes(store.get("pageSize", 100)) ? store.get("pageSize", 100) : 100, detailId: null,
     // Each tab sorts by up to MAX_SORTS columns in turn.
     sort: {
-      prices: [{ key: "name", dir: 1 }], favorites: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
-      alerts: [{ key: "percent", dir: -1 }], deals: [{ key: "profit", dir: -1 }],
+      auction: [{ key: "name", dir: 1 }], prices: [{ key: "name", dir: 1 }], favorites: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
+      alerts: [{ key: "percent", dir: -1 }], "deals-buy": [{ key: "profit", dir: -1 }], "deals-craft": [{ key: "profit", dir: -1 }],
     },
     de: Object.assign({ mode: "buy", skill: "", supply: "" }, store.get("de", {})),
+    ah: Object.assign({ minLevel: "", maxLevel: "", quality: "", slot: "" }, store.get("ah", {})),
     alert: Object.assign({ percent: 15, amount: 10, supply: 5, basis: "previous", favorites: false }, store.get("alert", {})),
   };
 
@@ -77,16 +83,19 @@
     if (state.sort[tab] && valid.length) state.sort[tab] = valid;
   }
 
+  // The key for columns and sorting: each tab, and each Disenchant sub-section, has its own.
+  const viewKey = () => (state.tab === "deals" ? `deals-${state.de.mode}` : state.tab);
+
   async function getJson(url) {
     const response = await fetch(url, { cache: "no-cache" });
     if (!response.ok) throw new Error(`${url}: ${response.status}`);
     return response.json();
   }
 
-  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought });
+  const context = () => ({ favorites: state.favorites, craftedBy: state.craftedBy, mostPosted: state.mostPosted, mostBought: state.mostBought, leastSold: state.leastSold });
   function tradableItem(id) {
     const row = state.allItems && state.allItems[id];
-    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4], sell: row[5], il: row[6] } : null;
+    return row ? { n: row[0], q: row[1], ic: row[2], cl: row[3], sc: row[4], sell: row[5], il: row[6], rl: row[7], inv: row[8] } : null;
   }
   const itemOf = (id) => state.catalog.items[id] || (state.gear && state.gear[id]) || tradableItem(id) || { n: "Item " + id, q: 1 };
 
@@ -193,17 +202,20 @@
   // Every tab draws through here: one table, one count line, one set of page buttons.
   // A column has a label and a cell, and optionally a sort key, alignment (left),
   // tone (a class for the cell) and priority (p: 1 to 3; higher hides sooner on small screens).
-  // A cell explains its own value with `say`, or falls back to what the column means.
-  function cellHint(column, row) {
-    if (column.key === "name" || !column.hint) return "";
-    const text = column.say ? column.say(row) : column.hint;
-    return text ? ` data-cell="${esc(text)}"` : "";
+  // A cell explains its own value with `say`, or falls back to what the column means. The
+  // sentence is worked out only when you hover the cell, so drawing a table stays quick.
+  function cellText(td) {
+    const tr = td.parentElement;
+    if (!state.drawn || !tr || tr.dataset.i == null) return null;
+    const column = state.drawn.columns[td.cellIndex];
+    if (!column || column.key === "name" || !column.hint) return null;
+    return column.say ? column.say(state.drawn.rows[Number(tr.dataset.i)]) : column.hint;
   }
 
   function drawTable(allColumns, rows, rowAttributes, emptyText, unit, rowClass) {
-    const levels = state.sort[state.tab];
+    const levels = state.sort[viewKey()];
     state.tableColumns = allColumns;
-    const columns = arrangeColumns(allColumns, state.columns[state.tab]).shown;
+    const columns = arrangeColumns(allColumns, state.columns[viewKey()]).shown;
     const classes = (column, extra) => {
       const list = [column.left && "left", column.p && `p${column.p}`, extra].filter(Boolean);
       return list.length ? ` class="${list.join(" ")}"` : "";
@@ -222,12 +234,17 @@
     state.page = Math.min(state.page, pages - 1);
     const from = state.page * state.pageSize;
     const shown = rows.slice(from, from + state.pageSize);
-    const body = shown.map((row) => `<tr class="row${rowClass && rowClass(row) ? " " + rowClass(row) : ""}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}${cellHint(column, row)}>${column.cell(row)}</td>`).join("")}</tr>`).join("")
+    state.drawn = { columns, rows: shown };
+    const flashing = state.flash && Date.now() < state.flash.until ? state.flash.ids : null;
+    const body = shown.map((row, i) => {
+      const extra = [rowClass && rowClass(row), flashing && flashing.has(String(row.id)) && "flash"].filter(Boolean).join(" ");
+      return `<tr class="row${extra ? " " + extra : ""}" data-i="${i}" ${rowAttributes(row)}>${columns.map((column) => `<td${classes(column, column.tone && column.tone(row))}>${column.cell(row)}</td>`).join("")}</tr>`;
+    }).join("")
       || emptyRow(columns.length, state.loading ? "Loading prices…" : favoritesEmpty() || emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
     if (state.columnsOpen) renderColumnsPanel();
     const parts = [];
-    if (state.category !== "all") parts.push(categoryLabel(state.category));
+    if (state.category !== "all") parts.push(state.tab === "auction" ? AH.label(state.category) : categoryLabel(state.category));
     if (state.source !== "all" && state.tab !== "profit") parts.push(sourceLabel(state.source).toLowerCase());
     const scope = parts.length ? ` in ${parts.join(", ")}` : "";
     $("result-count").textContent = `${number(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}${scope}`;
@@ -282,7 +299,7 @@
     const listedOnly = $("price-listed").checked;
     let rows = [];
     // These lists can hold items outside the profession catalog.
-    const special = { "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought] }[state.category];
+    const special = { "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought], "least-sold": [...state.leastSold] }[state.category];
     for (const id of (special || allItemIds()).map(String)) {
       const item = itemOf(id);
       if (!passesFilters(id, item)) continue;
@@ -316,6 +333,58 @@
       { key: "source", label: "Source", hint: HINTS["Source"], left: true, p: 2, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
       { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
     ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or source, or clear your search.", "item", (r) => goodRow(ratePriceNow(r.row)));
+  }
+
+  // ---- Auction House ----
+  // Like the game's auction house: everything listed now, browsed by the game's categories.
+  // Uses the full item list (it has required level and slot), so it waits for that to load.
+  const auctionItem = (id) => tradableItem(id) || itemOf(id);
+
+  function listedAuctionIds() {
+    return Object.keys(state.prices).filter((id) => state.prices[id][2] > 0);
+  }
+
+  let auctionCountsCache = { key: null, counts: null };
+  function auctionCounts() {
+    const key = [state.house, state.ts, Boolean(state.allItems)].join("|");
+    if (auctionCountsCache.key !== key) auctionCountsCache = { key, counts: AH.counts(listedAuctionIds().map(auctionItem)) };
+    return auctionCountsCache.counts;
+  }
+
+  function renderAuction() {
+    $("ah-slot-label").hidden = !AH.showsSlots(state.category);
+    if (!state.allItems) {
+      $("table").innerHTML = `<tbody>${emptyRow(5, "Loading the auction house…")}</tbody>`;
+      $("result-count").textContent = "";
+      $("pager").hidden = true;
+      return;
+    }
+    const filters = { ...state.ah, slot: AH.showsSlots(state.category) ? state.ah.slot : "" };
+    let rows = [];
+    for (const id of listedAuctionIds()) {
+      const item = auctionItem(id);
+      if (state.search && !item.n.toLowerCase().includes(state.search)) continue;
+      if (state.source !== "all" && sourceOf(id, item, context()) !== state.source) continue;
+      if (!AH.matches(state.category, item) || !AH.passes(item, filters)) continue;
+      rows.push({ id, item, row: state.prices[id] });
+    }
+    rows = sortRows(rows, state.sort.auction, {
+      name: (r) => r.item.n, required: (r) => r.item.rl || 0, level: (r) => r.item.il || null, supply: (r) => r.row[2],
+      price: (r) => lowestOf(r.row), market: (r) => r.row[1], now: (r) => { const rating = ratePriceNow(r.row); return rating ? { cheap: 0, usual: 1, pricey: 2 }[rating] : null; },
+      week: (r) => r.row[5], source: (r) => sourceLabel(sourceOf(r.id, r.item, context())), quality: (r) => r.item.q,
+    });
+    drawTable([
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      { key: "required", label: "Level", hint: "The level a character needs to use it.", say: (r) => (r.item.rl ? `Usable from level ${r.item.rl}.` : "Any level can use it."), cell: (r) => (r.item.rl ? number(r.item.rl) : "–") },
+      Object.assign(levelColumn((r) => r.item), { p: 2 }),
+      { key: "supply", label: "Available", hint: HINTS["For sale"], say: (r) => say.supply(r.row[2]), cell: (r) => number(r.row[2]) },
+      { key: "price", label: "Buyout (each)", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => coins(lowestOf(r.row)) },
+      { key: "market", label: "Market", hint: HINTS["Market"], say: (r) => say.market(r.row), p: 1, cell: (r) => coins(r.row[1]) },
+      { key: "now", label: "Price now", hint: "Is today's typical price cheap, usual or pricey compared with its 7-day average?", say: (r) => say.now(r.row), p: 1, cell: (r) => badge(ratePriceNow(r.row)) },
+      { key: "week", label: "7 day average", hint: HINTS["7 day average"], off: true, cell: (r) => coins(r.row[5]) },
+      { key: "quality", label: "Rarity", hint: "The item's rarity, as colored in game.", off: true, left: true, cell: (r) => `<span class="q${r.item.q}">${esc(AH.QUALITIES[r.item.q] || "")}</span>` },
+      { key: "source", label: "Source", hint: HINTS["Source"], left: true, off: true, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
+    ], rows, (r) => `data-item="${r.id}"`, "Nothing listed matches. Try another category, level range or rarity.", "listing", (r) => goodRow(ratePriceNow(r.row)));
   }
 
   // ---- Favorites ----
@@ -479,7 +548,7 @@
     }
     if (crafting) {
       state.rows = state.rows || craftRows(state.catalog, state.prices);
-      state.craftDeals = state.craftDeals || craftDisenchantRows(state.rows);
+      state.craftDeals = state.craftDeals || craftDisenchantRows(state.rows, state.prices);
     } else {
       state.deals = state.deals || disenchantDeals(state.gear, state.prices);
     }
@@ -489,29 +558,53 @@
       && (!skill || d.skill <= skill)
       && (crafting || d.supply >= supply)
       && passesFilters(d.id, d.item));
-    rows = sortRows(rows, state.sort.deals, {
+    rows = sortRows(rows, state.sort[viewKey()], {
       name: (r) => r.item.n, level: (r) => r.item.il || null, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
       roi: (r) => r.roi, skill: (r) => r.skill, material: (r) => (r.material ? itemOf(r.material).n : null),
       profession: (r) => (r.recipe ? r.recipe.p : null), vendor: (r) => vendorPays(r.item),
+      source: (r) => sourceLabel(sourceOf(r.id, r.item, context())), crafts: (r) => (r.crafts == null ? Infinity : r.crafts),
+      sold: (r) => r.materialSold,
     });
+    state.bestCrafts = crafting ? rows.filter((r) => rateReturn(r.profit, r.price) === "good" && r.crafts !== 0).slice(0, 3) : [];
     const makes = (r) => (r.recipe && r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "");
-    drawTable([
+    const verb = crafting ? "spend" : "pay";
+    const common = {
+      deal: { key: "roi", label: "Deal", hint: "Good deal: on average you get back at least 20% more than you spend. Fair: a small expected profit.", say: (r) => say.deal(r.profit, r.price, verb), cell: (r) => badge(rateReturn(r.profit, r.price)) },
+      value: { key: "value", label: crafting ? "Materials value" : "Expected materials", hint: HINTS["Expected materials"], say: (r) => `Disenchanting gives materials worth about ${money(r.value)} on average, after the 5% cut.`, p: 1, cell: (r) => coins(r.value) },
+      ret: { key: "roi", id: "return", label: "Return", hint: HINTS["Return"], say: (r) => say.deal(r.profit, r.price, verb), off: true, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
+      skill: { key: "skill", label: "Enchanting needed", hint: HINTS["Enchanting needed"], say: (r) => (r.skill == null ? "Not known." : `You need ${number(r.skill)} Enchanting skill to disenchant it.`), p: 2, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
+      material: { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], say: (r) => (r.material ? `Disenchanting it mostly gives ${itemOf(r.material).n}. Hover the material for its details.` : "Not known."), left: true, p: 2, cell: (r) => materialCell(r.material) },
+      level: Object.assign(levelColumn((r) => r.item), { off: true }),
+      vendor: { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, null), off: true, cell: (r) => coins(vendorPays(r.item)) },
+    };
+    const columns = crafting ? [
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id, makes(r)) },
-      levelColumn((r) => r.item),
-      { key: "roi", label: "Deal", hint: "Good deal: on average you get back at least 20% more than you spend. Fair: a small expected profit.", say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), cell: (r) => badge(rateReturn(r.profit, r.price)) },
-      { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by ${crafting ? "crafting" : "buying"} it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
-      { key: "price", label: crafting ? "Craft cost" : "Lowest price", hint: crafting ? HINTS["Craft cost"] : HINTS["Lowest price"], say: (r) => (crafting ? `Getting all the reagents costs ${money(r.price)}.` : `The cheapest one for sale costs ${money(r.price)}.`), p: 1, cell: (r) => coins(r.price) },
-      { key: "value", label: "Expected materials", hint: HINTS["Expected materials"], say: (r) => `Disenchanting gives materials worth about ${money(r.value)} on average, after the 5% cut.`, p: 1, cell: (r) => coins(r.value) },
-      { key: "roi", id: "return", label: "Return", hint: HINTS["Return"], say: (r) => say.deal(r.profit, r.price, crafting ? "spend" : "pay"), p: 1, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
-      { key: "skill", label: "Skill needed", hint: HINTS["Skill needed"], say: (r) => (r.skill == null ? "Not known." : `You need ${number(r.skill)} Enchanting skill to disenchant it.`), p: 1, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
-      { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], say: (r) => (r.material ? `Disenchanting it mostly gives ${itemOf(r.material).n}. Hover the material for its details.` : "Not known."), left: true, p: 2, cell: (r) => materialCell(r.material) },
-      crafting
-        ? { key: "profession", label: "Profession", hint: HINTS["Profession"], left: true, p: 3, cell: (r) => esc(r.recipe.p) }
-        : { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.supply), p: 2, cell: (r) => number(r.supply) },
-      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, null), p: 3, cell: (r) => coins(vendorPays(r.item)) },
-    ], rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
-    state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
-    crafting ? "craft" : "item", (r) => goodRow(rateReturn(r.profit, r.price)));
+      { key: "profession", label: "Recipe", hint: HINTS["Recipe"], left: true, p: 1, say: (r) => `${r.recipe.p} makes it from skill ${r.recipe.sk}. Open the item to see every reagent and where to get it.`,
+        cell: (r) => `${esc(r.recipe.p)} <span class="muted">${number(r.recipe.sk)}</span>` },
+      common.deal,
+      { key: "profit", label: "Profit per craft", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by buying the reagents, crafting it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
+      { key: "price", label: "Craft cost", hint: HINTS["Craft cost"], say: (r) => `Getting all the reagents costs ${money(r.price)}.`, p: 1, cell: (r) => coins(r.price) },
+      common.value,
+      { key: "crafts", label: "Can craft now", hint: HINTS["Can craft now"], p: 1,
+        say: (r) => (r.crafts == null ? "Every reagent comes from a vendor or your own crafts, so supply doesn't limit it." : r.crafts === 0 ? "Not enough reagents are listed right now for even one craft." : `The reagents listed now cover about ${number(r.crafts)} craft${r.crafts === 1 ? "" : "s"}.`),
+        tone: (r) => (r.crafts === 0 ? "down" : ""), cell: (r) => (r.crafts == null ? "Any" : number(r.crafts)) },
+      common.skill, common.material,
+      { key: "sold", label: "Mats sold, 7 days", hint: HINTS["Mats sold, 7 days"], off: true, cell: (r) => (r.materialSold == null ? "–" : number(r.materialSold)) },
+      common.ret, common.level,
+    ] : [
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      common.deal,
+      { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by buying it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
+      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => `The cheapest one for sale costs ${money(r.price)}.`, p: 1, cell: (r) => coins(r.price) },
+      common.value, common.skill, common.material,
+      { key: "source", label: "Source", hint: HINTS["Source"], left: true, p: 2, say: (r) => `Where it comes from: ${sourceLabel(sourceOf(r.id, r.item, context())).toLowerCase()}.`, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.supply), p: 2, cell: (r) => number(r.supply) },
+      common.ret, common.level, common.vendor,
+    ];
+    drawTable(columns, rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
+      state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
+      crafting ? "craft" : "item", (r) => goodRow(rateReturn(r.profit, r.price)));
+    $("legend").innerHTML = LEGENDS.deals();
   }
 
   // ---- Item tooltip ----
@@ -634,12 +727,13 @@
         tip.timer = setTimeout(() => showTip(id), TIP_DELAY_MS);
         return;
       }
-      const cell = event.target.closest && event.target.closest("td[data-cell]");
+      const cell = event.target.closest && event.target.closest("#table td");
       if (cell && cell === tip.hintFor) return;
       hideTip();
-      if (cell) {
+      const text = cell && cellText(cell);
+      if (text) {
         tip.hintFor = cell;
-        tip.timer = setTimeout(() => showHint(cell.dataset.cell), TIP_DELAY_MS);
+        tip.timer = setTimeout(() => showHint(text), TIP_DELAY_MS);
       }
     });
     document.addEventListener("pointermove", (event) => {
@@ -848,22 +942,25 @@
     }
     counts.set("most-posted", state.mostPosted.size);
     counts.set("most-bought", state.mostBought.size);
+    counts.set("least-sold", state.leastSold.size);
     countsCache = { key, counts };
     return counts;
   }
 
   function renderCategories() {
-    const counts = categoryCounts();
+    const auction = state.tab === "auction";
+    const counts = auction ? auctionCounts() : categoryCounts();
     const button = (id, label) => `<li><button type="button" class="cat" data-category="${esc(id)}" aria-current="${state.category === id}"><span>${esc(label)}</span><span>${number(counts.get(id) || 0)}</span></button></li>`;
     const select = $("category-select");
     let html = `<ul>${button("all", "All items")}</ul>`;
     let options = '<option value="all">All items</option>';
-    for (const group of groups(state.professions)) {
+    for (const group of auction ? AH.groups(counts) : groups(state.professions)) {
       // A group opens by itself when the chosen category is inside it.
       const holdsCurrent = group.categories.some((c) => c.id === state.category);
-      const open = holdsCurrent || !state.collapsed[group.label];
+      const collapsedKey = auction ? `ah:${group.label}` : group.label;
+      const open = holdsCurrent || (auction ? state.collapsed[collapsedKey] === false : !state.collapsed[collapsedKey]);
       const listId = `group-${group.label.toLowerCase().replace(/[^a-z]+/g, "-")}`;
-      html += `<button type="button" class="group-toggle" data-group="${esc(group.label)}" aria-expanded="${open}" aria-controls="${listId}">${esc(group.label)}</button>`
+      html += `<button type="button" class="group-toggle" data-group="${esc(collapsedKey)}" aria-expanded="${open}" aria-controls="${listId}">${esc(group.label)}</button>`
         + `<ul id="${listId}"${open ? "" : " hidden"}>${group.categories.map((c) => button(c.id, c.label)).join("")}</ul>`;
       options += `<optgroup label="${esc(group.label)}">${group.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("")}</optgroup>`;
     }
@@ -890,20 +987,48 @@
     if (!TABS.includes(state.tab)) state.tab = "prices";
     let category = params.get("category") || "all";
     if (category === "favorites") { state.tab = "favorites"; category = "all"; } // Links from before Favorites became a tab.
-    state.category = isKnown(category, state.professions) ? category : "all";
+    const known = state.tab === "auction" ? AH.isAuctionCategory(category) : isKnown(category, state.professions);
+    state.category = known ? category : "all";
     state.search = (params.get("q") || "").toLowerCase();
     $("search").value = state.search;
   }
 
   const LEGENDS = {
+    auction: () => `Everything listed on this auction house, like the game's: browse by category on the left, then filter by level and rarity. ${badge("cheap")} cheaper than usual this week · ${badge("pricey")} pricier than usual.`,
     prices: () => `${badge("cheap")} lower than its usual price this week, a good time to buy · ${badge("pricey")} higher than usual, a good time to sell · ▲ ▼ show how much the price moved. Hover a column title to see what it means.`,
     favorites: () => `Everything about the items you track. Select ☆ next to any item, on any tab, to add it; select ★ to remove it. ${badge("cheap")} and ${badge("cheaper")} are good times to buy · ${badge("pricey")} and ${badge("pricier")} are good times to sell.`,
     alerts: () => `Items whose price moved a lot. ${badge("cheaper")} is a chance to buy, and ${badge("pricier")} is a chance to sell. Hover a column title to see what it means.`,
     profit: () => `${badge("good")} pays back at least 20% more than you spend · ${badge("fair")} small profit · ${badge("poor")} loses money. Profit is per craft, after the 5% auction cut.`,
-    deals: () => `Items worth more as enchanting materials than they cost. ${badge("good")} expected to return at least 20% more than you spend · ${badge("fair")} small expected profit. Results vary item by item.`,
+    deals: () => (state.de.mode === "craft"
+      ? `Buy the reagents, craft, disenchant and sell the materials. ${badge("good")} returns at least 20% more than you spend · ${badge("fair")} a small profit. Profit is per craft, after the 5% cut.`
+        + (state.bestCrafts && state.bestCrafts.length ? ` <b>Best now:</b> ${state.bestCrafts.map((r) => `${esc(r.item.n)} (${money(r.profit)})`).join(", ")}.` : "")
+      : `Gear for sale that's worth more as enchanting materials than it costs. ${badge("good")} returns at least 20% more than you spend · ${badge("fair")} a small expected profit. Results vary item by item.`),
   };
 
+  function renderSubTabs() {
+    document.querySelectorAll("[data-de-mode]").forEach((button) => {
+      const on = button.dataset.deMode === state.de.mode;
+      button.setAttribute("aria-selected", on);
+      button.tabIndex = on ? 0 : -1;
+    });
+    $("de-supply-label").hidden = state.de.mode === "craft"; // crafting shows how many crafts the reagents cover instead
+  }
+
+  // Each tab keeps its own category, search, source and page, so tabs don't filter each other.
+  function switchTab(tab) {
+    state.views[state.tab] = { category: state.category, search: state.search, source: state.source, page: state.page };
+    state.tab = tab;
+    store.set("tab", tab);
+    const view = state.views[tab] || { category: "all", search: "", source: "all", page: 0 };
+    Object.assign(state, view);
+    $("search").value = state.search;
+    $("source-filter").value = state.source;
+    render();
+    $("table").parentElement.scrollTop = 0;
+  }
+
   function render() {
+    renderSubTabs();
     document.querySelectorAll(".tabs button").forEach((b) => {
       const on = b.dataset.tab === state.tab;
       b.setAttribute("aria-selected", on);
@@ -918,7 +1043,7 @@
     updateAlertBadge();
     updateFavoriteBadge();
     renderCategories();
-    ({ prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+    ({ auction: renderAuction, prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
     writeHash();
   }
 
@@ -940,7 +1065,29 @@
 
   const houseLabel = (h) => `${h.rulesetName} ${h.name} · ${h.scannedAt ? timeAgo(h.scannedAt).replace(" ago", "") : "no data"}`;
 
+  // The live badge: green while checks work, with how old the prices are.
+  function showLive(state_, text) {
+    const badge = $("live");
+    badge.dataset.state = state_;
+    badge.querySelector(".live-text").textContent = text;
+  }
+
+  function liveText() {
+    return state.ts ? `Live · prices ${timeAgo(state.ts)}` : "Live";
+  }
+
+  // Item IDs whose lowest price, market price or quantity changed, for a short highlight.
+  function changedIds(before, after) {
+    const ids = new Set();
+    for (const id of Object.keys(after)) {
+      const a = after[id], b = before[id];
+      if (!b || a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2]) ids.add(id);
+    }
+    return ids;
+  }
+
   function showUpdated() {
+    if (state.ts && $("live").dataset.state !== "error") showLive("ok", liveText());
     if (state.meta) {
       [...$("house").options].forEach((option) => {
         const found = allHouses().find((h) => h.id === option.value);
@@ -981,6 +1128,31 @@
     }
   }
 
+  // Light or dark: follows the computer until you choose; your choice stays in this browser.
+  function currentTheme() {
+    const chosen = document.documentElement.dataset.theme;
+    if (chosen) return chosen;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function updateThemeButton() {
+    const dark = currentTheme() === "dark";
+    const button = $("theme");
+    button.innerHTML = dark
+      ? '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+    const text = dark ? "Switch to light mode" : "Switch to dark mode";
+    button.title = text;
+    button.setAttribute("aria-label", text);
+  }
+
+  function toggleTheme() {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    store.set("theme", next);
+    updateThemeButton();
+  }
+
   function updateNotifyButton() {
     const button = $("notify");
     if (!("Notification" in window)) { button.hidden = true; return; }
@@ -1000,14 +1172,25 @@
     state.history = null;
     state.mostPosted = topBy(state.prices, 2, TOP_ITEMS);
     state.mostBought = topBy(state.prices, 6, TOP_ITEMS);
+    state.leastSold = leastSold(state.prices, TOP_ITEMS);
     state.rows = null; state.deals = null; state.craftDeals = null;
+  }
+
+  // The page starts downloading the saved market's prices before the scripts run (index.html).
+  function houseFile(id) {
+    const early = window.FP_EARLY && window.FP_EARLY.house;
+    if (early && early.id === id && !early.used) {
+      early.used = true;
+      return early.file.catch(() => getJson(`data/h${encodeURIComponent(id)}.json`));
+    }
+    return getJson(`data/h${encodeURIComponent(id)}.json`);
   }
 
   async function loadHouse(id) {
     state.house = id;
     store.set("house", id);
     let file = {};
-    try { file = await getJson(`data/h${encodeURIComponent(id)}.json`); } catch (e) { /* no data for this market yet */ }
+    try { file = await houseFile(id); } catch (e) { /* no data for this market yet */ }
     usePrices(file);
     state.page = 0;
     showUpdated();
@@ -1031,16 +1214,27 @@
       state.metaEarly = null;
       const meta = (early && await early) || await getJson("data/meta.json");
       const first = !state.meta;
+      const changed = !first && meta.updated !== state.meta.updated;
       state.meta = meta;
       if (first) await loadHouse(fillHouses());
-      else {
+      else if (changed) {
+        showLive("busy", "Updating…");
         const file = await getJson(`data/h${encodeURIComponent(state.house)}.json`);
-        if (file.ts !== state.fileTs) { usePrices(file); render(); }
+        if (file.ts !== state.fileTs) {
+          const ids = changedIds(state.prices, file.items || {});
+          usePrices(file);
+          state.flash = { ids, until: Date.now() + FLASH_MS };
+          render(); // keeps your tab, filters, page and scroll position
+          setTimeout(() => { state.flash = null; }, FLASH_MS);
+          if (ids.size) toast(`New prices: ${number(ids.size)} item${ids.size === 1 ? "" : "s"} changed.`);
+        }
       }
       notifyChanges();
       state.loading = false;
+      showLive("ok", liveText());
     } catch (e) {
       state.loading = false;
+      if (state.meta) showLive("error", "Offline · retrying");
       if (!state.meta) {
         $("banner").hidden = false;
         $("banner").textContent = "No prices yet. They appear after the first successful update.";
@@ -1055,13 +1249,14 @@
     // These lists only make sense ranked, so they open sorted by what they measure.
     if (id === "most-posted") state.sort.prices = [{ key: "supply", dir: -1 }];
     if (id === "most-bought") state.sort.prices = [{ key: "bought", dir: -1 }];
+    if (id === "least-sold") state.sort.prices = [{ key: "bought", dir: 1 }, { key: "supply", dir: -1 }];
     resetAndRender();
   }
 
   function bind() {
     const tabs = [...document.querySelectorAll(".tabs button")];
     tabs.forEach((button, index) => {
-      button.addEventListener("click", () => { state.tab = button.dataset.tab; store.set("tab", state.tab); resetAndRender(); });
+      button.addEventListener("click", () => switchTab(button.dataset.tab));
       button.addEventListener("keydown", (event) => {
         const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
         if (!step) return;
@@ -1104,7 +1299,21 @@
 
     $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
     ["price-basis", "fav-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
-    [["de-mode", "mode"], ["de-skill", "skill"], ["de-supply", "supply"]].forEach(([id, key]) => {
+    [["ah-min", "minLevel"], ["ah-max", "maxLevel"], ["ah-quality", "quality"], ["ah-slot", "slot"]].forEach(([id, key]) => {
+      const input = $(id);
+      input.value = state.ah[key];
+      input.addEventListener("input", () => {
+        state.ah[key] = input.value;
+        store.set("ah", state.ah);
+        resetAndRender();
+      });
+    });
+    document.querySelectorAll("[data-de-mode]").forEach((button) => button.addEventListener("click", () => {
+      state.de.mode = button.dataset.deMode;
+      store.set("de", state.de);
+      resetAndRender();
+    }));
+    [["de-skill", "skill"], ["de-supply", "supply"]].forEach(([id, key]) => {
       const input = $(id);
       input.value = state.de[key];
       input.addEventListener("input", () => {
@@ -1198,11 +1407,11 @@
   const firstDirection = (key) => (TEXT_KEYS.has(key) ? 1 : -1);
 
   function changeSort(key, add) {
-    const levels = state.sort[state.tab];
+    const levels = state.sort[viewKey()];
     const at = levels.findIndex((l) => l.key === key);
     if (add && at >= 0) levels[at].dir = -levels[at].dir;
     else if (add) levels.splice(Math.min(levels.length, MAX_SORTS - 1), MAX_SORTS, { key, dir: firstDirection(key) });
-    else state.sort[state.tab] = [{ key, dir: at === 0 ? -levels[0].dir : firstDirection(key) }];
+    else state.sort[viewKey()] = [{ key, dir: at === 0 ? -levels[0].dir : firstDirection(key) }];
     saveSort();
   }
 
@@ -1227,8 +1436,8 @@
   function renderColumnsPanel() {
     const panel = $("columns-panel");
     if (!state.tableColumns) return;
-    const saved = state.columns[state.tab] || {};
-    const hidden = new Set(saved.hidden || []);
+    const saved = state.columns[viewKey()] || {};
+    const hidden = new Set(saved.hidden || state.tableColumns.filter((c) => c.off).map(columnId));
     const all = arrangeColumns(state.tableColumns, saved).all.slice(1);
     const plain = (c) => esc(c.label);
     const columnRows = all.map((c, i) => {
@@ -1239,7 +1448,7 @@
         <button type="button" class="secondary cp-move" data-move="1" data-col="${id}" aria-label="Move ${plain(c)} later"${i === all.length - 1 ? " disabled" : ""}>↓</button></li>`;
     }).join("");
     const sortable = sortableColumns();
-    const levels = state.sort[state.tab];
+    const levels = state.sort[viewKey()];
     const sortRowsHtml = levels.map((level, i) => `<li><span class="cp-then">${i === 0 ? "Sort by" : "then by"}</span>
         <select data-sort-level="${i}" aria-label="${i === 0 ? "Sort by" : `Then by, level ${i + 1}`}">${sortable.map((c) => `<option value="${esc(c.key)}"${c.key === level.key ? " selected" : ""}>${plain(c)}</option>`).join("")}</select>
         <button type="button" class="secondary" data-sort-dir="${i}">${directionLabel(level.key, level.dir)}</button>
@@ -1256,14 +1465,14 @@
   }
 
   function saveColumns(order, hidden) {
-    state.columns[state.tab] = { order, hidden };
+    state.columns[viewKey()] = { order, hidden };
     store.set("columns", state.columns);
     render();
   }
 
   function currentColumns() {
-    const saved = state.columns[state.tab] || {};
-    return { order: arrangeColumns(state.tableColumns, saved).all.slice(1).map(columnId), hidden: (saved.hidden || []).slice() };
+    const saved = state.columns[viewKey()] || {};
+    return { order: arrangeColumns(state.tableColumns, saved).all.slice(1).map(columnId), hidden: (saved.hidden || state.tableColumns.filter((c) => c.off).map(columnId)).slice() };
   }
 
   function moveColumn(id, to) {
@@ -1311,10 +1520,10 @@
       if (level != null) {
         const key = event.target.value;
         // A column sorts at one level only, so choosing it here takes it off any other level.
-        const levels = state.sort[state.tab].filter((l, i) => i !== Number(level) && l.key !== key);
+        const levels = state.sort[viewKey()].filter((l, i) => i !== Number(level) && l.key !== key);
         const at = Math.min(Number(level), levels.length);
         levels.splice(at, 0, { key, dir: firstDirection(key) });
-        state.sort[state.tab] = levels;
+        state.sort[viewKey()] = levels;
         saveSort();
         keepFocus(`[data-sort-level="${at}"]`);
       }
@@ -1325,7 +1534,7 @@
       const data = target.dataset;
       if (data.close != null) { setColumnsOpen(false); $("columns-toggle").focus(); return; }
       if (data.reset != null) {
-        delete state.columns[state.tab];
+        delete state.columns[viewKey()];
         store.set("columns", state.columns);
         render();
         keepFocus("[data-reset]");
@@ -1335,16 +1544,16 @@
         moveColumn(data.col, to);
         keepFocus(`[data-move="${data.move}"][data-col="${CSS.escape(data.col)}"]`);
       } else if (data.sortDir != null) {
-        const level = state.sort[state.tab][Number(data.sortDir)];
+        const level = state.sort[viewKey()][Number(data.sortDir)];
         level.dir = -level.dir;
         saveSort();
         keepFocus(`[data-sort-dir="${data.sortDir}"]`);
       } else if (data.sortRemove != null) {
-        state.sort[state.tab].splice(Number(data.sortRemove), 1);
+        state.sort[viewKey()].splice(Number(data.sortRemove), 1);
         saveSort();
         keepFocus("[data-sort-add]");
       } else if (data.sortAdd != null) {
-        const levels = state.sort[state.tab];
+        const levels = state.sort[viewKey()];
         const next = sortableColumns().find((c) => !levels.some((l) => l.key === c.key));
         if (next) levels.push({ key: next.key, dir: firstDirection(next.key) });
         saveSort();
@@ -1369,8 +1578,9 @@
   }
 
   async function start() {
-    state.metaEarly = getJson("data/meta.json").catch(() => null);
-    state.catalog = await getJson("catalog.json");
+    const early = window.FP_EARLY || {};
+    state.metaEarly = (early.meta || getJson("data/meta.json")).catch(() => null);
+    state.catalog = await (early.catalog ? early.catalog.catch(() => getJson("catalog.json")) : getJson("catalog.json"));
     $("build").textContent = `Game data build ${state.catalog.build}.`;
     state.professions = [...new Set(state.catalog.recipes.map((r) => r.p))].sort();
     for (const recipe of state.catalog.recipes) {
@@ -1393,9 +1603,12 @@
       render();
     }).catch(() => { /* Names outside the catalog stay as item numbers. */ });
     updateNotifyButton();
+    updateThemeButton();
+    $("theme").addEventListener("click", toggleTheme);
     await poll();
-    setInterval(poll, POLL_MS);
-    setInterval(showUpdated, 60000);
+    // Checks every minute while the page is visible, and at once when you come back to it.
+    setInterval(() => { if (!document.hidden) poll(); }, POLL_MS);
+    setInterval(showUpdated, 30000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   }
 

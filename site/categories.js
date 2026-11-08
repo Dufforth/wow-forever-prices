@@ -61,13 +61,14 @@
   }
 
   const MARKET_CATEGORIES = [
-    { id: "most-posted", label: "Most posted" },
-    { id: "most-bought", label: "Most bought (estimate)" },
+    { id: "most-posted", label: "Most listed" },
+    { id: "most-bought", label: "Most sold (estimate)" },
+    { id: "least-sold", label: "Least sold (estimate)" },
   ];
 
   function groups(professions) {
     return [
-      { label: "Market", categories: MARKET_CATEGORIES },
+      { label: "Market movements", categories: MARKET_CATEGORIES },
       { label: "Gathering", categories: GATHERING_CATEGORIES },
       {
         label: "Crafted by",
@@ -84,6 +85,7 @@
     if (categoryId === "all") return true;
     if (categoryId === "most-posted") return Boolean(context.mostPosted && context.mostPosted.has(Number(id)));
     if (categoryId === "most-bought") return Boolean(context.mostBought && context.mostBought.has(Number(id)));
+    if (categoryId === "least-sold") return Boolean(context.leastSold && context.leastSold.has(Number(id)));
     if (categoryId.startsWith(PROFESSION_PREFIX)) {
       return (context.craftedBy.get(Number(id)) || []).includes(categoryId.slice(PROFESSION_PREFIX.length));
     }

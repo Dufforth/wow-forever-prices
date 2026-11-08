@@ -16,6 +16,13 @@ A GitHub Actions job checks Blizzard every 5 minutes and updates as soon as new 
 
 Without them, the page still works using only the public source.
 
+## Using the page
+
+- **Auction House** browses everything listed, like the game's auction house: categories on the left, level, rarity and slot filters.
+- **Prices**, **Favorites**, **Alerts**, **Profit** and **Disenchant** each keep their own category, search and filters.
+- **Disenchant** has two parts: *Buy and disenchant* (gear for sale worth more as materials) and *Craft and disenchant* (recipes whose disenchanted materials are worth more than the reagents, with how many crafts the listed reagents cover).
+- The page checks for new prices every minute and updates itself; changed rows light up briefly. The sun or moon button switches light and dark mode.
+
 ## How the numbers work
 
 - **Lowest** is the cheapest unit. **Market** is the average of the cheapest 15% of units, which one unusual listing can't move as much. Player-scanned markets only have the lowest price.

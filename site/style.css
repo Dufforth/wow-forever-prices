@@ -17,6 +17,13 @@
     --q0: #a9a8a1; --q1: #ecebe6; --q2: #5fd965; --q3: #63b0ff; --q4: #c08bf5; --q5: #ff9d3c;
   }
 }
+:root[data-theme="dark"] {
+    --bg: #15161a; --surface: #1e2026; --surface-2: #282b32; --line: #363a43;
+    --ink: #ecebe6; --muted: #a9a8a1; --accent: #5aa9e6; --accent-ink: #0d1b26;
+    --accent-soft: #1f3345; --up: #5fcf8e; --down: #f08a80; --series: #5aa9e6; --grid: #30333b;
+    --gold: #e8c352; --silver: #c2c8d0; --copper: #d99a6c; --star: #f0c63c;
+    --q0: #a9a8a1; --q1: #ecebe6; --q2: #5fd965; --q3: #63b0ff; --q4: #c08bf5; --q5: #ff9d3c;
+}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
 h1 { margin: 0; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap; }
@@ -224,7 +231,10 @@ dialog .table-wrap { flex: none; container-type: normal; }
   .bar { flex-wrap: wrap; gap: 0 var(--space-2); padding-top: 6px; }
   .bar h1 { flex: none; font-size: 15px; }
   .bar-end { flex: 1 1 0; justify-content: flex-end; }
-  .bar-end select { flex: 0 1 auto; min-width: 0; }
+  .bar-end select { flex: 1 1 110px; min-width: 96px; }
+  .bar-end { gap: 4px; }
+  .bar .narrow-only-inline { display: inline; }
+  .bar .hide-narrow { display: none; }
   .phone-only { display: inline-block; }
   .toolbar:not(.filters-open) .filters, .toolbar:not(.filters-open) #source-filter { display: none; }
   .toolbar .filters { flex-basis: 100%; }
@@ -266,3 +276,24 @@ dialog .table-wrap { flex: none; container-type: normal; }
   .guide, .guide-spot { transition: none; }
   .guide-bob, .guide-tail { animation: none; }
 }
+
+/* Sub-sections inside a tab, like Buy and Craft on Disenchant */
+.narrow-only-inline { display: none; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.segmented button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 0; background: var(--surface); color: var(--muted); font-size: 13px; }
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+#ah-min, #ah-max { width: 64px; }
+
+/* Live badge in the top bar */
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.live[data-state="ok"] .live-dot { background: var(--up); box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 60%, transparent); animation: live-pulse 2.4s ease-out infinite; }
+.live[data-state="busy"] .live-dot { background: var(--accent); }
+.live[data-state="error"] .live-dot { background: var(--down); }
+@keyframes live-pulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+/* Rows whose price just changed light up briefly */
+tr.flash td { animation: row-flash 4s ease-out; }
+@keyframes row-flash { 0%, 30% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .live[data-state="ok"] .live-dot, tr.flash td { animation: none; } }
+@media (max-width: 640px) { .live { display: none; } } /* the market menu shows how old the prices are */

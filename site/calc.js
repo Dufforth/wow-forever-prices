@@ -209,18 +209,35 @@
   }
 
   // Crafts whose disenchanted materials are worth more than the reagents.
-  function craftDisenchantRows(rows) {
+  function craftDisenchantRows(rows, prices) {
     return rows
       .filter((r) => r.de != null && r.cost != null)
       .map((r) => {
         const value = r.de * r.recipe.c;
         const profit = value - r.cost;
+        const material = likelyMaterial(r.item);
+        const sold = prices && prices[material];
         return {
           id: r.recipe.i, item: r.item, recipe: r.recipe, price: r.cost, value, profit, supply: r.supply,
-          roi: r.cost > 0 ? profit / r.cost : null, skill: disenchantSkill(r.item), material: likelyMaterial(r.item),
+          roi: r.cost > 0 ? profit / r.cost : null, skill: disenchantSkill(r.item), material,
+          crafts: craftsAvailable(r.parts, prices), materialSold: sold ? sold[6] || 0 : null,
         };
       })
       .sort((a, b) => b.profit - a.profit);
+  }
+
+  // How many crafts the reagents listed on the auction house cover right now. Vendor and
+  // home-made reagents don't limit it. null means nothing is bought on the auction house.
+  function craftsAvailable(parts, prices) {
+    let crafts = null;
+    for (const part of parts || []) {
+      if (part.source !== "auction") continue;
+      const row = prices && prices[part.id];
+      const listed = row && row[2] > 0 ? row[2] : 0;
+      const enough = Math.floor(listed / part.count);
+      crafts = crafts == null ? enough : Math.min(crafts, enough);
+    }
+    return crafts;
   }
 
   // Plain-language ratings, so nobody has to read percentages to spot a good opportunity.
@@ -284,6 +301,15 @@
       .map(Number));
   }
 
+  // Items with plenty listed that hardly sell: the slowest movers on the market.
+  function leastSold(rows, count, minListed = 5) {
+    return new Set(Object.keys(rows)
+      .filter((id) => rows[id][2] >= minListed)
+      .sort((a, b) => (rows[a][6] || 0) - (rows[b][6] || 0) || rows[b][2] - rows[a][2])
+      .slice(0, count)
+      .map(Number));
+  }
+
   // Sorts by several columns in turn: the first decides, later ones only break ties
   // (for example item level, then name). Empty values always go last.
   function sortBy(rows, levels, getters) {
@@ -305,7 +331,9 @@
   // comes next, and columns added later go at the end. Unknown saved names are ignored.
   const columnId = (column) => column.id || column.key || column.label;
   function arrangeColumns(columns, saved) {
-    if (!saved || !columns.length) return { all: columns, shown: columns };
+    if (!columns.length) return { all: columns, shown: columns };
+    // Columns marked `off` start hidden, until the viewer saves their own choice.
+    if (!saved) saved = { hidden: columns.filter((c) => c.off).map(columnId) };
     const [first, ...rest] = columns;
     const byId = new Map(rest.map((c) => [columnId(c), c]));
     const ordered = (saved.order || []).map((id) => byId.get(id)).filter(Boolean);
@@ -316,7 +344,7 @@
   }
 
   return {
-    topBy, sortBy, arrangeColumns, columnId,
+    topBy, leastSold, sortBy, arrangeColumns, columnId, craftsAvailable,
     AUCTION_CUT, GOOD_RETURN, USUAL_BAND, rateReturn, ratePriceNow, afterCut, craftDisenchantRows, craftRows, disenchantDeals, disenchantOutcomes, disenchantSkill, disenchantValue, likelyMaterial,
     indexRecipes, money, priceChange, significantChanges,
   };
