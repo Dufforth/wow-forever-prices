@@ -234,27 +234,39 @@
     return `${esc(recipeOrigin(recipe))}${price} · ${wowheadLink(recipe)}`;
   }
 
-  // One short line: profession icon and skill, source, AH price when listed, and a link icon.
+  // How you learn it, in one or two words: "Trainer", or "Recipe" plus where the recipe item comes from.
+  function recipeLearn(recipe) {
+    const keys = recipe.o || ["unknown"];
+    const words = keys.filter((key) => key !== "item" && key !== "trainer" && key !== "unknown").map((key) => RECIPE_SHORT[key] || key);
+    if (recipe.ri) return words.length ? `Recipe: ${words.join(", ")}` : "Recipe";
+    if (keys.includes("trainer")) return "Trainer";
+    return words.length ? words.join(", ") : "Not known";
+  }
+
+  // One short line: profession icon, skill, how you learn it, and a link icon. Prices are in the hover.
   function recipeCell(recipe) {
-    const offer = recipeOffer(recipe);
     const skill = recipe.sk ? number(recipe.sk) : '<span class="muted">?</span>';
-    const source = (recipe.o || ["unknown"]).map((key) => RECIPE_SHORT[key] || key).join("/");
-    let price = "";
-    if (offer && offer.bound) price = ' <span class="muted" aria-label="bound, not sold">🔒</span>';
-    else if (offer && offer.listed) price = ` <span class="item-cell recipe-item" data-item="${recipe.ri}"><span class="q${itemOf(recipe.ri).q}">AH</span></span><span>${coins(offer.price)}</span>`;
-    return `<span class="recipe-cell">${professionIcon(recipe.p)}<b>${skill}</b><span class="recipe-src">${esc(source)}</span>${price}${wowheadLink(recipe)}</span>`;
+    const learn = recipeLearn(recipe);
+    const kind = recipe.ri ? "from-recipe" : learn === "Trainer" ? "from-trainer" : "from-other";
+    return `<span class="recipe-cell">${professionIcon(recipe.p)}<b>${skill}</b><span class="recipe-src ${kind}">${esc(learn)}</span>${wowheadLink(recipe)}</span>`;
   }
 
   function recipeSays(recipe) {
     const offer = recipeOffer(recipe);
-    const skill = recipe.sk ? `You need ${recipe.p} ${number(recipe.sk)} to learn it.` : `The ${recipe.p} skill needed isn't known${recipe.y ? `; it turns yellow at ${number(recipe.y)}` : ""}.`;
-    const how = (recipe.o || ["unknown"]).map((key) => RECIPE_SAYS[key] || key).join(", or ");
+    const skill = recipe.sk ? `Needs ${recipe.p} ${number(recipe.sk)}.` : `The ${recipe.p} skill needed isn't known${recipe.y ? `; it turns yellow at ${number(recipe.y)}` : ""}.`;
+    const keys = recipe.o || ["unknown"];
+    const ways = keys.filter((key) => key !== "item" && key !== "trainer" && key !== "unknown").map((key) => RECIPE_SAYS[key] || key);
+    let how;
+    if (recipe.ri) {
+      how = `Learned from the recipe item ${itemOf(recipe.ri).n}${ways.length ? `: ${ways.join(", or ")}` : "; where it drops or who sells it isn't listed"}.`;
+    } else if (keys.includes("trainer")) how = "A profession trainer teaches it.";
+    else how = ways.length ? `How to get it: ${ways.join(", or ")}.` : "Where to learn it isn't known.";
     let market = "";
-    if (offer && offer.bound) market = " The recipe binds when picked up, so it can't be bought on the auction house.";
-    else if (offer && offer.listed) market = ` The recipe is on the auction house now: ${number(offer.listed)} for sale from ${money(offer.price)}.`;
+    if (offer && offer.bound) market = " The recipe binds when picked up, so it's never on the auction house.";
+    else if (offer && offer.listed) market = ` On the auction house now: ${number(offer.listed)} for sale from ${money(offer.price)}.`;
     else if (offer && offer.lastSeen) market = ` None on the auction house right now; it last sold for about ${money(offer.price)}.`;
     else if (offer) market = " Not seen on the auction house yet.";
-    return `${skill} How to get it: ${how}.${market} Open Wowhead for every trainer, vendor or monster.`;
+    return `${skill} ${how}${market} The link icon opens Wowhead with every trainer, vendor or monster.`;
   }
 
   // One column for the whole recipe story, so the table doesn't need more columns.
