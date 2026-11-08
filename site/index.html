@@ -38,10 +38,10 @@ window.FP_EARLY = (function () {
     <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Disenchant</button>
   </nav>
   <div class="bar-end">
-    <span id="live" class="live" data-state="busy" role="status" title="The page checks for new prices every minute and updates by itself."><span class="live-dot" aria-hidden="true"></span><span class="live-text">Loading…</span></span>
-    <select id="house" aria-label="Auction house and time since its last update" title="Auction house and time since its last update"></select>
-    <a id="addon-download" class="button-link secondary-link" href="downloads/DufforthAHScanner.zip" download title="Download the free Dufforth AH Scanner addon" aria-label="Download the free Dufforth AH Scanner addon"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span class="hide-narrow">Addon</span></a>
-    <button id="guide-start" type="button" class="secondary" aria-label="Start the page guide with Janine" title="Page guide"><span class="hide-narrow">Guide</span><span class="narrow-only-inline" aria-hidden="true">?</span></button>
+    <span id="live" class="live" data-state="busy" role="status" data-hint="The page checks for new prices every minute and updates by itself."><span class="live-dot" aria-hidden="true"></span><span class="live-text">Loading…</span></span>
+    <select id="house" aria-label="Auction house and time since its last update"></select>
+    <a id="addon-download" class="button-link secondary-link" href="downloads/DufforthAHScanner.zip" download data-hint="Download the free Dufforth AH Scanner addon" aria-label="Download the free Dufforth AH Scanner addon"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span class="hide-narrow">Addon</span></a>
+    <button id="guide-start" type="button" class="secondary" aria-label="Start the page guide with Janine" data-hint="A short tour of the page with Janine"><span class="hide-narrow">Guide</span><span class="narrow-only-inline" aria-hidden="true">?</span></button>
     <button id="theme" type="button" class="secondary icon-button" aria-label="Switch between light and dark mode"></button>
     <button id="notify" type="button" class="secondary icon-button">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>

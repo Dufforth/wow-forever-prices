@@ -378,7 +378,8 @@
     }
     const toggle = $("columns-toggle");
     toggle.textContent = hidden ? `Columns (${hidden} hidden)` : "Columns";
-    toggle.title = hidden ? `${hidden} column${hidden === 1 ? "" : "s"} hidden to fit the screen. Hide others or widen the window to see them.` : "";
+    if (hidden) toggle.dataset.hint = `${hidden} column${hidden === 1 ? "" : "s"} hidden to fit the screen. Hide others or widen the window to see them.`;
+    else toggle.dataset.hint = "Show, hide and reorder columns, and sort by more than one.";
   }
 
   // An empty Favorites tab says how to add items, so it never looks like the page failed to load.
@@ -837,6 +838,8 @@ common.level,
   }
 
   function bindTip() {
+    // A click opens something (a panel, a menu, the details), so the tooltip steps aside instead of covering it.
+    document.addEventListener("pointerdown", () => { if (!$("tip").hidden) hideTip(); }, true);
     document.addEventListener("pointerover", (event) => {
       const hinted = event.target.closest && event.target.closest("[data-hint]");
       if (hinted) {
@@ -1285,7 +1288,7 @@ common.level,
       ? '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
       : '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
     const text = dark ? "Switch to light mode" : "Switch to dark mode";
-    button.title = text;
+    button.dataset.hint = text;
     button.setAttribute("aria-label", text);
   }
 
@@ -1301,7 +1304,7 @@ common.level,
     if (!("Notification" in window)) { button.hidden = true; return; }
     const on = Notification.permission === "granted" && store.get("notify", false);
     const text = on ? "Notifications on. Select to turn off." : "Turn on notifications";
-    button.title = text;
+    button.dataset.hint = text;
     button.setAttribute("aria-label", text);
     button.classList.toggle("on", on);
     button.classList.toggle("secondary", !on);
@@ -1754,8 +1757,8 @@ common.level,
       if (!/^[\w.-]+\.zip$/.test(latest.file)) return;
       const link = $("addon-download");
       link.href = `downloads/${latest.file}`;
-      link.title = `Download the free Dufforth AH Scanner addon, version ${latest.version}`;
-      link.setAttribute("aria-label", link.title);
+      link.dataset.hint = `Download the free Dufforth AH Scanner addon, version ${latest.version}`;
+      link.setAttribute("aria-label", link.dataset.hint);
     }).catch(() => { /* The plain link still works. */ });
     getJson("all_items.json").then((items) => {
       state.allItems = items;
