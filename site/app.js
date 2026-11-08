@@ -299,6 +299,17 @@
       $("price-listed").checked, $("profit-only").checked, $("profit-supply").value, state.alert, state.de, state.ah]);
   }
 
+  // Short column titles, so headers stay on one line. The full name shows on hover and in the Columns panel.
+  const SHORT_LABELS = {
+    "Item level": "iLvl", "Level": "Req lvl", "Materials value": "Mat value", "Expected materials": "Mat value",
+    "Enchanting needed": "Ench lvl", "Mostly gives": "Gives", "Mats sold, 7 days": "Mats sold 7d",
+    "Can craft now": "Crafts", "Craft cost": "Cost", "Profit per craft": "Profit", "Expected profit": "Profit",
+    "Lowest price": "Lowest", "Buyout (each)": "Buyout", "Price now": "Now", "Available": "Qty", "For sale": "Qty",
+    "Change %": "Chg %", "Change": "Chg", "24 hour average": "Avg 24h", "7 day average": "Avg 7d",
+    "Bought, 7 days (est.)": "Sold 7d", "Auction, after cut": "AH net", "Disenchant value": "DE value", "Disenchant": "DE",
+    "Vendor pays": "Vendor", "Vendor sells at": "Vendor cost", "Big move": "Move",
+  };
+
   function drawTable(allColumns, rows, rowAttributes, emptyText, unit, rowClass) {
     if (state.drawKey) {
       drawCache.set(viewKey(), { key: state.drawKey, args: [allColumns, rows, rowAttributes, emptyText, unit, rowClass] });
@@ -312,8 +323,10 @@
       return list.length ? ` class="${list.join(" ")}"` : "";
     };
     const head = columns.map((column) => {
-      const hint = column.hint ? ` data-hint="${esc(column.hint)}"` : "";
-      const label = column.hint ? `<span class="hinted">${column.label}</span>` : column.label;
+      const short = SHORT_LABELS[column.label];
+      const fullHint = short ? `${column.label}: ${column.hint || ""}` : column.hint;
+      const hint = fullHint ? ` data-hint="${esc(fullHint)}" aria-label="${esc(column.label)}"` : "";
+      const label = fullHint ? `<span class="hinted">${short || column.label}</span>` : column.label;
       if (!column.key) return `<th scope="col"${classes(column)}${hint}${column.hint ? ' tabindex="0"' : ""}>${label}</th>`;
       const at = levels.findIndex((l) => l.key === column.key);
       const sort = at === 0 ? (levels[0].dir > 0 ? "ascending" : "descending") : "none";
