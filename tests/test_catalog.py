@@ -93,3 +93,32 @@ class BuildTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecipeOriginTests(unittest.TestCase):
+    def with_recipe_item(self):
+        data = tables()
+        data["Item"].append({"ID": "5", "ClassID": "9", "SubclassID": "6"})
+        data["ItemSparse"].append({"ID": "5", "Display_lang": "Recipe: Brew", "OverallQualityID": "2", "RequiredSkillRank": "125"})
+        data["ItemEffect"] = [{"ID": "70", "SpellID": "9"}]
+        data["ItemXItemEffect"] = [{"ItemID": "5", "ItemEffectID": "70"}]
+        data["SkillLineAbility"][0]["TrivialSkillLineRankLow"] = "140"
+        return data
+
+    def test_recipe_item_gives_skill_and_is_kept_for_its_price(self):
+        catalog = build_catalog.build(self.with_recipe_item(), "1.0", {}, {})[0]
+        recipe = catalog["recipes"][0]
+        self.assertEqual((recipe["sk"], recipe["ri"], recipe["y"], recipe["o"]), (125, 5, 140, ["item"]))
+        self.assertIn(5, catalog["items"], "the recipe item, so the page can show its AH price")
+
+    def test_wowhead_learned_at_and_sources_win(self):
+        sources = {"spells": {"9": [110, [], 0]}, "items": {"5": [125, [2, 5, 21], 1]}}
+        recipe = build_catalog.build(self.with_recipe_item(), "1.0", {}, {}, sources)[0]["recipes"][0]
+        self.assertEqual(recipe["sk"], 110)
+        self.assertEqual(recipe["o"], ["world", "vendor", "pickpocket"])
+
+    def test_trainer_and_unknown(self):
+        trainer = build_catalog.build(tables(), "1.0", {}, {}, {"spells": {"9": [50, [6], 0]}, "items": {}})[0]["recipes"][0]
+        self.assertEqual((trainer["sk"], trainer["o"]), (50, ["trainer"]))
+        unknown = build_catalog.build(tables(), "1.0", {}, {})[0]["recipes"][0]
+        self.assertEqual((unknown["sk"], unknown["o"]), (0, ["unknown"]))

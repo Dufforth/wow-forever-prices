@@ -8,7 +8,7 @@
     "Big move": "Whether the price moved enough to count as an alert, using your Alerts settings. Got cheaper: a chance to buy. Got pricier: a chance to sell.",
     "Craft profit": "What you keep if you craft it yourself with the best recipe and sell it the best way, after the 5% auction cut.",
     "Disenchant value": "What the enchanting materials from disenchanting one are worth on average, after the 5% auction cut. Only gear can be disenchanted.",
-    "Recipe": "The profession that makes it and the skill the recipe needs.",
+    "Recipe": "The profession and skill you need, where the recipe comes from, its auction price if it's sold there, and a Wowhead link with every place to get it.",
     "Can craft now": "How many crafts the reagents listed on the auction house cover right now. Reagents from vendors don't limit it.",
     "Mats sold, 7 days": "About how many of the main material sold in the last 7 days: a guide to how fast you can sell what you disenchant.",
     "Enchanting needed": "The Enchanting skill needed to disenchant it.",
@@ -184,6 +184,64 @@
   function emptyRow(columns, text) {
     return `<tr><td class="empty" colspan="${columns}">${esc(text)}</td></tr>`;
   }
+
+  // ---- Recipes: skill, where to get them, their auction price and a Wowhead link ----
+  const RECIPE_SOURCES = {
+    trainer: "Trainer", vendor: "Vendor", drop: "Drop", world: "World drop", quest: "Quest", fishing: "Fishing",
+    pickpocket: "Pickpocket", discovery: "Discovery", event: "Event", item: "Recipe item", unknown: "Source not known",
+  };
+  const RECIPE_SAYS = {
+    trainer: "a profession trainer teaches it", vendor: "a vendor sells the recipe", drop: "certain monsters drop the recipe",
+    world: "the recipe can drop from monsters almost anywhere (world drop)", quest: "a quest gives the recipe", fishing: "you can fish up the recipe",
+    pickpocket: "rogues can pickpocket the recipe", discovery: "you discover it while crafting", event: "a holiday event gives the recipe",
+    item: "you learn it from a recipe item", unknown: "where to get it isn't known yet",
+  };
+  const recipeSkill = (recipe) => (recipe.sk ? `${recipe.p} ${number(recipe.sk)}` : recipe.p);
+  const recipeOrigin = (recipe) => (recipe.o || ["unknown"]).map((key) => RECIPE_SOURCES[key] || key).join(" or ");
+  const wowheadUrl = (recipe) => (recipe.ri ? `https://www.wowhead.com/forever/item=${recipe.ri}` : `https://www.wowhead.com/forever/spell=${recipe.s}`);
+  const wowheadLink = (recipe) => `<a class="wowhead" href="${wowheadUrl(recipe)}" target="_blank" rel="noopener" aria-label="Open ${esc(recipe.n)} on Wowhead">Wowhead ↗</a>`;
+
+  // The recipe item's auction price: what you'd pay to learn it from the auction house.
+  function recipeOffer(recipe) {
+    if (!recipe.ri) return null;
+    if (itemOf(recipe.ri).bop) return { bound: true };
+    const row = state.prices[recipe.ri];
+    return { listed: row ? row[2] || 0 : 0, price: lowestOf(row), lastSeen: Boolean(row && !row[2]) };
+  }
+
+  // Where to get it, its price and the link, without the skill line (also used in the item details).
+  function recipeHow(recipe) {
+    const offer = recipeOffer(recipe);
+    let price = "";
+    if (offer && offer.bound) price = ' · <span class="muted">bound, not sold</span>';
+    else if (offer && offer.listed) price = ` · <span class="item-cell recipe-item" data-item="${recipe.ri}"><span class="q${itemOf(recipe.ri).q}">On AH</span></span> ${coins(offer.price)}`;
+    else if (offer && offer.lastSeen) price = ` · none on AH (last ${coins(offer.price)})`;
+    else if (offer) price = " · none on AH";
+    return `${esc(recipeOrigin(recipe))}${price} · ${wowheadLink(recipe)}`;
+  }
+
+  function recipeCell(recipe) {
+    const skill = recipe.sk ? `${esc(recipe.p)} <b>${number(recipe.sk)}</b>` : `${esc(recipe.p)} <span class="muted">skill ?</span>`;
+    return `<div class="recipe-cell"><span>${skill}</span><span class="recipe-how">${recipeHow(recipe)}</span></div>`;
+  }
+
+  function recipeSays(recipe) {
+    const offer = recipeOffer(recipe);
+    const skill = recipe.sk ? `You need ${recipe.p} ${number(recipe.sk)} to learn it.` : `The ${recipe.p} skill needed isn't known${recipe.y ? `; it turns yellow at ${number(recipe.y)}` : ""}.`;
+    const how = (recipe.o || ["unknown"]).map((key) => RECIPE_SAYS[key] || key).join(", or ");
+    let market = "";
+    if (offer && offer.bound) market = " The recipe binds when picked up, so it can't be bought on the auction house.";
+    else if (offer && offer.listed) market = ` The recipe is on the auction house now: ${number(offer.listed)} for sale from ${money(offer.price)}.`;
+    else if (offer && offer.lastSeen) market = ` None on the auction house right now; it last sold for about ${money(offer.price)}.`;
+    else if (offer) market = " Not seen on the auction house yet.";
+    return `${skill} How to get it: ${how}.${market} Open Wowhead for every trainer, vendor or monster.`;
+  }
+
+  // One column for the whole recipe story, so the table doesn't need more columns.
+  function recipeColumn(recipeFor) {
+    return { key: "profession", label: "Recipe", hint: HINTS["Recipe"], left: true, p: 1, say: (r) => recipeSays(recipeFor(r)), cell: (r) => recipeCell(recipeFor(r)) };
+  }
+  const recipeSortKey = (recipe) => `${recipe.p} ${String(recipe.sk || 999).padStart(3, "0")}`;
 
   // Item level: the same column on every tab; `itemFor` finds the row's item.
   function levelColumn(itemFor) {
@@ -519,7 +577,7 @@
       return true;
     });
     rows = sortRows(rows, state.sort.profit, {
-      name: (r) => r.item.n, level: (r) => r.item.il || null, profession: (r) => r.recipe.p, cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
+      name: (r) => r.item.n, level: (r) => r.item.il || null, profession: (r) => recipeSortKey(r.recipe), cost: (r) => r.cost, ah: (r) => perCraft(r.ah, r), de: (r) => perCraft(r.de, r),
       vendor: (r) => perCraft(r.vendor, r), deal: (r) => (r.profit == null ? null : r.cost > 0 ? r.profit / r.cost : 0), profit: (r) => r.profit, margin: (r) => r.margin, supply: (r) => r.supply,
     });
     const profitTone = (r) => (r.profit == null ? "muted" : r.profit > 0 ? "up" : "down");
@@ -527,6 +585,7 @@
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.recipe.i, r.recipe.c > 1 ? ` <span class="badge">makes ${r.recipe.c}</span>` : "") },
       levelColumn((r) => r.item),
+      recipeColumn((r) => r.recipe),
       { key: "deal", label: "Deal", hint: "Good deal: you get back at least 20% more than you spend. Fair: a small profit. Loss: you lose money.", say: (r) => say.deal(r.profit, r.cost, "spend"), cell: (r) => badge(rateReturn(r.profit, r.cost)) },
       { key: "profit", label: "Profit", hint: HINTS["Profit"], say: (r) => (r.profit == null ? "Some reagent prices are missing, so profit can't be worked out." : `Making it costs ${money(r.cost)} and the best way to sell brings ${money(r.cost + r.profit)}, so you ${r.profit > 0 ? "keep" : "lose"} ${money(Math.abs(r.profit))}.`), tone: profitTone, cell: (r) => `${profitArrow(r)}${coins(r.profit)}` },
       { label: "Sell by", hint: HINTS["Sell by"], say: (r) => (r.best ? { "Sell on auction": "Selling it on the auction house earns the most.", Disenchant: "Disenchanting it and selling the materials earns the most.", "Sell to vendor": "Selling it to a vendor earns the most." }[r.best.kind] : "No way to sell it has a price yet."), left: true, p: 1, cell: (r) => (r.best ? SELL_BY[r.best.kind] : "–") },
@@ -536,7 +595,6 @@
       { key: "vendor", label: "Vendor", hint: HINTS["Vendor"], say: (r) => (r.vendor ? `A vendor pays ${money(perCraft(r.vendor, r))}.` : "Vendors won't buy it."), p: 3, cell: (r) => coins(perCraft(r.vendor, r)) },
       { key: "margin", label: "Margin", hint: HINTS["Margin"], say: (r) => (r.margin == null ? "Not known yet." : `${pct(r.margin)} of what you sell it for is profit.`), p: 3, cell: (r) => (r.margin == null ? "–" : (r.margin * 100).toFixed(0) + "%") },
       { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => `${say.supply(r.supply || 0)} More listings means more sellers to compete with.`, p: 2, cell: (r) => number(r.supply || 0) },
-      { key: "profession", label: "Profession", hint: HINTS["Profession"], left: true, p: 3, cell: (r) => esc(r.recipe.p) },
     ], rows, (r) => `data-recipe="${r.recipe.s}"`,
     state.ts ? "No recipes match. Try another category, clear your search or turn off Profitable only." : "Waiting for price data.", "recipe", (r) => goodRow(rateReturn(r.profit, r.cost)));
   }
@@ -574,7 +632,7 @@
     rows = sortRows(rows, state.sort[viewKey()], {
       name: (r) => r.item.n, level: (r) => r.item.il || null, price: (r) => r.price, value: (r) => r.value, profit: (r) => r.profit, supply: (r) => r.supply,
       roi: (r) => r.roi, skill: (r) => r.skill, material: (r) => (r.material ? itemOf(r.material).n : null),
-      profession: (r) => (r.recipe ? r.recipe.p : null), vendor: (r) => vendorPays(r.item),
+      profession: (r) => (r.recipe ? recipeSortKey(r.recipe) : null), vendor: (r) => vendorPays(r.item),
       source: (r) => sourceLabel(sourceOf(r.id, r.item, context())), crafts: (r) => (r.crafts == null ? Infinity : r.crafts),
       sold: (r) => r.materialSold,
     });
@@ -587,13 +645,13 @@
       ret: { key: "roi", id: "return", label: "Return", hint: HINTS["Return"], say: (r) => say.deal(r.profit, r.price, verb), off: true, cell: (r) => (r.roi == null ? "–" : `${Math.round(r.roi * 100)}%`) },
       skill: { key: "skill", label: "Enchanting needed", hint: HINTS["Enchanting needed"], say: (r) => (r.skill == null ? "Not known." : `You need ${number(r.skill)} Enchanting skill to disenchant it.`), p: 2, cell: (r) => (r.skill == null ? "–" : number(r.skill)) },
       material: { key: "material", label: "Mostly gives", hint: HINTS["Mostly gives"], say: (r) => (r.material ? `Disenchanting it mostly gives ${itemOf(r.material).n}. Hover the material for its details.` : "Not known."), left: true, p: 2, cell: (r) => materialCell(r.material) },
-      level: Object.assign(levelColumn((r) => r.item), { off: true }),
+      level: levelColumn((r) => r.item),
       vendor: { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, null), off: true, cell: (r) => coins(vendorPays(r.item)) },
     };
     const columns = crafting ? [
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id, makes(r)) },
-      { key: "profession", label: "Recipe", hint: HINTS["Recipe"], left: true, p: 1, say: (r) => `${r.recipe.p} makes it from skill ${r.recipe.sk}. Open the item to see every reagent and where to get it.`,
-        cell: (r) => `${esc(r.recipe.p)} <span class="muted">${number(r.recipe.sk)}</span>` },
+common.level,
+      recipeColumn((r) => r.recipe),
       common.deal,
       { key: "profit", label: "Profit per craft", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by buying the reagents, crafting it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
       { key: "price", label: "Craft cost", hint: HINTS["Craft cost"], say: (r) => `Getting all the reagents costs ${money(r.price)}.`, p: 1, cell: (r) => coins(r.price) },
@@ -603,16 +661,17 @@
         tone: (r) => (r.crafts === 0 ? "down" : ""), cell: (r) => (r.crafts == null ? "Any" : number(r.crafts)) },
       common.skill, common.material,
       { key: "sold", label: "Mats sold, 7 days", hint: HINTS["Mats sold, 7 days"], off: true, cell: (r) => (r.materialSold == null ? "–" : number(r.materialSold)) },
-      common.ret, common.level,
+      common.ret,
     ] : [
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      common.level,
       common.deal,
       { key: "profit", label: "Expected profit", hint: HINTS["Expected profit"], say: (r) => `On average you make ${money(r.profit)} by buying it and disenchanting it. Each disenchant is random, so one try can give more or less.`, tone: () => "up", cell: (r) => `▲ ${coins(r.profit)}` },
       { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => `The cheapest one for sale costs ${money(r.price)}.`, p: 1, cell: (r) => coins(r.price) },
       common.value, common.skill, common.material,
       { key: "source", label: "Source", hint: HINTS["Source"], left: true, p: 2, say: (r) => `Where it comes from: ${sourceLabel(sourceOf(r.id, r.item, context())).toLowerCase()}.`, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
       { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.supply), p: 2, cell: (r) => number(r.supply) },
-      common.ret, common.level, common.vendor,
+      common.ret, common.vendor,
     ];
     drawTable(columns, rows, (r) => (r.recipe ? `data-recipe="${r.recipe.s}"` : `data-item="${r.id}"`),
       state.ts ? (crafting ? "No craft is worth more disenchanted than its reagents right now." : "Nothing for sale here is worth more disenchanted right now. Try another market, or crafting it.") : "Waiting for price data.",
@@ -657,7 +716,7 @@
     if (vendorPays(item)) lines.push(`Vendor pays ${coins(vendorPays(item))}`);
     if (vendorCharges(item)) lines.push(`Vendor sells at ${coins(vendorCharges(item))}`);
     const crafted = state.catalog.recipes.filter((r) => r.i === Number(id));
-    if (crafted.length) lines.push("Crafted with " + [...new Set(crafted.map((r) => `${esc(r.p)} (skill ${r.sk})`))].join(", "));
+    if (crafted.length) lines.push("Crafted with " + [...new Set(crafted.map((r) => esc(recipeSkill(r))))].join(", "));
     const used = state.catalog.recipes.filter((r) => r.r.some((part) => part[0] === Number(id))).length;
     if (used) lines.push(`Used in ${number(used)} recipe${used > 1 ? "s" : ""}`);
     return lines.join("<br>");
@@ -906,7 +965,8 @@
       const options = r.options.map((o) => `${esc(o.kind)}: ${coins(o.each * r.recipe.c)}`).join(" · ") || "No selling price known";
       const buyCost = row ? row[1] * r.recipe.c : null;
       const buy = r.cost != null && r.supply > 0 && buyCost != null && buyCost < r.cost ? `<p class="muted note">Buying it costs ${coins(buyCost)}, less than crafting it.</p>` : "";
-      return `<h3>${esc(r.recipe.p)} recipe, skill ${r.recipe.sk}${r.recipe.c > 1 ? `, makes ${r.recipe.c}` : ""}</h3>
+      return `<h3>${esc(recipeSkill(r.recipe))}${r.recipe.c > 1 ? `, makes ${r.recipe.c}` : ""}</h3>
+        <p class="note recipe-how">${recipeHow(r.recipe)}</p>
         ${reagentTable(r.parts)}
         <p class="note" style="margin-top:8px">Cost ${coins(r.cost)} · ${options} · <b>Profit ${coins(r.profit)}</b></p>${buy}`;
     }).join("");
@@ -914,7 +974,7 @@
     const usedHtml = usedIn.length ? `<h3>Used in ${usedIn.length} recipe${usedIn.length > 1 ? "s" : ""}</h3><p class="muted note">${usedIn.slice(0, 12).map((r) => esc(r.n)).join(", ")}${usedIn.length > 12 ? " and more" : ""}</p>` : "";
     hideTip();
     $("detail-body").innerHTML = `<div class="tip-game detail-game" id="detail-game">${localInfo(item)}</div><div class="stats">${stats}</div><div id="history"></div>${craftHtml}${disenchantTable(item)}${usedHtml}
-      <p class="note" style="margin-top:12px"><a href="https://forever.warcraftdb.com/data/item/${Number(id)}" target="_blank" rel="noopener">Open in Warcraft DB</a></p>`;
+      <p class="note" style="margin-top:12px"><a href="https://www.wowhead.com/forever/item=${Number(id)}" target="_blank" rel="noopener">Open on Wowhead</a> · <a href="https://forever.warcraftdb.com/data/item/${Number(id)}" target="_blank" rel="noopener">Open in Warcraft DB</a></p>`;
     $("detail").showModal();
     loadGameInfo(id).then((html) => {
       const holder = $("detail-game");
@@ -1389,6 +1449,7 @@
       }
       const head = event.target.closest("th[data-sort]");
       if (head) { changeSort(head.dataset.sort, event.shiftKey); return; }
+      if (event.target.closest("a")) return;
       const row = event.target.closest("tr.row");
       if (!row) return;
       if (row.dataset.recipe) {
@@ -1487,6 +1548,18 @@
       <p class="muted cp-note">Later levels break ties, for example item level and then name. Shortcut: Shift+click a column title.</p>
       <ol class="cp-sorts">${sortRowsHtml}</ol>
       ${canAdd ? '<button type="button" class="secondary" data-sort-add>Add another sort</button>' : ""}`;
+  }
+
+  // Item level and Recipe now show by default; older saved choices hid them, so unhide them once.
+  function upgradeColumns() {
+    if (store.get("columnsVersion", 1) >= 2) return;
+    const unhide = { "deals-buy": ["level"], "deals-craft": ["level", "profession"], profit: ["profession"] };
+    for (const [view, ids] of Object.entries(unhide)) {
+      const saved = state.columns[view];
+      if (saved && saved.hidden) saved.hidden = saved.hidden.filter((id) => !ids.includes(id));
+    }
+    store.set("columns", state.columns);
+    store.set("columnsVersion", 2);
   }
 
   function saveColumns(order, hidden) {
@@ -1603,6 +1676,7 @@
   }
 
   async function start() {
+    upgradeColumns();
     const early = window.FP_EARLY || {};
     state.metaEarly = (early.meta || getJson("data/meta.json")).catch(() => null);
     state.catalog = await (early.catalog ? early.catalog.catch(() => getJson("catalog.json")) : getJson("catalog.json"));

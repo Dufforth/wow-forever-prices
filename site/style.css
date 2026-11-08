@@ -297,3 +297,10 @@ tr.flash td { animation: row-flash 4s ease-out; }
 @keyframes row-flash { 0%, 30% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .live[data-state="ok"] .live-dot, tr.flash td { animation: none; } }
 @media (max-width: 640px) { .live { display: none; } } /* the market menu shows how old the prices are */
+
+/* Recipe column: skill on top, then where to get it, its auction price and a Wowhead link */
+.recipe-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.recipe-how { font-size: 12px; color: var(--muted); }
+.recipe-how .item-cell { display: inline-flex; }
+.recipe-item [class^="q"] { text-decoration: underline dotted; cursor: help; }
+a.wowhead { white-space: nowrap; }

@@ -19,7 +19,10 @@ SITE = "https://wago.tools"
 AGENT = "wow-forever-prices (personal price page)"
 NO_DISENCHANT_FLAG = 0x8000  # ItemSparse Flags_0: the game won't disenchant the item
 TABLES = ("SkillLineAbility", "SpellReagents", "SpellEffect", "SpellName", "ItemSparse", "Item", "ManifestInterfaceData",
-          "ItemModifiedAppearance", "ItemAppearance")
+          "ItemModifiedAppearance", "ItemAppearance", "ItemEffect", "ItemXItemEffect")
+RECIPE_ITEM_CLASS = 9
+# Wowhead source numbers, as words the page shows (catalog/recipe_sources.json).
+SOURCE_WORDS = {2: "drop", 4: "quest", 5: "vendor", 6: "trainer", 16: "fishing", 21: "pickpocket", 7: "discovery", 11: "event"}
 ICON_INDEX = "https://auctionhouse.fyi/api/v1/items/search-index"
 CREATE_ITEM = 24
 
@@ -91,7 +94,44 @@ def gather_group(item_id, item, nodes):
     return {5: "cloth", 6: "leather", 7: "ore", 9: "herb", 12: "enchant"}.get(item["sc"])
 
 
-def build(tables, build_name, nodes, icons):
+def recipe_items(tables, items):
+    """{recipe spell: recipe item} for the items that teach a recipe when used."""
+    effect_spell = {number(r, "ID"): number(r, "SpellID") for r in tables.get("ItemEffect", [])}
+    teaches = {}
+    for row in sorted(tables.get("ItemXItemEffect", []), key=lambda r: number(r, "ItemID")):
+        item_id, spell = number(row, "ItemID"), effect_spell.get(number(row, "ItemEffectID"))
+        if spell and items.get(item_id, {}).get("cl") == RECIPE_ITEM_CLASS:
+            teaches.setdefault(spell, item_id)
+    return teaches
+
+
+def recipe_origin(spell, skill_row, recipe_item, items, sources):
+    """(skill needed, how you get the recipe) for one recipe.
+
+    Skill: Wowhead's "learned at", else what the recipe item requires, else the client's own
+    minimum (often 1, which means not known). How: trainer, vendor, drop, world drop, quest...
+    "item" means a recipe item whose source isn't known; "unknown" means neither is known.
+    """
+    spell_info = sources["spells"].get(str(spell))
+    item_info = sources["items"].get(str(recipe_item)) if recipe_item else None
+    skill = (spell_info and spell_info[0]) or (recipe_item and items[recipe_item].get("rs")) or 0
+    if not skill and number(skill_row, "MinSkillLineRank") > 1:
+        skill = number(skill_row, "MinSkillLineRank")
+    codes = (item_info and item_info[1]) or (spell_info and spell_info[1]) or []
+    words = []
+    for code in codes:
+        word = SOURCE_WORDS.get(code)
+        if word == "drop" and item_info and item_info[2]:
+            word = "world"
+        if word and word not in words:
+            words.append(word)
+    if not words:
+        words = ["item"] if recipe_item else ["trainer"] if spell_info else ["unknown"]
+    return skill, words
+
+
+def build(tables, build_name, nodes, icons, sources=None):
+    sources = sources or {"spells": {}, "items": {}}
     item_class = {number(r, "ID"): r for r in tables["Item"]}
     manifest = {number(r, "ID"): r.get("FileName", "") for r in tables["ManifestInterfaceData"]}
     appearance_icon = {number(r, "ID"): number(r, "DefaultIconFileDataID") for r in tables["ItemAppearance"]}
@@ -118,6 +158,8 @@ def build(tables, build_name, nodes, icons):
             "inv": number(row, "InventoryType"),
             "bop": 1 if number(row, "Bonding") == 1 else 0,
         }
+        if number(row, "RequiredSkillRank") > 0:
+            items[item_id]["rs"] = number(row, "RequiredSkillRank")
         if icon:
             items[item_id]["ic"] = icon
         if number(row, "Flags_0") & NO_DISENCHANT_FLAG:
@@ -141,6 +183,7 @@ def build(tables, build_name, nodes, icons):
 
     names = {number(r, "ID"): r.get("Name_lang", "") for r in tables["SpellName"]}
 
+    teaches = recipe_items(tables, items)
     recipes = {}
     for row in tables["SkillLineAbility"]:
         skill_line, spell = number(row, "SkillLine"), number(row, "Spell")
@@ -151,15 +194,21 @@ def build(tables, build_name, nodes, icons):
             continue
         if any(pair[0] not in items for pair in reagents[spell]):
             continue
+        skill, origin = recipe_origin(spell, row, teaches.get(spell), items, sources)
         recipes[spell] = {
             "s": spell, "n": names.get(spell) or items[product[0]]["n"], "p": PROFESSIONS[skill_line],
-            "sk": number(row, "MinSkillLineRank"), "i": product[0], "c": product[1], "r": reagents[spell],
+            "sk": skill, "y": number(row, "TrivialSkillLineRankLow"), "o": origin,
+            "i": product[0], "c": product[1], "r": reagents[spell],
         }
+        if teaches.get(spell):
+            recipes[spell]["ri"] = teaches[spell]
 
     wanted = set(ENCHANT_MATERIALS) | {int(k) for k in nodes}
     for recipe in recipes.values():
         wanted.add(recipe["i"])
         wanted.update(pair[0] for pair in recipe["r"])
+        if "ri" in recipe:
+            wanted.add(recipe["ri"])
 
     catalog_items = {}
     for item_id in sorted(wanted):
@@ -206,7 +255,9 @@ def main():
     build_name = args.build or newest_build()
     tables = {name: read_table(name, build_name, args.cache) for name in TABLES}
     nodes = json.loads((ROOT / "catalog/gather_items.json").read_text(encoding="utf-8"))
-    catalog, gear, tradable = build(tables, build_name, nodes, fallback_icons())
+    sources_path = ROOT / "catalog/recipe_sources.json"
+    sources = json.loads(sources_path.read_text(encoding="utf-8")) if sources_path.exists() else None
+    catalog, gear, tradable = build(tables, build_name, nodes, fallback_icons(), sources)
     (ROOT / "site" / "all_items.json").write_text(json.dumps(tradable, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     out = ROOT / "site"
     (out / "catalog.json").write_text(json.dumps(catalog, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
