@@ -208,12 +208,12 @@
   const LINK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   function professionIcon(profession) {
     const url = PROFESSION_ICONS[profession] && iconUrl(PROFESSION_ICONS[profession]);
-    return url ? `<img class="icon prof-icon" src="${esc(url)}" alt="${esc(profession)}" title="${esc(profession)}" width="16" height="16" loading="lazy" decoding="async">` : `<span>${esc(profession)}</span>`;
+    return url ? `<img class="prof-icon" src="${esc(url)}" alt="${esc(profession)}" width="16" height="16" loading="lazy" decoding="async">` : `<span>${esc(profession)}</span>`;
   }
   const recipeSkill = (recipe) => (recipe.sk ? `${recipe.p} ${number(recipe.sk)}` : recipe.p);
   const recipeOrigin = (recipe) => (recipe.o || ["unknown"]).map((key) => RECIPE_SOURCES[key] || key).join(" or ");
   const wowheadUrl = (recipe) => (recipe.ri ? `https://www.wowhead.com/forever/item=${recipe.ri}` : `https://www.wowhead.com/forever/spell=${recipe.s}`);
-  const wowheadLink = (recipe) => `<a class="wowhead" href="${wowheadUrl(recipe)}" target="_blank" rel="noopener" title="Where to get it (opens Wowhead)" aria-label="Where to get ${esc(recipe.n)}, on Wowhead">${LINK_ICON}</a>`;
+  const wowheadLink = (recipe) => `<a class="wowhead" href="${wowheadUrl(recipe)}" target="_blank" rel="noopener" data-hint="Where to get this recipe: opens its Wowhead page (trainers, vendors, drops) in a new tab." aria-label="Where to get ${esc(recipe.n)}, on Wowhead">${LINK_ICON}</a>`;
 
   // The recipe item's auction price: what you'd pay to learn it from the auction house.
   function recipeOffer(recipe) {

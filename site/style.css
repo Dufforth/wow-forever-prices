@@ -298,7 +298,7 @@ tr.flash td { animation: row-flash 4s ease-out; }
 
 /* Recipe column: one line with profession icon, skill, source, AH price and a link icon */
 .recipe-cell { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.prof-icon { width: 16px; height: 16px; border-radius: 3px; }
+.prof-icon { flex: none; display: block; width: 16px; height: 16px; border-radius: 3px; background: var(--surface-2); }
 .recipe-src { font-size: 12px; color: var(--muted); }
 .recipe-how { font-size: 12px; color: var(--muted); }
 .recipe-cell .item-cell, .recipe-how .item-cell { display: inline-flex; }
