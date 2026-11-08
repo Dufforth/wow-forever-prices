@@ -68,6 +68,7 @@ jobs:
           pip install --quiet lupa
           python tests/addon/nodes_sim.py > /dev/null
           python tests/addon/scan_sim.py > /dev/null
+          python tests/addon/de_sim.py > /dev/null
 
       - name: Get saved prices
         env:
@@ -107,6 +108,7 @@ jobs:
           # Version tags so browsers load the new scripts and styles after each deploy.
           sed -i -E "s/(href|src)=\"([a-z]+\.(js|css))\"/\1=\"\2?v=${GITHUB_SHA::7}\"/" _site/index.html
           python tools/build_watch_list.py state addon/DufforthAHScanner/Watch.lua || true
+          python tools/build_de_prices.py state addon/DufforthAHScanner/DEPrices.lua || true
           python tools/build_addon_zip.py _site/downloads
           cp -r state/. _site/data/ || true
 

@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_addon_zip  # noqa: E402
+import build_de_prices  # noqa: E402
 import build_watch_list  # noqa: E402
 import install_addon  # noqa: E402
 
@@ -61,6 +62,16 @@ class WatchListTests(unittest.TestCase):
         ]
         self.assertEqual(build_watch_list.pick(catalog, houses), [2, 1])
         self.assertEqual(build_watch_list.pick(catalog, houses, 1), [2])
+
+
+class DisenchantPriceTests(unittest.TestCase):
+    def test_keeps_listed_materials_only_and_writes_lua(self):
+        items = {"10940": [80, 95, 10, 0, 0, 0], "10938": [100, None, 3, 0, 0, 0], "11083": [500, 540, 0, 0, 0, 0], "2589": [10, 12, 99, 0, 0, 0]}
+        self.assertEqual(build_de_prices.prices_for(items), {10940: 95, 10938: 100})
+        text = build_de_prices.lua({"forever.normal.horde.us": {10940: 95}, "forever.rp.horde.us": {}}, 123)
+        self.assertIn('DufforthAHScannerDEPrices = { at = 123,', text)
+        self.assertIn('["forever.normal.horde.us"] = { [10940] = 95 },', text)
+        self.assertNotIn("forever.rp.horde.us", text)
 
 
 class InstallTests(unittest.TestCase):

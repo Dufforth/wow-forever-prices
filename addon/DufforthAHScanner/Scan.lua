@@ -69,6 +69,10 @@ local function MarketName()
     return string.format("forever.%s.%s.%s", ruleset, faction, region)
 end
 
+-- Shared with Disenchant.lua, which prices materials for this market.
+DufforthAHScanner = DufforthAHScanner or {}
+DufforthAHScanner.MarketName = MarketName
+
 local function ScanList()
     return db and db.scanList or {}
 end
@@ -553,6 +557,8 @@ SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
             db.autoScan = not AutoScanEnabled()
         end
         Print("Automatic scan when you open the auction house: " .. (AutoScanEnabled() and "ON" or "OFF") .. ".")
+    elseif command == "de" then
+        if DufforthAHScannerDE then DufforthAHScannerDE.Toggle(string.lower(string.match(input or "", "^%s*%S+%s+(%S+)") or "")) end
     elseif command == "" then
         StartScan("full")
     else
@@ -562,6 +568,7 @@ SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
         Print("/ahscan mine - scan only your list")
         Print("/ahscan list - paste your list from the Forever Prices page")
         Print("/ahscan auto - turn the automatic scan on or off")
+        Print("/ahscan de - show or hide disenchant values in item tooltips")
         Print("/ahscan stop - stop and keep what has been read")
     end
 end
