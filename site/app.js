@@ -196,10 +196,24 @@
     pickpocket: "rogues can pickpocket the recipe", discovery: "you discover it while crafting", event: "a holiday event gives the recipe",
     item: "you learn it from a recipe item", unknown: "where to get it isn't known yet",
   };
+  const RECIPE_SHORT = {
+    trainer: "Trainer", vendor: "Vendor", drop: "Drop", world: "World drop", quest: "Quest", fishing: "Fishing",
+    pickpocket: "Pickpocket", discovery: "Discovery", event: "Event", item: "Recipe", unknown: "?",
+  };
+  const PROFESSION_ICONS = {
+    Alchemy: "trade_alchemy", Blacksmithing: "trade_blacksmithing", Cooking: "inv_misc_food_15", Enchanting: "trade_engraving",
+    Engineering: "trade_engineering", "First Aid": "spell_holy_sealofsacrifice", Leatherworking: "trade_leatherworking",
+    Mining: "trade_mining", Tailoring: "trade_tailoring",
+  };
+  const LINK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function professionIcon(profession) {
+    const url = PROFESSION_ICONS[profession] && iconUrl(PROFESSION_ICONS[profession]);
+    return url ? `<img class="icon prof-icon" src="${esc(url)}" alt="${esc(profession)}" title="${esc(profession)}" width="16" height="16" loading="lazy" decoding="async">` : `<span>${esc(profession)}</span>`;
+  }
   const recipeSkill = (recipe) => (recipe.sk ? `${recipe.p} ${number(recipe.sk)}` : recipe.p);
   const recipeOrigin = (recipe) => (recipe.o || ["unknown"]).map((key) => RECIPE_SOURCES[key] || key).join(" or ");
   const wowheadUrl = (recipe) => (recipe.ri ? `https://www.wowhead.com/forever/item=${recipe.ri}` : `https://www.wowhead.com/forever/spell=${recipe.s}`);
-  const wowheadLink = (recipe) => `<a class="wowhead" href="${wowheadUrl(recipe)}" target="_blank" rel="noopener" aria-label="Open ${esc(recipe.n)} on Wowhead">Wowhead ↗</a>`;
+  const wowheadLink = (recipe) => `<a class="wowhead" href="${wowheadUrl(recipe)}" target="_blank" rel="noopener" title="Where to get it (opens Wowhead)" aria-label="Where to get ${esc(recipe.n)}, on Wowhead">${LINK_ICON}</a>`;
 
   // The recipe item's auction price: what you'd pay to learn it from the auction house.
   function recipeOffer(recipe) {
@@ -220,9 +234,15 @@
     return `${esc(recipeOrigin(recipe))}${price} · ${wowheadLink(recipe)}`;
   }
 
+  // One short line: profession icon and skill, source, AH price when listed, and a link icon.
   function recipeCell(recipe) {
-    const skill = recipe.sk ? `${esc(recipe.p)} <b>${number(recipe.sk)}</b>` : `${esc(recipe.p)} <span class="muted">skill ?</span>`;
-    return `<div class="recipe-cell"><span>${skill}</span><span class="recipe-how">${recipeHow(recipe)}</span></div>`;
+    const offer = recipeOffer(recipe);
+    const skill = recipe.sk ? number(recipe.sk) : '<span class="muted">?</span>';
+    const source = (recipe.o || ["unknown"]).map((key) => RECIPE_SHORT[key] || key).join("/");
+    let price = "";
+    if (offer && offer.bound) price = ' <span class="muted" aria-label="bound, not sold">🔒</span>';
+    else if (offer && offer.listed) price = ` <span class="item-cell recipe-item" data-item="${recipe.ri}"><span class="q${itemOf(recipe.ri).q}">AH</span></span><span>${coins(offer.price)}</span>`;
+    return `<span class="recipe-cell">${professionIcon(recipe.p)}<b>${skill}</b><span class="recipe-src">${esc(source)}</span>${price}${wowheadLink(recipe)}</span>`;
   }
 
   function recipeSays(recipe) {
@@ -246,7 +266,7 @@
   // Item level: the same column on every tab; `itemFor` finds the row's item.
   function levelColumn(itemFor) {
     return {
-      key: "level", label: "Item level", hint: HINTS["Item level"], p: 2,
+      key: "level", label: "Item level", hint: HINTS["Item level"], p: 1,
       say: (r) => {
         const il = itemFor(r).il;
         if (!il) return "Item level not known.";
@@ -313,6 +333,8 @@
     }).join("")
       || emptyRow(columns.length, state.loading ? "Loading prices…" : favoritesEmpty() || emptyText);
     $("table").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+    fitColumns();
+    requestAnimationFrame(fitColumns); // again once icons and fonts have their size
     if (state.columnsOpen) renderColumnsPanel();
     const parts = [];
     if (state.category !== "all") parts.push(state.tab === "auction" ? AH.label(state.category) : categoryLabel(state.category));
@@ -321,6 +343,29 @@
     $("result-count").textContent = `${number(rows.length)} ${unit}${rows.length === 1 ? "" : "s"}${scope}`;
     $("clear-filters").hidden = state.category === "all" && !state.search && (state.source === "all" || state.tab === "profit");
     drawPager(rows.length, from, shown.length, pages);
+  }
+
+  // No sideways scrolling: while the table is wider than its box, columns step out one at a time,
+  // least important first (priority 3, then 2, then 1; rightmost first). The Columns button says how
+  // many, and a wider window brings them back.
+  function fitColumns() {
+    const table = $("table");
+    const wrap = table.parentElement;
+    if (!wrap.clientWidth || !state.drawn) return; // not laid out yet; the next frame or resize fits it
+    table.querySelectorAll(".fit-out").forEach((cell) => cell.classList.remove("fit-out"));
+    const order = state.drawn.columns.map((column, index) => ({ index, p: column.p || 0 }))
+      .filter((c) => c.p).sort((a, b) => b.p - a.p || b.index - a.index);
+    let hidden = 0;
+    for (const { index } of order) {
+      if (table.scrollWidth <= wrap.clientWidth + 1) break;
+      const cells = table.querySelectorAll(`tr > :nth-child(${index + 1})`);
+      if (cells[0] && cells[0].offsetParent === null) continue; // already hidden on a small screen
+      cells.forEach((cell) => cell.classList.add("fit-out"));
+      hidden += 1;
+    }
+    const toggle = $("columns-toggle");
+    toggle.textContent = hidden ? `Columns (${hidden} hidden)` : "Columns";
+    toggle.title = hidden ? `${hidden} column${hidden === 1 ? "" : "s"} hidden to fit the screen. Hide others or widen the window to see them.` : "";
   }
 
   // An empty Favorites tab says how to add items, so it never looks like the page failed to load.
@@ -447,7 +492,7 @@
     drawTable([
       { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
       { key: "required", label: "Level", hint: "The level a character needs to use it.", say: (r) => (r.item.rl ? `Usable from level ${r.item.rl}.` : "Any level can use it."), cell: (r) => (r.item.rl ? number(r.item.rl) : "–") },
-      Object.assign(levelColumn((r) => r.item), { p: 2 }),
+      levelColumn((r) => r.item),
       { key: "supply", label: "Available", hint: HINTS["For sale"], say: (r) => say.supply(r.row[2]), cell: (r) => number(r.row[2]) },
       { key: "price", label: "Buyout (each)", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => coins(lowestOf(r.row)) },
       { key: "market", label: "Market", hint: HINTS["Market"], say: (r) => say.market(r.row), p: 1, cell: (r) => coins(r.row[1]) },
@@ -1677,6 +1722,8 @@ common.level,
 
   async function start() {
     upgradeColumns();
+    let fitFrame = 0;
+    addEventListener("resize", () => { cancelAnimationFrame(fitFrame); fitFrame = requestAnimationFrame(fitColumns); });
     const early = window.FP_EARLY || {};
     state.metaEarly = (early.meta || getJson("data/meta.json")).catch(() => null);
     state.catalog = await (early.catalog ? early.catalog.catch(() => getJson("catalog.json")) : getJson("catalog.json"));

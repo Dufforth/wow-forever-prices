@@ -121,8 +121,8 @@ main:focus { outline: none; }
 /* Table */
 .table-wrap { container-type: inline-size; flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); scrollbar-width: thin; }
 table { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
-th, td { padding: 3px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
-th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--muted); user-select: none; padding-top: 7px; padding-bottom: 7px; }
+th, td { padding: 3px 7px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--muted); user-select: none; padding-top: 5px; padding-bottom: 5px; white-space: normal; line-height: 1.2; min-width: 3.5em; vertical-align: bottom; }
 th[data-sort] { cursor: pointer; }
 th[data-sort]:hover { color: var(--ink); }
 .sort-mark { margin-left: 3px; white-space: nowrap; }
@@ -298,9 +298,16 @@ tr.flash td { animation: row-flash 4s ease-out; }
 @media (prefers-reduced-motion: reduce) { .live[data-state="ok"] .live-dot, tr.flash td { animation: none; } }
 @media (max-width: 640px) { .live { display: none; } } /* the market menu shows how old the prices are */
 
-/* Recipe column: skill on top, then where to get it, its auction price and a Wowhead link */
-.recipe-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Recipe column: one line with profession icon, skill, source, AH price and a link icon */
+.recipe-cell { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.prof-icon { width: 16px; height: 16px; border-radius: 3px; }
+.recipe-src { font-size: 12px; color: var(--muted); }
 .recipe-how { font-size: 12px; color: var(--muted); }
-.recipe-how .item-cell { display: inline-flex; }
-.recipe-item [class^="q"] { text-decoration: underline dotted; cursor: help; }
-a.wowhead { white-space: nowrap; }
+.recipe-cell .item-cell, .recipe-how .item-cell { display: inline-flex; }
+.recipe-item [class^="q"] { text-decoration: underline dotted; cursor: help; font-size: 12px; }
+a.wowhead { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; color: var(--muted); }
+a.wowhead:hover, a.wowhead:focus-visible { color: var(--accent); background: var(--surface-2); }
+/* Columns that step out so the table fits without sideways scrolling */
+th.fit-out, td.fit-out { display: none; }
+/* Text columns (source, type, material) may wrap so numbers keep their room */
+td.left { white-space: normal; min-width: 6em; }
