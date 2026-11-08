@@ -218,3 +218,9 @@ test("columns follow the viewer's order and hidden list; the first column stays"
   assert.deepEqual(ids(arranged.all), ["name", "return", "b", "a", "Sell by"], "new columns go at the end");
   assert.deepEqual(ids(arranged.shown), ["name", "return", "a", "Sell by"], "the first column can't be hidden");
 });
+
+test("items the game flags as not disenchantable have no outcomes", () => {
+  assert.equal(Calc.disenchantOutcomes({ q: 2, il: 15, cl: 2, inv: 26, nd: 1 }), null);
+  assert.equal(Calc.disenchantSkill({ q: 2, il: 15, cl: 2, inv: 26, nd: 1 }), null);
+  assert.ok(Calc.disenchantOutcomes({ q: 2, il: 15, cl: 2, inv: 26 }));
+});

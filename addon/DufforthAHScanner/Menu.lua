@@ -131,16 +131,16 @@ local function Build()
     y = Check(menu, y, "Disenchant values in item tooltips", "Adds the materials, their chances and prices, and the average value to weapon and armor tooltips. Same as /dufforth de.",
         function() return DB().showDisenchant ~= false end, function(on) DufforthAHScannerDE.Toggle(on and "on" or "off") end)
     local auto = DufforthAHScannerAutoDE
-    y = Stepper(menu, y, "Disenchant up to", "The highest quality the disenchant window offers. Uncommon (green) is the safe default; epics need a deliberate choice.",
+    y = Stepper(menu, y, "Disenchant up to", "Higher qualities start unticked in the disenchant window. Uncommon (green) is the safe default; epics need a deliberate choice.",
         function() return auto.Options().maxQuality end, function(v) auto.Options().maxQuality = v end, 2, 4, 1, function(v) return auto.QUALITY_NAMES[v] end)
-    y = Stepper(menu, y, "Highest item level", "Items above this item level are never offered. 0 means any level.",
+    y = Stepper(menu, y, "Highest item level", "Items above this item level start unticked. 0 means any level.",
         function() return auto.Options().maxLevel end, function(v) auto.Options().maxLevel = v end, 0, 100, 5, function(v) return v == 0 and "any" or tostring(v) end)
-    y = Check(menu, y, "Skip items that sell for more on the auction house", "Uses Blizzard's prices from your download: if the item's auction price, after the 5% cut, beats its disenchant value, it's kept.",
+    y = Check(menu, y, "Untick items that sell for more on the auction house", "Uses Blizzard's prices from your download: if the item's auction price, after the 5% cut, beats its disenchant value, it starts unticked.",
         function() return auto.Options().skipWorthMore end, function(on) auto.Options().skipWorthMore = on end)
-    y = Check(menu, y, "Skip items a vendor pays more for", "If a vendor pays more than the disenchant value, the item is kept.",
+    y = Check(menu, y, "Untick items a vendor pays more for", "If a vendor pays more than the disenchant value, the item starts unticked.",
         function() return auto.Options().skipVendor end, function(on) auto.Options().skipVendor = on end)
-    Button(menu, y, "Open disenchant window", "Shows the next safe BoE item and a Disenchant button. One click per item. Same as /dufforth disenchant.", function() auto.Toggle() end)
-    local clear = Button(menu, y, "Clear keep list", "Items you marked Keep in the disenchant window are never offered. This clears that list.", function()
+    Button(menu, y, "Open disenchant window", "Lists everything in your bags that can be disenchanted, with a checkbox each. The button disenchants the ticked items one by one, one click per item. Same as /dufforth disenchant.", function() auto.Toggle() end)
+    local clear = Button(menu, y, "Clear keep list", "Items you right-clicked in the disenchant window start unticked. This clears that list.", function()
         auto.Options().keep = {}
         DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. "keep list cleared.")
     end, 190, 150)

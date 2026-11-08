@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SITE = "https://wago.tools"
 AGENT = "wow-forever-prices (personal price page)"
+NO_DISENCHANT_FLAG = 0x8000  # ItemSparse Flags_0: the game won't disenchant the item
 TABLES = ("SkillLineAbility", "SpellReagents", "SpellEffect", "SpellName", "ItemSparse", "Item", "ManifestInterfaceData",
           "ItemModifiedAppearance", "ItemAppearance")
 ICON_INDEX = "https://auctionhouse.fyi/api/v1/items/search-index"
@@ -119,6 +120,8 @@ def build(tables, build_name, nodes, icons):
         }
         if icon:
             items[item_id]["ic"] = icon
+        if number(row, "Flags_0") & NO_DISENCHANT_FLAG:
+            items[item_id]["nd"] = 1
 
     reagents = {}
     for row in tables["SpellReagents"]:
@@ -175,7 +178,7 @@ def build(tables, build_name, nodes, icons):
     for item_id, item in items.items():
         if (item["cl"] in (WEAPON, ARMOR) and 2 <= item["q"] <= 4 and item["il"] > 0 and item["n"]
                 and "[DNT]" not in item["n"] and item["n"] != "Template Item"
-                and item["inv"] not in NEVER_DISENCHANT_SLOTS and not item["bop"]):
+                and item["inv"] not in NEVER_DISENCHANT_SLOTS and not item["bop"] and not item.get("nd")):
             gear[item_id] = {"n": item["n"], "q": item["q"], "il": item["il"], "cl": item["cl"], "sc": item["sc"], "sell": item["sell"]}
             if "ic" in item:
                 gear[item_id]["ic"] = item["ic"]
@@ -183,12 +186,14 @@ def build(tables, build_name, nodes, icons):
     tradable = {}
     for item_id, item in items.items():
         if item["n"] and not item["bop"] and "[DNT]" not in item["n"] and item["n"] != "Template Item":
-            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"], item["sell"], item["il"]]
+            tradable[item_id] = [item["n"], item["q"], item.get("ic", ""), item["cl"], item["sc"], item["sell"], item["il"], item["rl"], item["inv"]]
 
     catalog = {
         "build": build_name,
         "items": catalog_items,
         "recipes": sorted(recipes.values(), key=lambda r: (r["p"], r["sk"], r["n"])),
+        # Weapons and armor the game refuses to disenchant (Enchanting-made wands, some sets).
+        "noDisenchant": sorted(i for i, item in items.items() if item.get("nd") and item["cl"] in (WEAPON, ARMOR) and item["q"] >= 2),
     }
     return catalog, gear, tradable
 

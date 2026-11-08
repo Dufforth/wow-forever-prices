@@ -56,6 +56,7 @@ end
 local function Outcomes(item)
     if not item or not item.level or (item.classID ~= WEAPON and item.classID ~= ARMOR) then return nil end
     if SKIP_SLOTS[item.slot or ""] then return nil end
+    if item.id and DufforthAHScannerNoDE and DufforthAHScannerNoDE[item.id] then return nil end -- the game won't
     local level = item.level
     if item.quality == UNCOMMON then
         local row = FindBand(UNCOMMON_TABLE, level)

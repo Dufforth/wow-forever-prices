@@ -1,12 +1,17 @@
--- Disenchant BoE gear from your bags, one click (or key press) per item.
--- Blizzard only lets a spell be cast from a click or key press, so no addon can disenchant
--- by itself. This one finds the next safe item and puts it on one button, like other
--- disenchant addons do. Safety checks (guardrails), all on by default:
---   only unbound Bind on Equip weapons and armor; nothing already bound or not BoE;
---   nothing above your quality limit (Uncommon unless you change it) or item level limit;
---   nothing in an equipment set, on your keep list, or locked; nothing you lack the skill for;
---   nothing that sells for more on the auction house, or that a vendor pays more for;
---   if the game can't tell whether an item is bound, it's left alone; and nothing in combat.
+-- The disenchant list: every item in your bags that can be disenchanted, each with a
+-- checkbox. One button disenchants the ticked items one after another.
+--
+-- Blizzard only lets a spell be cast from a click or key press, and Disenchant takes about
+-- 3 seconds, so no addon can disenchant a whole list from one click. The button always
+-- points at the next ticked item: click it (or press its key) again after each cast.
+--
+-- Safety checks (guardrails). Items that fail one start unticked, with the reason shown;
+-- you can still tick them yourself:
+--   soulbound or not Bind on Equip; above your quality limit (Uncommon unless you change it)
+--   or item level limit; in an equipment set; on your keep list; sells for more on the
+--   auction house or to a vendor; or the game can't tell whether it's bound.
+-- Items that can't be ticked at all: locked (being moved or traded), or above your
+-- Enchanting skill. Items the game won't disenchant never appear. Nothing changes in combat.
 
 local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
 local DISENCHANT = 13262
@@ -14,6 +19,7 @@ local BIND_ON_EQUIP = 2
 local AUCTION_CUT = 0.05
 local BAGS = { 0, 1, 2, 3, 4 }
 local QUALITY_NAMES = { [2] = "Uncommon", [3] = "Rare", [4] = "Epic" }
+local ROW_HEIGHT, VISIBLE_ROWS = 24, 10
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. message)
@@ -32,20 +38,21 @@ local function Options()
     return o
 end
 
--- Why an item must not be disenchanted, or nil if it's safe.
--- item: { id, quality, level, classID, slot, bindType, sellPrice, bound, locked, inSet, ahPrice }
-local function Blocked(item, o, skill, value, need)
-    if item.locked then return "in use" end
+-- Why an item shouldn't be disenchanted, and whether that's final.
+-- Returns nil (fine), or reason and hard (true: it can't be ticked at all).
+-- item: { id, quality, level, bindType, sellPrice, bound, locked, inSet, ahPrice }
+local function Classify(item, o, skill, value, need)
+    if not need then return "can't be disenchanted", true end
+    if item.locked then return "in use", true end
+    if skill == false then return "you don't have Enchanting", true end
+    if skill and skill < need then return "needs Enchanting " .. need, true end
+    if o.keep[item.id] then return "on your keep list" end
     if item.bound == nil then return "can't tell if it's bound" end
-    if item.bound then return "already bound" end
+    if item.bound then return "soulbound" end
     if item.bindType ~= BIND_ON_EQUIP then return "not Bind on Equip" end
-    if not need then return "can't be disenchanted" end
     if item.quality > o.maxQuality then return "above your quality limit" end
     if o.maxLevel > 0 and (item.level or 0) > o.maxLevel then return "above your item level limit" end
-    if o.keep[item.id] then return "on your keep list" end
     if item.inSet then return "in an equipment set" end
-    if skill == false then return "you don't have Enchanting" end
-    if skill and skill < need then return "needs Enchanting " .. need end
     if o.skipWorthMore and value and item.ahPrice and item.ahPrice * (1 - AUCTION_CUT) > value then
         return "sells for more on the auction house"
     end
@@ -92,35 +99,42 @@ local function ReadSlot(bag, slot)
     return item
 end
 
--- Every safe item, plus how many were held back and why.
-local skipped = {} -- skipped this session with the Skip button
-local function Candidates()
+-- Your ticks and unticks for this session, by item ID: true, false, or nil (use the default).
+local choice = {}
+
+local function IsSelected(row)
+    if row.hard then return false end
+    local picked = choice[row.item.id]
+    if picked == nil then return row.reason == nil end
+    return picked
+end
+
+-- Every item in your bags that can be disenchanted, in bag order, with its reason if any.
+local function Rows()
     local o = Options()
     local market = DufforthAHScanner and DufforthAHScanner.MarketName and DufforthAHScanner.MarketName() or ""
     local skill = DufforthAHScannerDE.EnchantingSkill()
-    local ready, held = {}, {}
+    local rows = {}
     for _, bag in ipairs(BAGS) do
         for slot = 1, NumSlots(bag) do
             local item = ReadSlot(bag, slot)
-            if item and DufforthAHScannerDE.Outcomes(item) and not skipped[item.id] then
+            if item and DufforthAHScannerDE.Outcomes(item) then
                 item.ahPrice = DufforthAHScannerDE.Price(item.id, market, DufforthAHScannerPrices)
                 item.value = DufforthAHScannerDE.ValueFor(item, market, DufforthAHScannerPrices)
-                local reason = Blocked(item, o, skill, item.value, DufforthAHScannerDE.SkillNeeded(item))
-                if reason then
-                    held[reason] = (held[reason] or 0) + 1
-                else
-                    ready[#ready + 1] = item
-                end
+                local reason, hard = Classify(item, o, skill, item.value, DufforthAHScannerDE.SkillNeeded(item))
+                rows[#rows + 1] = { item = item, reason = reason, hard = hard }
             end
         end
     end
-    return ready, held
+    return rows
 end
 
-DufforthAHScannerAutoDE = { Blocked = Blocked, Options = Options, Candidates = Candidates, DEFAULTS = DEFAULTS, QUALITY_NAMES = QUALITY_NAMES }
+DufforthAHScannerAutoDE = { Classify = Classify, Options = Options, Rows = Rows, IsSelected = IsSelected, DEFAULTS = DEFAULTS, QUALITY_NAMES = QUALITY_NAMES, choice = choice }
 
 -- ---- Window ----
-local frame, castButton, current
+local frame, castButton, rowFrames = nil, nil, {}
+local rows, offset = {}, 0
+
 local function SpellName()
     if C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(DISENCHANT)
@@ -129,11 +143,27 @@ local function SpellName()
     return (GetSpellInfo and GetSpellInfo(DISENCHANT)) or "Disenchant"
 end
 
-local function HeldText(held)
-    local parts = {}
-    for reason, count in pairs(held) do parts[#parts + 1] = count .. " " .. reason end
-    table.sort(parts)
-    return #parts > 0 and ("Kept back: " .. table.concat(parts, ", ")) or ""
+local function QualityColor(quality)
+    local c = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+    return c and c.hex or "|cffffffff"
+end
+
+local function DrawRows()
+    for i, line in ipairs(rowFrames) do
+        local row = rows[i + offset]
+        line:SetShown(row ~= nil)
+        if row then
+            line.row = row
+            line.icon:SetTexture(row.item.icon)
+            line.name:SetText(QualityColor(row.item.quality) .. (row.item.name or ("Item " .. row.item.id)) .. "|r")
+            line.check:SetChecked(IsSelected(row))
+            line.check:SetEnabled(not row.hard)
+            local value = row.item.value and DufforthAHScannerDE.Money(row.item.value) or "no price"
+            line.detail:SetText(row.reason and ("|cff999999" .. row.reason .. "|r") or value)
+        end
+    end
+    frame.scrollUp:SetEnabled(offset > 0)
+    frame.scrollDown:SetEnabled(offset + VISIBLE_ROWS < #rows)
 end
 
 local function Refresh()
@@ -142,74 +172,129 @@ local function Refresh()
         frame.status:SetText("Paused in combat.")
         return
     end
-    local ready, held = Candidates()
-    current = ready[1]
-    frame.held:SetText(HeldText(held))
-    if current then
-        frame.icon:SetTexture(current.icon)
-        frame.name:SetText(current.name or ("Item " .. current.id))
-        frame.value:SetText(current.value and ("Average value " .. DufforthAHScannerDE.Money(current.value)) or "No material prices yet")
-        frame.status:SetText(#ready .. " ready to disenchant")
+    rows = Rows()
+    offset = math.max(0, math.min(offset, #rows - VISIBLE_ROWS))
+    local next, count, total = nil, 0, 0
+    for _, row in ipairs(rows) do
+        if IsSelected(row) then
+            count = count + 1
+            total = total + (row.item.value or 0)
+            next = next or row
+        end
+    end
+    DrawRows()
+    if #rows == 0 then
+        frame.status:SetText("Nothing in your bags can be disenchanted.")
+    else
+        frame.status:SetText(string.format("%d of %d ticked · about %s", count, #rows, DufforthAHScannerDE.Money(total)))
+    end
+    if next then
         castButton:SetAttribute("type", "spell")
         castButton:SetAttribute("spell", SpellName())
-        castButton:SetAttribute("target-bag", current.bag)
-        castButton:SetAttribute("target-slot", current.bagSlot)
+        castButton:SetAttribute("target-bag", next.item.bag)
+        castButton:SetAttribute("target-slot", next.item.bagSlot)
+        castButton:SetText("Disenchant next (" .. count .. ")")
         castButton:Enable()
-        frame.skip:Enable(); frame.keepButton:Enable()
     else
-        frame.icon:SetTexture(nil)
-        frame.name:SetText("Nothing safe to disenchant")
-        frame.value:SetText("")
-        frame.status:SetText("")
         castButton:SetAttribute("type", nil)
+        castButton:SetText("Disenchant next")
         castButton:Disable()
-        frame.skip:Disable(); frame.keepButton:Disable()
     end
+end
+
+local function SetAll(on)
+    for _, row in ipairs(rows) do
+        if not row.hard then choice[row.item.id] = on end
+    end
+    Refresh()
+end
+
+local function BuildRow(index)
+    local line = CreateFrame("Button", nil, frame)
+    line:SetSize(330, ROW_HEIGHT)
+    line:SetPoint("TOPLEFT", 12, -56 - (index - 1) * ROW_HEIGHT)
+    line:RegisterForClicks("RightButtonUp")
+    line.check = CreateFrame("CheckButton", nil, line, "UICheckButtonTemplate")
+    line.check:SetSize(22, 22); line.check:SetPoint("LEFT", 0, 0)
+    line.check:SetScript("OnClick", function(self)
+        if line.row then choice[line.row.item.id] = self:GetChecked() and true or false end
+        Refresh()
+    end)
+    line.icon = line:CreateTexture(nil, "ARTWORK")
+    line.icon:SetSize(20, 20); line.icon:SetPoint("LEFT", line.check, "RIGHT", 2, 0)
+    line.name = line:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    line.name:SetPoint("LEFT", line.icon, "RIGHT", 6, 0); line.name:SetWidth(160); line.name:SetJustifyH("LEFT")
+    line.detail = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    line.detail:SetPoint("RIGHT", -4, 0); line.detail:SetWidth(120); line.detail:SetJustifyH("RIGHT")
+    -- Right-click adds or removes the item from your keep list for good.
+    line:SetScript("OnClick", function()
+        if not line.row then return end
+        local keep, id = Options().keep, line.row.item.id
+        keep[id] = not keep[id] or nil
+        choice[id] = nil
+        Print((line.row.item.name or "Item") .. (keep[id] and " is on your keep list." or " is off your keep list."))
+        Refresh()
+    end)
+    line:SetScript("OnEnter", function(self)
+        if not self.row then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if GameTooltip.SetBagItem then GameTooltip:SetBagItem(self.row.item.bag, self.row.item.bagSlot) end
+        GameTooltip:AddLine("Right-click: always keep / stop keeping", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    line:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    line:EnableMouseWheel(true)
+    line:SetScript("OnMouseWheel", function(_, delta)
+        offset = math.max(0, math.min(offset - delta, #rows - VISIBLE_ROWS))
+        DrawRows()
+    end)
+    return line
+end
+
+local function SmallButton(text, width, onClick)
+    local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    button:SetSize(width, 20)
+    button:SetText(text)
+    button:SetScript("OnClick", onClick)
+    return button
 end
 
 local function Build()
     frame = CreateFrame("Frame", "DufforthAHScannerDEFrame", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(300, 190)
+    frame:SetSize(360, 56 + VISIBLE_ROWS * ROW_HEIGHT + 86)
     frame:SetPoint("CENTER", 260, 0)
     frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:SetFrameStrata("DIALOG")
+    frame:SetClampedToScreen(true)
     frame:Hide()
     tinsert(UISpecialFrames, "DufforthAHScannerDEFrame") -- Escape closes it
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     frame.title:SetPoint("TOP", 0, -5)
-    frame.title:SetText("Disenchant BoE gear")
-    frame.icon = frame:CreateTexture(nil, "ARTWORK")
-    frame.icon:SetSize(36, 36); frame.icon:SetPoint("TOPLEFT", 14, -34)
-    frame.name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frame.name:SetPoint("TOPLEFT", frame.icon, "TOPRIGHT", 8, -2); frame.name:SetWidth(230); frame.name:SetJustifyH("LEFT")
-    frame.value = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.value:SetPoint("TOPLEFT", frame.name, "BOTTOMLEFT", 0, -4)
+    frame.title:SetText("Disenchant from your bags")
+
+    local all = SmallButton("Tick all", 70, function() SetAll(true) end)
+    all:SetPoint("TOPLEFT", 12, -30)
+    local none = SmallButton("Untick all", 80, function() SetAll(false) end)
+    none:SetPoint("LEFT", all, "RIGHT", 4, 0)
+    frame.scrollUp = SmallButton("▲", 26, function() offset = math.max(0, offset - VISIBLE_ROWS); DrawRows() end)
+    frame.scrollUp:SetPoint("TOPRIGHT", -42, -30)
+    frame.scrollDown = SmallButton("▼", 26, function() offset = math.min(offset + VISIBLE_ROWS, math.max(0, #rows - VISIBLE_ROWS)); DrawRows() end)
+    frame.scrollDown:SetPoint("LEFT", frame.scrollUp, "RIGHT", 2, 0)
+
+    for i = 1, VISIBLE_ROWS do rowFrames[i] = BuildRow(i) end
+
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.status:SetPoint("TOPLEFT", 14, -78)
-    frame.held = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.held:SetPoint("TOPLEFT", 14, -94); frame.held:SetWidth(272); frame.held:SetJustifyH("LEFT")
+    frame.status:SetPoint("BOTTOMLEFT", 14, 66)
     local note = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    note:SetPoint("BOTTOMLEFT", 14, 44); note:SetWidth(272); note:SetJustifyH("LEFT")
-    note:SetText("One click per item: the game doesn't let addons cast on their own. Bind a key in Key Bindings > AddOns.")
+    note:SetPoint("BOTTOMLEFT", 14, 40); note:SetWidth(332); note:SetJustifyH("LEFT")
+    note:SetText("The game allows one disenchant per click: press the button (or its key, under Key Bindings > AddOns) after each cast.")
 
     castButton = CreateFrame("Button", "DufforthAHScannerDEButton", frame, "SecureActionButtonTemplate,UIPanelButtonTemplate")
-    castButton:SetSize(120, 24); castButton:SetPoint("BOTTOMLEFT", 12, 12)
-    castButton:SetText("Disenchant")
+    castButton:SetSize(200, 24); castButton:SetPoint("BOTTOM", 0, 12)
+    castButton:SetText("Disenchant next")
     castButton:RegisterForClicks("AnyUp", "AnyDown")
-    frame.skip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    frame.skip:SetSize(70, 24); frame.skip:SetPoint("LEFT", castButton, "RIGHT", 6, 0); frame.skip:SetText("Skip")
-    frame.skip:SetScript("OnClick", function() if current then skipped[current.id] = true end; Refresh() end)
-    frame.keepButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    frame.keepButton:SetSize(70, 24); frame.keepButton:SetPoint("LEFT", frame.skip, "RIGHT", 6, 0); frame.keepButton:SetText("Keep")
-    frame.keepButton:SetScript("OnClick", function()
-        if current then
-            Options().keep[current.id] = true
-            Print((current.name or "Item") .. " is on your keep list. Clear it in the menu.")
-        end
-        Refresh()
-    end)
 
     frame:SetScript("OnShow", Refresh)
     frame:RegisterEvent("BAG_UPDATE_DELAYED")
@@ -234,6 +319,7 @@ function DufforthAHScannerAutoDE.Toggle()
 end
 
 DufforthAHScannerAutoDE.Refresh = Refresh
+DufforthAHScannerAutoDE.SetAll = SetAll
 
 BINDING_HEADER_DUFFORTHAHSCANNER = "Dufforth AH Scanner"
-_G["BINDING_NAME_CLICK DufforthAHScannerDEButton:LeftButton"] = "Disenchant the next BoE item"
+_G["BINDING_NAME_CLICK DufforthAHScannerDEButton:LeftButton"] = "Disenchant the next ticked item"

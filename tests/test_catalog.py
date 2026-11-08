@@ -80,6 +80,15 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(tradable[3][:6], ["Robe", 2, "inv_chest_cloth_01", 4, 1, 0])
         self.assertIsInstance(tradable[3][6], int, "item level")
         self.assertNotIn(4, tradable)
+        self.assertEqual(tradable[3][8], 5, "inventory slot, for the auction house view")
+
+    def test_items_flagged_not_disenchantable_leave_the_gear_list(self):
+        data = tables()
+        data["ItemSparse"][2]["Flags_0"] = str(0x8000)
+        catalog, gear, _ = build_catalog.build(data, "1.0", {}, {})
+        self.assertNotIn(3, gear)
+        self.assertEqual(catalog["noDisenchant"], [3])
+        self.assertIn(3, self.build()[1], "unflagged gear stays")
 
 
 if __name__ == "__main__":

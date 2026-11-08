@@ -57,6 +57,7 @@ class AddonPriceTests(unittest.TestCase):
         self.assertIn('DufforthAHScannerPrices = { at = 123,', text)
         self.assertIn('["forever.normal.horde.us"] = { [10940]=95 },', text)
         self.assertNotIn("forever.rp.horde.us", text)
+        self.assertIn("DufforthAHScannerNoDE = { [11287]=true }", build_addon_prices.lua({}, 1, [11287]))
 
     def test_wants_every_material_and_the_gear_list(self):
         ids = build_addon_prices.wanted_ids()

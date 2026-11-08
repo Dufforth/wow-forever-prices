@@ -39,6 +39,7 @@
   // What disenchanting an item is expected to give: [{ id, chance (0-1), min, max }], or null.
   function disenchantOutcomes(item) {
     if (!item || !(item.cl === WEAPON || item.cl === 4)) return null;
+    if (item.nd) return null; // the game flags some items, like Enchanting-made wands, as never disenchantable
     if (item.inv === 4 || item.inv === 19) return null;
     const level = item.il;
     if (item.q === UNCOMMON) {

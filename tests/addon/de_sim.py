@@ -66,6 +66,10 @@ check("epic 60: one Nexus Crystal", epic[1].id == 20725 and epic[1].min == 1 and
 check("common items can't be disenchanted", DE.Outcomes(item(1, 30, 4)) is None)
 check("shirts can't be disenchanted", DE.Outcomes(item(2, 30, 4, "INVTYPE_BODY")) is None)
 check("trade goods can't be disenchanted", DE.Outcomes(item(2, 30, 7)) is None)
+lua.execute("DufforthAHScannerNoDE = { [11287] = true }")
+wand = item(2, 15, 2, "INVTYPE_RANGEDRIGHT"); wand.id = 11287
+check("flagged items like Lesser Magic Wand can't be disenchanted", DE.Outcomes(wand) is None)
+lua.execute("DufforthAHScannerNoDE = nil")
 check("skill: level 15 needs 1", DE.SkillNeeded(item(2, 15, 4)) == 1)
 check("skill: level 30 needs 50", DE.SkillNeeded(item(2, 30, 4)) == 50)
 check("skill: rare level 20 needs 25", DE.SkillNeeded(item(3, 20, 2)) == 25)

@@ -115,49 +115,58 @@ AUTO = g.DufforthAHScannerAutoDE
 opts = AUTO.Options()
 
 
-def blocked(**fields):
-    item = {"id": 1, "quality": 2, "level": 30, "classID": 4, "slot": "INVTYPE_HEAD", "bindType": 2, "bound": False, "locked": False, "inSet": False}
+def classify(skill=300, **fields):
+    item = {"id": 1, "quality": 2, "level": 30, "bindType": 2, "bound": False, "locked": False, "inSet": False}
     item.update(fields)
-    return AUTO.Blocked(lua.table_from(item), opts, fields.pop("skill", 300) if "skill" in fields else 300, fields.get("value", 5000), 50)
+    result = AUTO.Classify(lua.table_from(item), opts, skill, 5000, 50)
+    return result if isinstance(result, tuple) or result is None else (result, None)
 
 
-check("a plain green BoE is safe", blocked() is None)
-check("bound items are kept", blocked(bound=True) == "already bound")
-check("unknown binding is kept", AUTO.Blocked(lua.table_from({"id": 1, "quality": 2, "level": 30, "bindType": 2, "locked": False}), opts, 300, 5000, 50) == "can't tell if it's bound")
-check("Bind on Pickup is kept", blocked(bindType=1) == "not Bind on Equip")
-check("blues are kept by default", blocked(quality=3) == "above your quality limit")
-check("locked items are kept", blocked(locked=True) == "in use")
-check("equipment sets are kept", blocked(inSet=True) == "in an equipment set")
-check("low skill is kept", AUTO.Blocked(lua.table_from({"id": 1, "quality": 2, "level": 30, "bindType": 2, "bound": False}), opts, 40, 5000, 50) == "needs Enchanting 50")
-check("no Enchanting is kept", AUTO.Blocked(lua.table_from({"id": 1, "quality": 2, "level": 30, "bindType": 2, "bound": False}), opts, False, 5000, 50) == "you don't have Enchanting")
-check("worth more on the AH is kept", blocked(ahPrice=10000) == "sells for more on the auction house")
-check("vendor pays more is kept", blocked(sellPrice=6000) == "a vendor pays more")
+check("a plain green BoE is fine", classify() is None)
+check("soulbound starts unticked", classify(bound=True) == ("soulbound", None))
+check("Bind on Pickup starts unticked", classify(bindType=1)[0] == "not Bind on Equip")
+check("blues start unticked by default", classify(quality=3)[0] == "above your quality limit")
+check("equipment sets start unticked", classify(inSet=True)[0] == "in an equipment set")
+check("worth more on the AH starts unticked", classify(ahPrice=10000)[0] == "sells for more on the auction house")
+check("vendor pays more starts unticked", classify(sellPrice=6000)[0] == "a vendor pays more")
+check("locked items can't be ticked", classify(locked=True) == ("in use", True))
+check("low skill can't be ticked", classify(skill=40) == ("needs Enchanting 50", True))
+check("no Enchanting can't be ticked", classify(skill=False) == ("you don't have Enchanting", True))
 opts.keep[1] = True
-check("keep list is kept", blocked() == "on your keep list")
+check("keep list starts unticked", classify()[0] == "on your keep list")
 opts.keep[1] = None
 opts.maxLevel = 25
-check("item level limit", blocked() == "above your item level limit")
+check("item level limit", classify()[0] == "above your item level limit")
 opts.maxLevel = 0
 
-ready, held = AUTO.Candidates()
-check("only the green BoE helm is ready", len(ready) == 1 and ready[1].id == 101)
-check("the rest are counted with reasons", held["above your quality limit"] == 1 and held["already bound"] == 1 and held["in an equipment set"] == 1)
+rows = AUTO.Rows()
+names = [rows[i].item.name for i in range(1, len(rows) + 1)]
+check("every disenchantable item is listed, cloth is not", names == ["Green Helm", "Blue Sword", "Soulbound Gloves", "Green Boots"])
+check("only the safe one starts ticked", [bool(AUTO.IsSelected(rows[i])) for i in range(1, len(rows) + 1)] == [True, False, False, False])
 
 AUTO.Toggle()
 frame, button = g.DufforthAHScannerDEFrame, g.DufforthAHScannerDEButton
 check("the button disenchants the helm in bag 0 slot 1",
       button.attributes["type"] == "spell" and button.attributes["spell"] == "Disenchant" and button.attributes["target-bag"] == 0 and button.attributes["target-slot"] == 1)
-check("the window says why others are held back", "Kept back:" in (frame.held.text or ""))
-frame.skip.scripts.OnClick(frame.skip)
-check("Skip leaves nothing else to offer", button.attributes["type"] is None and button.enabled is False)
-opts.maxQuality = 3
-g.DufforthAHScannerAutoDE.Refresh()
-check("allowing blues offers the sword", button.attributes["target-slot"] == 2)
-frame.keepButton.scripts.OnClick(frame.keepButton)
-check("Keep puts it on the keep list", opts.keep[102] is True)
+check("the button counts ticked items", button.text == "Disenchant next (1)")
+lines = lua.eval("function() local out = {} for i = 1, #ALL do local f = ALL[i]; if f.kind == 'CheckButton' and f.point and rawget(f, 'point') then out[#out+1] = f end end return out end")()
+checks = [lines[i] for i in range(1, len(lines) + 1)]
+check("rows show the reason for unticked items", "|cff999999above your quality limit|r" in [str(f.text) for f in g.ALL.values() if f.kind == "FontString"])
+sword_box = checks[1]
+sword_box.checked = True
+sword_box.scripts.OnClick(sword_box)
+check("ticking the sword adds it", button.text == "Disenchant next (2)")
+helm_box = checks[0]
+helm_box.checked = False
+helm_box.scripts.OnClick(helm_box)
+check("unticking the helm moves the button to the sword", button.attributes["target-slot"] == 2 and button.text == "Disenchant next (1)")
+AUTO.SetAll(False)
+check("untick all leaves nothing to cast", button.attributes["type"] is None and button.enabled is False)
+AUTO.SetAll(True)
+check("tick all selects every allowed item", button.text == "Disenchant next (4)")
 g.COMBAT = True
 frame.status.text = ""
-g.DufforthAHScannerAutoDE.Refresh()
+AUTO.Refresh()
 check("nothing changes in combat", frame.status.text == "Paused in combat.")
 frame.scripts.OnEvent(frame, "PLAYER_REGEN_DISABLED")
 check("the window hides when combat starts", frame.shown is False)
