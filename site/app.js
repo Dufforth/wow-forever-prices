@@ -235,9 +235,16 @@
   // An empty Favorites list says why, so it doesn't look like the page failed to load.
   function favoritesEmpty() {
     if (state.category !== "favorites") return "";
-    return state.favorites.size
-      ? "None of your favorites match here. Clear your search or filters, or pick All items."
-      : "You have no favorites yet. Select the ☆ next to any item to add it, or pick All items on the left.";
+    const count = state.favorites.size;
+    if (!count) return "You have no favorites yet. Select the ☆ next to any item to add it, or pick All items on the left.";
+    // Each tab only lists some kinds of items, so say why yours aren't here and where they are.
+    const all = `your ${number(count)} favorite${count === 1 ? "" : "s"}`;
+    return {
+      prices: `None of ${all} match your search or filters. Clear them to see all of them.`,
+      alerts: `None of ${all} changed price enough to be an alert right now. See them on the Prices tab.`,
+      profit: `None of ${all} ${$("profit-only").checked ? "can be crafted at a profit right now. Turn off Profitable only to see every recipe" : "can be crafted"}. See them on the Prices tab.`,
+      deals: `None of ${all} are gear worth disenchanting right now. Cloth, ore and other materials never show here. See them on the Prices tab.`,
+    }[state.tab];
   }
 
   // Pages: how many rows show at once is the viewer's choice; the range and total are always shown.
