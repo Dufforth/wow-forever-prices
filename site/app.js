@@ -243,30 +243,45 @@
     return words.length ? words.join(", ") : "Not known";
   }
 
-  // One short line: profession icon, skill, how you learn it, and a link icon. Prices are in the hover.
+  // One short line: profession icon, skill, how you learn it, an AH badge when the recipe is listed, and a link icon.
   function recipeCell(recipe) {
     const skill = recipe.sk ? number(recipe.sk) : '<span class="muted">?</span>';
     const learn = recipeLearn(recipe);
     const kind = recipe.ri ? "from-recipe" : learn === "Trainer" ? "from-trainer" : "from-other";
-    return `<span class="recipe-cell">${professionIcon(recipe.p)}<b>${skill}</b><span class="recipe-src ${kind}">${esc(learn)}</span>${wowheadLink(recipe)}</span>`;
+    const offer = recipeOffer(recipe);
+    const ah = offer && offer.listed ? `<button type="button" class="ah-badge" data-ah="${recipe.ri}" aria-label="Recipe on the auction house: ${number(offer.listed)} for sale from ${esc(money(offer.price))}">AH</button>` : "";
+    return `<span class="recipe-cell">${professionIcon(recipe.p)}<b>${skill}</b><span class="recipe-src ${kind}">${esc(learn)}</span>${ah}${wowheadLink(recipe)}</span>`;
+  }
+
+  const tipRow = (label, value) => `<div class="tip-row"><span class="tip-key">${esc(label)}</span><span>${value}</span></div>`;
+
+  // The recipe item's auction listing: price, how many, market and recent averages.
+  function auctionCard(id) {
+    const item = itemOf(id), row = state.prices[id];
+    const rows = [];
+    if (row && row[2] > 0) {
+      rows.push(tipRow("Buyout", `<b>${coins(lowestOf(row))}</b> each`), tipRow("For sale", `<b>${number(row[2])}</b>`), tipRow("Market", coins(row[1])));
+      if (row[5]) rows.push(tipRow("7 day avg", coins(row[5])));
+      if (row[6]) rows.push(tipRow("Sold 7 days", `about ${number(row[6])}`));
+    } else rows.push(tipRow("For sale", row ? `none now (last ${coins(row[1])})` : "not seen yet"));
+    if (state.ts) rows.push(tipRow("Updated", esc(timeAgo(state.ts))));
+    return { html: `<div class="tip-lead"><span class="q${item.q}">${esc(item.n)}</span></div>${rows.join("")}<div class="tip-line muted">Click AH for its price history. Search it on the Auction House tab to see it listed.</div>` };
   }
 
   function recipeSays(recipe) {
     const offer = recipeOffer(recipe);
-    const skill = recipe.sk ? `Needs ${recipe.p} ${number(recipe.sk)}.` : `The ${recipe.p} skill needed isn't known${recipe.y ? `; it turns yellow at ${number(recipe.y)}` : ""}.`;
     const keys = recipe.o || ["unknown"];
     const ways = keys.filter((key) => key !== "item" && key !== "trainer" && key !== "unknown").map((key) => RECIPE_SAYS[key] || key);
-    let how;
-    if (recipe.ri) {
-      how = `Learned from the recipe item ${itemOf(recipe.ri).n}${ways.length ? `: ${ways.join(", or ")}` : "; where it drops or who sells it isn't listed"}.`;
-    } else if (keys.includes("trainer")) how = "A profession trainer teaches it.";
-    else how = ways.length ? `How to get it: ${ways.join(", or ")}.` : "Where to learn it isn't known.";
-    let market = "";
-    if (offer && offer.bound) market = " The recipe binds when picked up, so it's never on the auction house.";
-    else if (offer && offer.listed) market = ` On the auction house now: ${number(offer.listed)} for sale from ${money(offer.price)}.`;
-    else if (offer && offer.lastSeen) market = ` None on the auction house right now; it last sold for about ${money(offer.price)}.`;
-    else if (offer) market = " Not seen on the auction house yet.";
-    return `${skill} ${how}${market} The link icon opens Wowhead with every trainer, vendor or monster.`;
+    const rows = [];
+    if (recipe.ri) rows.push(tipRow("Learn from", `Recipe item <span class="q${itemOf(recipe.ri).q}">${esc(itemOf(recipe.ri).n)}</span>`));
+    else if (keys.includes("trainer")) rows.push(tipRow("Learn from", "A profession trainer"));
+    rows.push(tipRow("Where", ways.length ? esc(ways.join("; or ")) : recipe.ri ? "Not listed; open Wowhead" : keys.includes("trainer") ? "Any trainer for the profession" : "Not known"));
+    if (offer && offer.bound) rows.push(tipRow("Auction", "Never: binds when picked up"));
+    else if (offer && offer.listed) rows.push(tipRow("Auction", `<b>${number(offer.listed)}</b> for sale from <b>${coins(offer.price)}</b>`));
+    else if (offer && offer.lastSeen) rows.push(tipRow("Auction", `None now (last ${coins(offer.price)})`));
+    else if (offer) rows.push(tipRow("Auction", "Not seen yet"));
+    const skill = recipe.sk ? `${esc(recipe.p)} ${number(recipe.sk)}` : `${esc(recipe.p)}, skill not known${recipe.y ? ` (yellow at ${number(recipe.y)})` : ""}`;
+    return { html: `<div class="tip-lead">Needs ${skill}</div>${rows.join("")}` };
   }
 
   // One column for the whole recipe story, so the table doesn't need more columns.
@@ -822,12 +837,25 @@ common.level,
     });
   }
 
+  // Plain sentences become a short bold lead and one line per sentence; "1g 17s" gets coin colors.
+  // "Column name: what it means" leads with the column name.
+  function formatHint(text) {
+    if (text && typeof text === "object") return text.html;
+    const coinText = (part) => esc(part).replace(/(\d)([gsc])(?=[\s.,;)]|$)/g, '$1<span class="u u-$2">$2</span>');
+    let lead = "", rest = String(text || "");
+    const named = /^([^.:]{2,40}):\s+(.*)$/s.exec(rest);
+    if (named) { lead = named[1]; rest = named[2]; }
+    const sentences = rest.split(/(?<=[.!?])\s+(?=[A-Z0-9"])/).filter(Boolean);
+    if (!lead && sentences.length > 1) lead = sentences.shift();
+    return `${lead ? `<div class="tip-lead">${coinText(lead)}</div>` : ""}${sentences.map((line) => `<div class="tip-line">${coinText(line)}</div>`).join("")}`;
+  }
+
   function showHint(text) {
     const box = $("tip");
     tip.id = "hint";
     const parent = $("detail").open ? $("detail") : document.body;
     if (box.parentElement !== parent) parent.appendChild(box);
-    box.innerHTML = `<div class="tip-text">${esc(text)}</div>`;
+    box.innerHTML = `<div class="tip-text">${formatHint(text)}</div>`;
     box.hidden = false;
     placeTip();
   }
@@ -863,6 +891,16 @@ common.level,
         showHint(hinted.dataset.hint);
         return;
       }
+      const ahBadge = event.target.closest && event.target.closest("[data-ah]");
+      if (ahBadge) {
+        if (tip.hintFor === ahBadge) return;
+        hideTip();
+        tip.hintFor = ahBadge;
+        const rect = ahBadge.getBoundingClientRect();
+        tip.x = rect.left; tip.y = rect.bottom;
+        showHint(auctionCard(ahBadge.dataset.ah));
+        return;
+      }
       if (event.pointerType === "touch") { if (tip.id === "hint") hideTip(); return; } // Tapping opens the item details instead.
       tip.x = event.clientX; tip.y = event.clientY;
       const id = tipTarget(event.target);
@@ -887,6 +925,14 @@ common.level,
       if (tip.id) placeTip();
     });
     document.addEventListener("focusin", (event) => {
+      if (event.target.matches("[data-ah]")) {
+        const rect = event.target.getBoundingClientRect();
+        tip.x = rect.left; tip.y = rect.bottom;
+        hideTip();
+        tip.hintFor = event.target;
+        showHint(auctionCard(event.target.dataset.ah));
+        return;
+      }
       if (event.target.matches("[data-hint]")) {
         const rect = event.target.getBoundingClientRect();
         tip.x = rect.left; tip.y = rect.bottom;
@@ -1523,6 +1569,8 @@ common.level,
       const head = event.target.closest("th[data-sort]");
       if (head) { changeSort(head.dataset.sort, event.shiftKey); return; }
       if (event.target.closest("a")) return;
+      const ahBadge = event.target.closest("[data-ah]");
+      if (ahBadge) { openItem(ahBadge.dataset.ah); return; }
       const row = event.target.closest("tr.row");
       if (!row) return;
       if (row.dataset.recipe) {

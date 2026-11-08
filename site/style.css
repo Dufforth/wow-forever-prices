@@ -310,3 +310,14 @@ a.wowhead:hover, a.wowhead:focus-visible { color: var(--accent); background: var
 th.fit-out, td.fit-out { display: none; }
 /* Text columns (source, type, material) may wrap so numbers keep their room */
 td.left { white-space: normal; min-width: 6em; }
+
+/* Formatted tooltips: a bold lead, one line per sentence, labeled rows */
+.tip-lead { font-weight: 600; margin-bottom: 4px; }
+.tip-line + .tip-line { margin-top: 3px; }
+.tip-row { display: grid; grid-template-columns: 6.5em 1fr; gap: 8px; margin-top: 3px; }
+.tip-key { color: var(--muted); }
+.tip-text .muted { margin-top: 6px; }
+/* AH badge on recipes that are for sale */
+.ah-badge { min-height: 0; height: 18px; padding: 0 5px; border-radius: 4px; font-size: 11px; font-weight: 700; line-height: 18px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); cursor: pointer; }
+.ah-badge:hover, .ah-badge:focus-visible { background: var(--accent); color: var(--accent-ink); }
