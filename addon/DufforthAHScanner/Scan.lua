@@ -557,6 +557,10 @@ SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
             db.autoScan = not AutoScanEnabled()
         end
         Print("Automatic scan when you open the auction house: " .. (AutoScanEnabled() and "ON" or "OFF") .. ".")
+    elseif command == "menu" then
+        if DufforthAHScannerMenu_Toggle then DufforthAHScannerMenu_Toggle() end
+    elseif command == "disenchant" then
+        if DufforthAHScannerAutoDE then DufforthAHScannerAutoDE.Toggle() end
     elseif command == "de" then
         if DufforthAHScannerDE then DufforthAHScannerDE.Toggle(string.lower(string.match(input or "", "^%s*%S+%s+(%S+)") or "")) end
     elseif command == "" then
@@ -569,6 +573,8 @@ SlashCmdList.DUFFORTHAHSCANNERSCAN = function(input)
         Print("/ahscan list - paste your list from the Forever Prices page")
         Print("/ahscan auto - turn the automatic scan on or off")
         Print("/ahscan de - show or hide disenchant values in item tooltips")
+        Print("/ahscan disenchant - open the window that disenchants BoE gear, one click per item")
+        Print("/ahscan menu or /dufforth - open the settings menu (also on the minimap button)")
         Print("/ahscan stop - stop and keep what has been read")
     end
 end

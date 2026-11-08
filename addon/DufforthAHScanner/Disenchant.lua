@@ -178,7 +178,17 @@ local function TooltipLines(item, market, db, shipped, now, skill)
     return lines
 end
 
-DufforthAHScannerDE = { Outcomes = Outcomes, SkillNeeded = SkillNeeded, MaterialPrice = MaterialPrice, ExpectedValue = ExpectedValue, TooltipLines = TooltipLines }
+-- Average value of disenchanting one item, or nil.
+local function ValueFor(item, market, db, shipped, now)
+    local outcomes = Outcomes(item)
+    if not outcomes then return nil end
+    return ExpectedValue(outcomes, function(id) return (MaterialPrice(id, market, db, shipped, now)) end)
+end
+
+DufforthAHScannerDE = {
+    Outcomes = Outcomes, SkillNeeded = SkillNeeded, MaterialPrice = MaterialPrice, ExpectedValue = ExpectedValue,
+    TooltipLines = TooltipLines, ValueFor = ValueFor, EnchantingSkill = EnchantingSkill, Money = Money,
+}
 
 -- ---- Tooltip ----
 local function Enabled()
@@ -187,10 +197,11 @@ end
 
 local function ItemFromID(id)
     if not id then return nil end
-    local _, _, quality, level, _, _, _, _, slot, _, _, classID = GetItemInfo(id)
+    local name, _, quality, level, _, _, _, _, slot, icon, sellPrice, classID, _, bindType = GetItemInfo(id)
     if not quality then return nil end
-    return { quality = quality, level = level, classID = classID, slot = slot }
+    return { id = id, name = name, icon = icon, quality = quality, level = level, classID = classID, slot = slot, sellPrice = sellPrice, bindType = bindType }
 end
+DufforthAHScannerDE.ItemFromID = ItemFromID
 
 local function AddToTooltip(tooltip, id)
     if not Enabled() or not tooltip or not id then return end
