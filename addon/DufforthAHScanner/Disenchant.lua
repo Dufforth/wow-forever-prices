@@ -1,11 +1,11 @@
 -- Disenchant values in item tooltips: what weapons and armor can turn into, the chance of
 -- each material, its price, and the average value. Uses the same Classic tables as the
--- Forever Prices page. Prices come from your newest auction scan, or else from the prices
--- that came with this download (DEPrices.lua). Turn it off with /ahscan de off.
+-- Forever Prices page. Prices are Blizzard's, bundled with each download (Prices.lua).
+-- Turn it off with /dufforth de off.
 
 local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
 local AUCTION_CUT = 0.05
-local SCAN_FRESH_SECONDS = 3 * 24 * 3600 -- older scans lose to the prices in the download
+local OLD_PRICES_SECONDS = 2 * 24 * 3600 -- older bundled prices say how old they are
 local WEAPON, ARMOR = 2, 4
 local UNCOMMON, RARE, EPIC = 2, 3, 4
 local ENCHANTING = 333
@@ -91,16 +91,10 @@ local function SkillNeeded(item)
     return math.max(25, (math.ceil(level / 5) - 4) * 25)
 end
 
--- Price of one material: your newest scan if it's recent, else the prices in the download.
--- Returns copper and where it came from ("scan" or "download"), or nil.
-local function MaterialPrice(id, market, db, shipped, now)
-    local saved = db and db.scans and db.scans[market]
-    if saved and saved.data and now - (saved.at or 0) <= SCAN_FRESH_SECONDS then
-        local price = string.match(";" .. saved.data, ";" .. id .. ":(%d+):%d+")
-        if price then return tonumber(price), "scan" end
-    end
+-- Auction price of one item for your market, from the prices bundled with the download, or nil.
+local function Price(id, market, shipped)
     local prices = shipped and shipped[market]
-    if prices and prices[id] then return prices[id], "download" end
+    return prices and prices[id] or nil
 end
 
 -- Average value after the auction cut, or nil if a material has no price.
@@ -144,7 +138,7 @@ local function EnchantingSkill()
 end
 
 -- The lines added to a tooltip: { left, right, r, g, b } each. Kept apart from the tooltip so tests can read them.
-local function TooltipLines(item, market, db, shipped, now, skill)
+local function TooltipLines(item, market, shipped, now, skill)
     local outcomes = Outcomes(item)
     if not outcomes then return nil end
     local need = SkillNeeded(item)
@@ -156,12 +150,7 @@ local function TooltipLines(item, market, db, shipped, now, skill)
         if skill ~= nil and (skill == false or skill < need) then r, g, b = 1, 0.35, 0.35 end
     end
     lines[#lines + 1] = { header, nil, r, g, b }
-    local source
-    local function priceOf(id)
-        local price, from = MaterialPrice(id, market, db, shipped, now)
-        if price and (from == "download" or not source) then source = from end
-        return price
-    end
+    local function priceOf(id) return Price(id, market, shipped) end
     for _, o in ipairs(outcomes) do
         if o.chance > 0 then
             local amount = o.min == o.max and tostring(o.min) or (o.min .. "-" .. o.max)
@@ -172,21 +161,22 @@ local function TooltipLines(item, market, db, shipped, now, skill)
     end
     local value = ExpectedValue(outcomes, priceOf)
     if value then
-        local note = source == "download" and " (prices from your download)" or ""
+        local age = shipped and shipped.at and now - shipped.at or 0
+        local note = age > OLD_PRICES_SECONDS and string.format(" (prices %d days old)", math.floor(age / 86400)) or ""
         lines[#lines + 1] = { "  Average value" .. note, Money(value), 0.6, 1, 0.6 }
     end
     return lines
 end
 
 -- Average value of disenchanting one item, or nil.
-local function ValueFor(item, market, db, shipped, now)
+local function ValueFor(item, market, shipped)
     local outcomes = Outcomes(item)
     if not outcomes then return nil end
-    return ExpectedValue(outcomes, function(id) return (MaterialPrice(id, market, db, shipped, now)) end)
+    return ExpectedValue(outcomes, function(id) return Price(id, market, shipped) end)
 end
 
 DufforthAHScannerDE = {
-    Outcomes = Outcomes, SkillNeeded = SkillNeeded, MaterialPrice = MaterialPrice, ExpectedValue = ExpectedValue,
+    Outcomes = Outcomes, SkillNeeded = SkillNeeded, Price = Price, ExpectedValue = ExpectedValue,
     TooltipLines = TooltipLines, ValueFor = ValueFor, EnchantingSkill = EnchantingSkill, Money = Money,
 }
 
@@ -207,7 +197,7 @@ local function AddToTooltip(tooltip, id)
     if not Enabled() or not tooltip or not id then return end
     if tooltip.dufforthDE == id then return end -- some tooltips fire twice for one item
     local lines = TooltipLines(ItemFromID(id), DufforthAHScanner and DufforthAHScanner.MarketName and DufforthAHScanner.MarketName() or "",
-        DufforthAHScannerDB, DufforthAHScannerDEPrices, time(), EnchantingSkill())
+        DufforthAHScannerPrices, time(), EnchantingSkill())
     if not lines then return end
     tooltip.dufforthDE = id
     for _, line in ipairs(lines) do
@@ -245,7 +235,7 @@ for _, name in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "Sh
     end
 end
 
--- /ahscan de [on|off] goes through Scan.lua's slash command.
+-- /dufforth de [on|off] goes through Core.lua's slash command.
 function DufforthAHScannerDE.Toggle(option)
     DufforthAHScannerDB = DufforthAHScannerDB or {}
     if option == "on" then

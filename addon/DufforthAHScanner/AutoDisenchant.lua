@@ -97,15 +97,14 @@ local skipped = {} -- skipped this session with the Skip button
 local function Candidates()
     local o = Options()
     local market = DufforthAHScanner and DufforthAHScanner.MarketName and DufforthAHScanner.MarketName() or ""
-    local db, now = DufforthAHScannerDB, time()
     local skill = DufforthAHScannerDE.EnchantingSkill()
     local ready, held = {}, {}
     for _, bag in ipairs(BAGS) do
         for slot = 1, NumSlots(bag) do
             local item = ReadSlot(bag, slot)
             if item and DufforthAHScannerDE.Outcomes(item) and not skipped[item.id] then
-                item.ahPrice = DufforthAHScannerDE.MaterialPrice(item.id, market, db, nil, now)
-                item.value = DufforthAHScannerDE.ValueFor(item, market, db, DufforthAHScannerDEPrices, now)
+                item.ahPrice = DufforthAHScannerDE.Price(item.id, market, DufforthAHScannerPrices)
+                item.value = DufforthAHScannerDE.ValueFor(item, market, DufforthAHScannerPrices)
                 local reason = Blocked(item, o, skill, item.value, DufforthAHScannerDE.SkillNeeded(item))
                 if reason then
                     held[reason] = (held[reason] or 0) + 1

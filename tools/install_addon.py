@@ -3,7 +3,8 @@
 
     python tools/install_addon.py "D:\\World of Warcraft\\_forever_"
 
-It also moves anyone on the old TentTimer folder over: the old folder is removed so both
+Files no longer in the project are deleted from the game's copy. It also moves anyone on
+the old TentTimer folder over: the old folder is removed so both
 don't load, and each account's saved settings are copied to the new name. The old settings
 file stays in place, so nothing is lost.
 """
@@ -31,6 +32,11 @@ def install(game):
     addons = game / "Interface" / "AddOns"
     target = addons / ADDON.name
     target.mkdir(parents=True, exist_ok=True)
+    # Files removed from the project are removed from the game too, so nothing stale lingers.
+    wanted = {path.name for path in ADDON.iterdir() if path.is_file()}
+    for path in target.iterdir():
+        if path.is_file() and path.name not in wanted:
+            path.unlink()
     for path in ADDON.iterdir():
         if path.is_file():
             shutil.copy(path, target / path.name)

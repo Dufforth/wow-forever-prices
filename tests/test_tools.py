@@ -8,8 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_addon_zip  # noqa: E402
-import build_de_prices  # noqa: E402
-import build_watch_list  # noqa: E402
+import build_addon_prices  # noqa: E402
 import install_addon  # noqa: E402
 
 NAME = "DufforthAHScanner"
@@ -50,28 +49,19 @@ class AddonZipTests(unittest.TestCase):
             self.assertNotIn("TentTimer", text, path.name)
 
 
-class WatchListTests(unittest.TestCase):
-    def test_picks_traded_uncommon_crafted_gear_only(self):
-        catalog = {
-            "recipes": [{"i": 1}, {"i": 2}, {"i": 3}, {"i": 5}],
-            "items": {"1": {"cl": 4, "q": 2}, "2": {"cl": 2, "q": 2}, "3": {"cl": 4, "q": 3}, "4": {"cl": 4, "q": 2}, "5": {"cl": 7, "q": 1}},
-        }
-        houses = [
-            {"1": [0, 0, 5, 0, 0, 0, 1], "2": [0, 0, 1, 0, 0, 0, 0], "3": [0, 0, 99, 0, 0, 0, 9], "4": [0, 0, 99, 0, 0, 0, 9], "5": [0, 0, 99, 0, 0, 0, 9]},
-            {"2": [0, 0, 30, 0, 0, 0, 0]},
-        ]
-        self.assertEqual(build_watch_list.pick(catalog, houses), [2, 1])
-        self.assertEqual(build_watch_list.pick(catalog, houses, 1), [2])
-
-
-class DisenchantPriceTests(unittest.TestCase):
-    def test_keeps_listed_materials_only_and_writes_lua(self):
+class AddonPriceTests(unittest.TestCase):
+    def test_keeps_listed_wanted_items_only_and_writes_lua(self):
         items = {"10940": [80, 95, 10, 0, 0, 0], "10938": [100, None, 3, 0, 0, 0], "11083": [500, 540, 0, 0, 0, 0], "2589": [10, 12, 99, 0, 0, 0]}
-        self.assertEqual(build_de_prices.prices_for(items), {10940: 95, 10938: 100})
-        text = build_de_prices.lua({"forever.normal.horde.us": {10940: 95}, "forever.rp.horde.us": {}}, 123)
-        self.assertIn('DufforthAHScannerDEPrices = { at = 123,', text)
-        self.assertIn('["forever.normal.horde.us"] = { [10940] = 95 },', text)
+        self.assertEqual(build_addon_prices.prices_for(items, [10940, 10938, 11083]), {10940: 95, 10938: 100})
+        text = build_addon_prices.lua({"forever.normal.horde.us": {10940: 95}, "forever.rp.horde.us": {}}, 123)
+        self.assertIn('DufforthAHScannerPrices = { at = 123,', text)
+        self.assertIn('["forever.normal.horde.us"] = { [10940]=95 },', text)
         self.assertNotIn("forever.rp.horde.us", text)
+
+    def test_wants_every_material_and_the_gear_list(self):
+        ids = build_addon_prices.wanted_ids()
+        self.assertIn(20725, ids)
+        self.assertGreater(len(ids), 1000)
 
 
 class InstallTests(unittest.TestCase):
@@ -87,9 +77,13 @@ class InstallTests(unittest.TestCase):
     def test_replaces_the_old_folder_and_moves_settings(self):
         with tempfile.TemporaryDirectory() as folder:
             game, saved = self.game(folder)
+            stale = Path(game) / "Interface/AddOns" / NAME / "Stale.lua"
+            stale.parent.mkdir(parents=True, exist_ok=True)
+            stale.write_text("old", encoding="utf-8")
             target, moved = install_addon.install(game)
             self.assertEqual(moved, 1)
-            self.assertTrue((target / "Scan.lua").exists())
+            self.assertTrue((target / "Core.lua").exists())
+            self.assertFalse(stale.exists(), "files gone from the project are removed")
             self.assertFalse((game / "Interface/AddOns/TentTimer").exists())
             self.assertIn(f'{NAME}DB = {{\n["nodes"] = {{ ["swapSeconds"] = 7 }}', (saved / f"{NAME}.lua").read_text())
             self.assertTrue((saved / "TentTimer.lua").exists(), "the old settings stay as a backup")

@@ -1,14 +1,13 @@
 ## Interface: 16001
 ## Title: Dufforth AH Scanner
-## Notes: Scans auction prices for the Forever Prices page, keeps herb and ore icons on the minimap when you swap tracking, swaps tracking automatically, shows gathering skill tooltips, shows disenchant values in item tooltips, disenchants BoE gear one click at a time, and has a settings menu and minimap button.
-## Version: 3.3.0
+## Notes: Keeps herb and ore icons on the minimap when you swap tracking, swaps tracking automatically, shows gathering skill tooltips and disenchant values in item tooltips, disenchants BoE gear one click at a time, and has a settings menu and minimap button.
+## Version: 3.4.0
 ## IconTexture: Interface\Icons\INV_Misc_Flower_02
 ## SavedVariables: DufforthAHScannerDB
 
 Nodes.lua
-Watch.lua
-Scan.lua
-DEPrices.lua
+Core.lua
+Prices.lua
 Disenchant.lua
 AutoDisenchant.lua
 Menu.lua

@@ -35,7 +35,7 @@ local function tooltip(name)
 end
 GameTooltip = tooltip("GameTooltip")
 DufforthAHScanner = { MarketName = function() return "forever.normal.horde.us" end }
-DufforthAHScannerDEPrices = { at = 1, ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000, [20725] = 90000 } }
+DufforthAHScannerPrices = { at = NOW - 3600, ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000, [20725] = 90000 } }
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
@@ -72,30 +72,28 @@ check("skill: rare level 20 needs 25", DE.SkillNeeded(item(3, 20, 2)) == 25)
 check("skill: epic 60 needs 200", DE.SkillNeeded(item(4, 60, 4)) == 200)
 
 market = "forever.normal.horde.us"
-db = lua.eval('{ scans = { ["forever.normal.horde.us"] = { at = NOW - 3600, data = "11083:1500:10;11082:5000:3" } } }')
-shipped = g.DufforthAHScannerDEPrices
-price, source = DE.MaterialPrice(11083, market, db, shipped, 1000000)
-check("a recent scan wins", price == 1500 and source == "scan")
-price, source = DE.MaterialPrice(11084, market, db, shipped, 1000000)
-check("download prices fill gaps", price == 6000 and source == "download")
-old = lua.eval('{ scans = { ["forever.normal.horde.us"] = { at = NOW - 4 * 86400, data = "11083:1500:10" } } }')
-check("an old scan loses to the download", DE.MaterialPrice(11083, market, old, shipped, 1000000)[0] == 1000)
-check("no price anywhere", DE.MaterialPrice(10940, market, db, shipped, 1000000) is None)
+shipped = g.DufforthAHScannerPrices
+check("bundled price for this market", DE.Price(11084, market, shipped) == 6000)
+check("no price for another market", DE.Price(11084, "forever.pvp.horde.us", shipped) is None)
+check("no price for an unlisted item", DE.Price(10940, market, shipped) is None)
 
 # Average for the level-30 helm with download prices: 75% x1.5 x1000 + 20% x1.5 x4000 + 5% x1 x6000, after 5%.
 expected = (0.75 * 1.5 * 1000 + 0.2 * 1.5 * 4000 + 0.05 * 6000) * 0.95
-value = DE.ExpectedValue(armor, lua.eval("function(id) return DufforthAHScannerDEPrices['forever.normal.horde.us'][id] end"))
+value = DE.ExpectedValue(armor, lua.eval("function(id) return DufforthAHScannerPrices['forever.normal.horde.us'][id] end"))
 check("average value matches the page's formula", abs(value - expected) < 1e-6)
 
-lines = DE.TooltipLines(item(2, 30, 4), market, None, shipped, 1000000, 10)
+lines = DE.TooltipLines(item(2, 30, 4), market, shipped, 1000000, 10)
 texts = [lines[i][1] for i in range(1, len(lines) + 1)]
 check("header names the skill needed", texts[0] == "Disenchants into (Enchanting 50)")
 check("header turns red below the skill", lines[1][3] == 1 and lines[1][4] < 1)
 check("one line per material", len(texts) == 5 and "75%  1-2x Soul Dust" in texts[1] and "5%  1x Large Glimmering Shard" in texts[3])
-check("average says prices are from the download", "Average value (prices from your download)" in texts[4])
-lines = DE.TooltipLines(item(4, 60, 4), market, None, shipped, 1000000, 300)
+check("fresh prices need no age note", texts[4] == "  Average value")
+shipped.at = 1000000 - 3 * 86400
+old_lines = DE.TooltipLines(item(2, 30, 4), market, shipped, 1000000, 10)
+check("old prices say how old they are", old_lines[5][1] == "  Average value (prices 3 days old)")
+lines = DE.TooltipLines(item(4, 60, 4), market, shipped, 1000000, 300)
 check("epic: no chance shown when certain", lines[2][1] == "  1x Nexus Crystal" and lines[1][3] != 1)
-check("cloth gets no lines", DE.TooltipLines(item(1, 5, 7), market, None, shipped, 1000000, None) is None)
+check("cloth gets no lines", DE.TooltipLines(item(1, 5, 7), market, shipped, 1000000, None) is None)
 
 # Real tooltip hooks: the fallback path adds lines once per item.
 GT = g.GameTooltip

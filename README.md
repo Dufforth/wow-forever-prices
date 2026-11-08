@@ -26,19 +26,14 @@ Without them, the page still works using only the public source.
 - **Items with random bonuses** are left out of prices, and bind on pickup items can't be sold on the auction.
 - **The vendor list** covers common trade-goods reagents only.
 
-## Refreshing prices from the game
+## The addon
 
-Anyone can download the addon from the page's **My scans** tab. Its source is in `addon/DufforthAHScanner`, and the hourly job builds the download from it. Your scan list and scans stay in your own browser. A static page can't collect them from other people.
+The **Addon** button in the page's top bar downloads Dufforth AH Scanner. Its source is in `addon/DufforthAHScanner`, and every deploy builds the download from it, bundling Blizzard's latest prices for enchanting materials and disenchantable gear (`tools/build_addon_prices.py`), because addons can't reach the internet.
 
-On the same tab, add or remove the items you want. **Copy list for addon** gives you text to paste in game with `/ahscan list`. **Scan my list** or `/ahscan mine` then scans just those items, and every other scan also asks for any list items it didn't find.
-
-The Dufforth AH Scanner addon can read the auction house itself. It asks for one item category at a time (materials, consumables, ammo, bags, recipes, armor and weapons), leaving out quest and miscellaneous items. Each answer gives an item's lowest price and total quantity.
-
-1. Open the auction house. It scans automatically unless you reopened it within a minute. Type `/ahscan auto off` to turn that off, or `/ahscan` to scan by hand (`/ahscan quick` skips bags, recipes and gear).
-2. Type `/reload`, because addons can only save files that way.
-3. On the page, press **Load scan** and pick `SavedVariables\DufforthAHScanner.lua`.
-
-Scans stay in that browser and are never published.
+- **Herbs and ores:** keeps herb and ore icons on the minimap when you swap tracking, swaps tracking on a timer, and colors tooltips by your gathering skill (`/nk`).
+- **Disenchant tooltips:** weapon and armor tooltips show the materials, chances, prices and average value of disenchanting them.
+- **Disenchant window:** offers the next safe BoE item on one button. The game only allows one cast per click or key press, so it never disenchants on its own. It skips bound, Bind on Pickup, equipment-set, kept and locked items, anything above your quality or item level limit or Enchanting skill, and anything that sells for more on the auction house or to a vendor.
+- **Menu and minimap button:** every setting in one window (`/dufforth`).
 
 ## After a game patch
 
@@ -55,7 +50,8 @@ python -m unittest discover -b -s tests
 node --test tests/*.test.js
 pip install lupa
 python tests/addon/nodes_sim.py
-python tests/addon/scan_sim.py
+python tests/addon/de_sim.py
+python tests/addon/menu_sim.py
 ```
 
 ## Notes

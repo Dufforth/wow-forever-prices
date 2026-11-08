@@ -16,7 +16,7 @@ def source(name):
 
 MOCK = r"""
 NOW, COMBAT = 1000000, false
-CHAT, ALL, NODES, SCANS = {}, {}, {}, {}
+CHAT, ALL, NODES = {}, {}, {}
 time = function() return NOW end
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) CHAT[#CHAT+1] = m end }
 InCombatLockdown = function() return COMBAT end
@@ -27,7 +27,6 @@ GetCursorPosition = function() return 0, 100 end
 C_Timer = { After = function(_, f) f() end }
 SlashCmdList = {
   DUFFORTHAHSCANNERNODES = function(t) NODES[#NODES+1] = t end,
-  DUFFORTHAHSCANNERSCAN = function(t) SCANS[#SCANS+1] = t end,
 }
 C_Spell = { GetSpellInfo = function() return { name = "Disenchant" } end }
 
@@ -93,13 +92,14 @@ C_Container = {
 GetProfessions = function() return 1, nil end
 GetProfessionInfo = function() return "Enchanting", nil, 100, 300, nil, nil, 333, 0 end
 DufforthAHScanner = { MarketName = function() return "forever.normal.horde.us" end }
-DufforthAHScannerDEPrices = { ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000 } }
+DufforthAHScannerPrices = { ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000 } }
 DufforthAHScannerDB = { nodes = { enabled = true, labels = false, swapEnabled = false, swapSeconds = 4, size = 14, keepMinutes = 30, gatheredMinutes = 60 } }
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(MOCK)
-for name in ("Disenchant.lua", "AutoDisenchant.lua", "Menu.lua"):
+lua.execute("GetRealmName = function() return 'Realm 4' end; UnitFactionGroup = function() return 'Horde' end")
+for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Menu.lua"):
     lua.execute(source(name))
 g = lua.globals()
 fails = []
@@ -196,15 +196,18 @@ tips = box_for("Disenchant values in item tooltips")
 tips.checked = False
 tips.scripts.OnClick(tips)
 check("unticking tooltips turns them off", g.DufforthAHScannerDB.showDisenchant is False)
-auto_scan = box_for("Light scan when the auction house opens")
-auto_scan.checked = False
-auto_scan.scripts.OnClick(auto_scan)
-check("unticking the light scan runs /ahscan auto off", list(g.SCANS.values())[-1] == "auto off")
 hide = box_for("Show the minimap button")
 hide.checked = False
 hide.scripts.OnClick(hide)
 check("the minimap button can be hidden", mini.shown is False and g.DufforthAHScannerDB.minimap.hide is True)
-check("/dufforth is registered", g.SlashCmdList.DUFFORTHAHSCANNERMENU is not None)
+check("/dufforth is registered", g.SlashCmdList.DUFFORTHAHSCANNER is not None)
+check("the menu has no auction scan section", box_for("Light scan when the auction house opens") is None)
+core = lua.eval("function() for i = 1, #ALL do local f = ALL[i]; if f.events.ADDON_LOADED then return f end end end")()
+g.DufforthAHScannerDB.scans = lua.table_from({"x": 1})
+g.DufforthAHScannerDB.autoScan = False
+core.scripts.OnEvent(core, "ADDON_LOADED", "DufforthAHScanner")
+check("old scan data is dropped on load", g.DufforthAHScannerDB.scans is None and g.DufforthAHScannerDB.autoScan is None)
+check("market name for a normal Horde realm", g.DufforthAHScanner.MarketName() == "forever.normal.horde.us")
 mini.scripts.OnDragStart(mini)
 mini.scripts.OnUpdate(mini)
 check("dragging saves the button's angle", abs(g.DufforthAHScannerDB.minimap.angle - 90) < 1e-6)

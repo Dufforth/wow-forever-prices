@@ -1,4 +1,4 @@
--- One menu for every feature, opened from the minimap button, /dufforth, /ahscan menu, or
+-- One menu for every feature, opened from the minimap button, /dufforth, or
 -- the game's Options > AddOns. Changes go through the same commands as the slash
 -- commands, so the menu and the commands always agree.
 
@@ -12,7 +12,6 @@ local function DB()
 end
 local function Nodes() return DB().nodes or {} end
 local function NodesCommand(text) if SlashCmdList.DUFFORTHAHSCANNERNODES then SlashCmdList.DUFFORTHAHSCANNERNODES(text) end end
-local function ScanCommand(text) if SlashCmdList.DUFFORTHAHSCANNERSCAN then SlashCmdList.DUFFORTHAHSCANNERSCAN(text) end end
 
 local menu
 local refreshers = {}
@@ -95,7 +94,7 @@ end
 
 local function Build()
     menu = CreateFrame("Frame", "DufforthAHScannerMenu", UIParent, "BasicFrameTemplateWithInset")
-    menu:SetSize(400, 640)
+    menu:SetSize(400, 540)
     menu:SetPoint("CENTER")
     menu:SetMovable(true); menu:EnableMouse(true); menu:RegisterForDrag("LeftButton")
     menu:SetScript("OnDragStart", menu.StartMoving)
@@ -128,26 +127,19 @@ local function Build()
     Button(menu, y, "Clear all icons", "Removes every herb and ore icon and gathered marker.", function() NodesCommand("clear") end)
     y = y - ROW - 8
 
-    y = Header(menu, y, "Auction house")
-    y = Check(menu, y, "Light scan when the auction house opens", "Reads prices of materials, rare and epic gear and popular crafted gear in at most 30 seconds. Same as /ahscan auto.",
-        function() return DB().autoScan ~= false end, function(on) ScanCommand(on and "auto on" or "auto off") end)
-    Button(menu, y, "Paste scan list", "Opens the window for the item list from the Forever Prices page. Same as /ahscan list.", function() ScanCommand("list") end)
-    Button(menu, y, "Full scan", "Scans materials, consumables, recipes, gear and your list. The auction house must be open. Same as /ahscan.", function() ScanCommand("") end, 190, 120)
-    y = y - ROW - 8
-
     y = Header(menu, y, "Disenchanting")
-    y = Check(menu, y, "Disenchant values in item tooltips", "Adds the materials, their chances and prices, and the average value to weapon and armor tooltips. Same as /ahscan de.",
+    y = Check(menu, y, "Disenchant values in item tooltips", "Adds the materials, their chances and prices, and the average value to weapon and armor tooltips. Same as /dufforth de.",
         function() return DB().showDisenchant ~= false end, function(on) DufforthAHScannerDE.Toggle(on and "on" or "off") end)
     local auto = DufforthAHScannerAutoDE
     y = Stepper(menu, y, "Disenchant up to", "The highest quality the disenchant window offers. Uncommon (green) is the safe default; epics need a deliberate choice.",
         function() return auto.Options().maxQuality end, function(v) auto.Options().maxQuality = v end, 2, 4, 1, function(v) return auto.QUALITY_NAMES[v] end)
     y = Stepper(menu, y, "Highest item level", "Items above this item level are never offered. 0 means any level.",
         function() return auto.Options().maxLevel end, function(v) auto.Options().maxLevel = v end, 0, 100, 5, function(v) return v == 0 and "any" or tostring(v) end)
-    y = Check(menu, y, "Skip items that sell for more on the auction house", "Uses your newest scan: if the item's price, after the 5% cut, beats its disenchant value, it's kept.",
+    y = Check(menu, y, "Skip items that sell for more on the auction house", "Uses Blizzard's prices from your download: if the item's auction price, after the 5% cut, beats its disenchant value, it's kept.",
         function() return auto.Options().skipWorthMore end, function(on) auto.Options().skipWorthMore = on end)
     y = Check(menu, y, "Skip items a vendor pays more for", "If a vendor pays more than the disenchant value, the item is kept.",
         function() return auto.Options().skipVendor end, function(on) auto.Options().skipVendor = on end)
-    Button(menu, y, "Open disenchant window", "Shows the next safe BoE item and a Disenchant button. One click per item. Same as /ahscan disenchant.", function() auto.Toggle() end)
+    Button(menu, y, "Open disenchant window", "Shows the next safe BoE item and a Disenchant button. One click per item. Same as /dufforth disenchant.", function() auto.Toggle() end)
     local clear = Button(menu, y, "Clear keep list", "Items you marked Keep in the disenchant window are never offered. This clears that list.", function()
         auto.Options().keep = {}
         DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. "keep list cleared.")
@@ -193,7 +185,6 @@ local function ButtonTooltip(self)
     GameTooltip:AddLine("Dufforth AH Scanner")
     GameTooltip:AddDoubleLine("Herb and ore icons", State(Nodes().enabled), 1, 1, 1)
     GameTooltip:AddDoubleLine("Tracking swap", State(Nodes().swapEnabled), 1, 1, 1)
-    GameTooltip:AddDoubleLine("Scan when the AH opens", State(DB().autoScan ~= false), 1, 1, 1)
     GameTooltip:AddDoubleLine("Disenchant tooltips", State(DB().showDisenchant ~= false), 1, 1, 1)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Left-click: menu   Right-click: disenchant window", 0.7, 0.7, 0.7)
@@ -253,6 +244,4 @@ loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function()
     BuildMinimapButton()
     RegisterOptions()
-    SLASH_DUFFORTHAHSCANNERMENU1 = "/dufforth"
-    SlashCmdList.DUFFORTHAHSCANNERMENU = ToggleMenu
 end)
