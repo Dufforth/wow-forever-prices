@@ -212,7 +212,20 @@
     return column.say ? column.say(state.drawn.rows[Number(tr.dataset.i)]) : column.hint;
   }
 
+  // Building a tab's rows (filtering and sorting up to 11,000 items) is the slow part of a
+  // redraw, so each view keeps its last rows until something they depend on changes.
+  const drawCache = new Map();
+  function renderKey() {
+    return JSON.stringify([viewKey(), state.house, state.ts, state.category, state.search, state.source, state.sort[viewKey()],
+      [...state.favorites].join(","), Boolean(state.allItems), Boolean(state.gear), state.loading, $("price-basis").value, $("fav-basis").value,
+      $("price-listed").checked, $("profit-only").checked, $("profit-supply").value, state.alert, state.de, state.ah]);
+  }
+
   function drawTable(allColumns, rows, rowAttributes, emptyText, unit, rowClass) {
+    if (state.drawKey) {
+      drawCache.set(viewKey(), { key: state.drawKey, args: [allColumns, rows, rowAttributes, emptyText, unit, rowClass] });
+      state.drawKey = null;
+    }
     const levels = state.sort[viewKey()];
     state.tableColumns = allColumns;
     const columns = arrangeColumns(allColumns, state.columns[viewKey()]).shown;
@@ -1016,15 +1029,18 @@
 
   // Each tab keeps its own category, search, source and page, so tabs don't filter each other.
   function switchTab(tab) {
-    state.views[state.tab] = { category: state.category, search: state.search, source: state.source, page: state.page };
+    const wrap = $("table").parentElement;
+    state.views[state.tab] = { category: state.category, search: state.search, source: state.source, page: state.page, scroll: wrap.scrollTop };
     state.tab = tab;
     store.set("tab", tab);
-    const view = state.views[tab] || { category: "all", search: "", source: "all", page: 0 };
-    Object.assign(state, view);
+    const view = state.views[tab] || { category: "all", search: "", source: "all", page: 0, scroll: 0 };
+    const { scroll, ...filters } = view;
+    Object.assign(state, filters);
     $("search").value = state.search;
     $("source-filter").value = state.source;
     render();
-    $("table").parentElement.scrollTop = 0;
+    // Next frame, so the browser lays the table out once instead of right away.
+    requestAnimationFrame(() => { wrap.scrollTop = scroll || 0; });
   }
 
   function render() {
@@ -1043,7 +1059,16 @@
     updateAlertBadge();
     updateFavoriteBadge();
     renderCategories();
-    ({ auction: renderAuction, prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+    $("ah-slot-label").hidden = !AH.showsSlots(state.category);
+    const key = renderKey();
+    const cached = drawCache.get(viewKey());
+    if (cached && cached.key === key) {
+      drawTable(...cached.args);
+    } else {
+      state.drawKey = key;
+      ({ auction: renderAuction, prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+      state.drawKey = null;
+    }
     writeHash();
   }
 
