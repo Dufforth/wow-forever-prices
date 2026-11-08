@@ -14,6 +14,7 @@
   <h1>Forever Prices</h1>
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tabbtn-prices" data-tab="prices" aria-controls="results" type="button">Prices</button>
+    <button role="tab" id="tabbtn-favorites" data-tab="favorites" aria-controls="results" type="button">★ Favorites <span id="fav-count" class="count" hidden></span></button>
     <button role="tab" id="tabbtn-alerts" data-tab="alerts" aria-controls="results" type="button">Alerts <span id="alert-count" class="count" hidden></span></button>
     <button role="tab" id="tabbtn-profit" data-tab="profit" aria-controls="results" type="button">Profit</button>
     <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Disenchant</button>
@@ -56,6 +57,16 @@
           </select>
         </label>
         <label class="inline"><input id="price-listed" type="checkbox" checked> For sale only</label>
+      </div>
+
+      <div id="tab-favorites" class="filters" hidden>
+        <label class="inline">Compare with
+          <select id="fav-basis">
+            <option value="previous">Previous update</option>
+            <option value="day">24 hour average</option>
+            <option value="week">7 day average</option>
+          </select>
+        </label>
       </div>
 
       <div id="tab-alerts" class="filters" hidden>

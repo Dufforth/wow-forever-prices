@@ -1,10 +1,13 @@
 (function () {
   "use strict";
-  const { arrangeColumns, columnId, sortBy, topBy, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { arrangeColumns, columnId, sortBy, topBy, disenchantValue, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
   const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
   // Plain explanations for column titles, shown on hover or keyboard focus.
   const HINTS = {
+    "Big move": "Whether the price moved enough to count as an alert, using your Alerts settings. Got cheaper: a chance to buy. Got pricier: a chance to sell.",
+    "Craft profit": "What you keep if you craft it yourself with the best recipe and sell it the best way, after the 5% auction cut.",
+    "Disenchant value": "What the enchanting materials from disenchanting one are worth on average, after the 5% auction cut. Only gear can be disenchanted.",
     "Item level": "How advanced the item is. On gear, higher usually means stronger. On materials, it roughly matches the level of the zones where you find them.",
     "Item": "The item. Select it for details, history and recipes. Hover it to see its in-game tooltip.",
     "Lowest price": "The cheapest price anyone is asking for one right now.",
@@ -39,7 +42,7 @@
   const POLL_MS = 5 * 60 * 1000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
-  const TABS = ["prices", "alerts", "profit", "deals"];
+  const TABS = ["prices", "favorites", "alerts", "profit", "deals"];
   const MAX_SORTS = 3;
   const TEXT_KEYS = new Set(["name", "profession", "type", "source", "material"]);
   const SELL_BY = { "Sell on auction": "Auction", Disenchant: "Disenchant", "Sell to vendor": "Vendor" };
@@ -62,7 +65,7 @@
     loading: true, tab: "prices", category: "all", search: "", source: "all", collapsed: store.get("collapsed", { "Crafted by": true, "Item type": true }), page: 0, pageSize: PAGE_SIZES.includes(store.get("pageSize", 100)) ? store.get("pageSize", 100) : 100, detailId: null,
     // Each tab sorts by up to MAX_SORTS columns in turn.
     sort: {
-      prices: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
+      prices: [{ key: "name", dir: 1 }], favorites: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
       alerts: [{ key: "percent", dir: -1 }], deals: [{ key: "profit", dir: -1 }],
     },
     de: Object.assign({ mode: "buy", skill: "", supply: "" }, store.get("de", {})),
@@ -232,19 +235,12 @@
     drawPager(rows.length, from, shown.length, pages);
   }
 
-  // An empty Favorites list says why, so it doesn't look like the page failed to load.
+  // An empty Favorites tab says how to add items, so it never looks like the page failed to load.
   function favoritesEmpty() {
-    if (state.category !== "favorites") return "";
+    if (state.tab !== "favorites") return "";
     const count = state.favorites.size;
-    if (!count) return "You have no favorites yet. Select the ☆ next to any item to add it, or pick All items on the left.";
-    // Each tab only lists some kinds of items, so say why yours aren't here and where they are.
-    const all = `your ${number(count)} favorite${count === 1 ? "" : "s"}`;
-    return {
-      prices: `None of ${all} match your search or filters. Clear them to see all of them.`,
-      alerts: `None of ${all} changed price enough to be an alert right now. See them on the Prices tab.`,
-      profit: `None of ${all} ${$("profit-only").checked ? "can be crafted at a profit right now. Turn off Profitable only to see every recipe" : "can be crafted"}. See them on the Prices tab.`,
-      deals: `None of ${all} are gear worth disenchanting right now. Cloth, ore and other materials never show here. See them on the Prices tab.`,
-    }[state.tab];
+    if (!count) return "No favorites yet. Select the ☆ next to any item, on any tab, to track it here.";
+    return `None of your ${number(count)} favorite${count === 1 ? "" : "s"} match your search or filters. Clear them to see all of them.`;
   }
 
   // Pages: how many rows show at once is the viewer's choice; the range and total are always shown.
@@ -283,7 +279,7 @@
   // ---- Prices ----
   function renderPrices() {
     const basis = $("price-basis").value;
-    const listedOnly = $("price-listed").checked && state.category !== "favorites";
+    const listedOnly = $("price-listed").checked;
     let rows = [];
     // These lists can hold items outside the profession catalog.
     const special = { "most-posted": [...state.mostPosted], "most-bought": [...state.mostBought] }[state.category];
@@ -322,6 +318,62 @@
     ], rows, (r) => `data-item="${r.id}"`, "No items match. Try another category or source, or clear your search.", "item", (r) => goodRow(ratePriceNow(r.row)));
   }
 
+  // ---- Favorites ----
+  // Everything about the items you starred: prices, trend, alerts, crafting and disenchanting.
+  function bestCrafts() {
+    state.rows = state.rows || craftRows(state.catalog, state.prices);
+    const best = new Map();
+    for (const r of state.rows) {
+      const id = String(r.recipe.i);
+      if (!state.favorites.has(Number(id)) || r.profit == null) continue;
+      const old = best.get(id);
+      if (!old || r.profit > old.profit) best.set(id, r);
+    }
+    return best;
+  }
+
+  function renderFavorites() {
+    const basis = $("fav-basis").value;
+    const alerts = new Map(allAlerts().map((a) => [String(a.id), a]));
+    const crafts = bestCrafts();
+    let rows = [...state.favorites].map(String).filter((id) => passesFilters(id, itemOf(id))).map((id) => {
+      const item = itemOf(id), row = state.prices[id];
+      return { id, item, row, change: row ? priceChange(row, basis) : null, alert: alerts.get(id) || null, craft: crafts.get(id) || null, de: disenchantValue(item, state.prices) };
+    });
+    rows = sortRows(rows, state.sort.favorites, {
+      name: (r) => r.item.n, level: (r) => r.item.il || null, price: (r) => lowestOf(r.row), market: (r) => (r.row ? r.row[1] : null),
+      now: (r) => { const rating = ratePriceNow(r.row); return rating ? { cheap: 0, usual: 1, pricey: 2 }[rating] : null; },
+      percent: (r) => (r.change ? r.change.percent : null), amount: (r) => (r.change ? r.change.amount : null),
+      alert: (r) => (r.alert ? r.alert.amount : null), supply: (r) => (r.row ? r.row[2] : null),
+      craft: (r) => (r.craft ? r.craft.profit : null), de: (r) => r.de, vendor: (r) => vendorPays(r.item),
+      day: (r) => (r.row ? r.row[4] : null), week: (r) => (r.row ? r.row[5] : null), bought: (r) => (r.row ? r.row[6] || 0 : null),
+      source: (r) => sourceLabel(sourceOf(r.id, r.item, context())), type: (r) => typeLabel(r.item),
+    });
+    const craftTone = (r) => (!r.craft ? "muted" : r.craft.profit > 0 ? "up" : "down");
+    drawTable([
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      levelColumn((r) => r.item),
+      { key: "price", label: "Lowest price", hint: HINTS["Lowest price"], say: (r) => say.lowest(r.row), cell: (r) => `${coins(lowestOf(r.row))}${r.row && !r.row[2] ? ' <span class="badge">last seen</span>' : ""}` },
+      { key: "market", label: "Market", hint: HINTS["Market"], say: (r) => say.market(r.row), p: 1, cell: (r) => coins(r.row ? r.row[1] : null) },
+      { key: "now", label: "Price now", hint: "Is today's typical price cheap, usual or pricey compared with its 7-day average?", say: (r) => say.now(r.row), cell: (r) => badge(ratePriceNow(r.row)) },
+      { key: "percent", label: "Change %", hint: HINTS["Change %"], say: (r) => say.change(r.change, basis), p: 1, tone: (r) => changeTone(r.change), cell: (r) => changePercent(r.change) },
+      { key: "amount", label: "Change", hint: HINTS["Change"], say: (r) => say.change(r.change, basis), p: 2, tone: (r) => changeTone(r.change), cell: (r) => changeAmount(r.change) },
+      { key: "alert", label: "Big move", hint: HINTS["Big move"], say: (r) => (r.alert ? `${say.change(r.alert, state.alert.basis)} ${r.alert.amount < 0 ? "A chance to buy for less." : "A chance to sell for more."}` : "No big price move with your Alerts settings."), p: 1, cell: (r) => (r.alert ? badge(r.alert.amount < 0 ? "cheaper" : "pricier") : badge(null)) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => say.supply(r.row ? r.row[2] : 0), p: 1, cell: (r) => (r.row ? number(r.row[2]) : "–") },
+      { key: "craft", label: "Craft profit", hint: HINTS["Craft profit"], p: 2, tone: craftTone,
+        say: (r) => (r.craft ? `${say.deal(r.craft.profit, r.craft.cost, "spend")} Best recipe: ${r.craft.recipe.p}${r.craft.recipe.c > 1 ? `, makes ${r.craft.recipe.c}` : ""}.` : "No recipe makes this, or some reagent prices are missing."),
+        cell: (r) => (r.craft ? `${r.craft.profit > 0 ? "▲ " : "▼ "}${coins(r.craft.profit)}` : "–") },
+      { key: "de", label: "Disenchant value", hint: HINTS["Disenchant value"], p: 2,
+        say: (r) => (r.de == null ? "It can't be disenchanted, or its materials have no price." : `Disenchanting one gives materials worth about ${money(r.de)} on average, after the 5% cut.`), cell: (r) => coins(r.de) },
+      { key: "vendor", label: "Vendor pays", hint: HINTS["Vendor pays"], say: (r) => say.vendorPays(r.item, r.row), p: 2, cell: (r) => coins(vendorPays(r.item)) },
+      { key: "day", label: "24 hour average", hint: HINTS["24 hour average"], say: (r) => (r.row && r.row[4] ? `Over the last 24 hours it cost ${money(r.row[4])} on average.` : "Not enough history yet."), p: 3, cell: (r) => coins(r.row ? r.row[4] : null) },
+      { key: "week", label: "7 day average", hint: HINTS["7 day average"], say: (r) => (r.row && r.row[5] ? `Over the last 7 days it cost ${money(r.row[5])} on average.` : "Not enough history yet."), p: 3, cell: (r) => coins(r.row ? r.row[5] : null) },
+      { key: "bought", label: "Bought, 7 days (est.)", hint: HINTS["Bought, 7 days (est.)"], p: 3, cell: (r) => (r.row ? number(r.row[6] || 0) : "–") },
+      { key: "source", label: "Source", hint: HINTS["Source"], left: true, p: 3, cell: (r) => esc(sourceLabel(sourceOf(r.id, r.item, context()))) },
+      { key: "type", label: "Type", hint: HINTS["Type"], left: true, p: 3, cell: (r) => esc(typeLabel(r.item)) },
+    ], rows, (r) => `data-item="${r.id}"`, "", "favorite", (r) => (r.alert && r.alert.amount < 0 ? "good-row" : goodRow(ratePriceNow(r.row))));
+  }
+
   // ---- Alerts ----
   let alertsCache = { key: null, list: null };
   function allAlerts() {
@@ -335,6 +387,11 @@
   function computeAlerts(a) {
     return significantChanges(state.prices, { percent: a.percent, minAmount: a.amount * 100, minSupply: a.supply, basis: a.basis })
       .filter((c) => state.catalog.items[c.id] && (!a.favorites || state.favorites.has(c.id)));
+  }
+
+  function updateFavoriteBadge() {
+    $("fav-count").hidden = state.favorites.size === 0;
+    $("fav-count").textContent = state.favorites.size;
   }
 
   function updateAlertBadge() {
@@ -789,7 +846,6 @@
         }
       }
     }
-    counts.set("favorites", state.favorites.size);
     counts.set("most-posted", state.mostPosted.size);
     counts.set("most-bought", state.mostBought.size);
     countsCache = { key, counts };
@@ -800,8 +856,8 @@
     const counts = categoryCounts();
     const button = (id, label) => `<li><button type="button" class="cat" data-category="${esc(id)}" aria-current="${state.category === id}"><span>${esc(label)}</span><span>${number(counts.get(id) || 0)}</span></button></li>`;
     const select = $("category-select");
-    let html = `<ul>${button("all", "All items")}${button("favorites", "★ Favorites")}</ul>`;
-    let options = '<option value="all">All items</option><option value="favorites">★ Favorites</option>';
+    let html = `<ul>${button("all", "All items")}</ul>`;
+    let options = '<option value="all">All items</option>';
     for (const group of groups(state.professions)) {
       // A group opens by itself when the chosen category is inside it.
       const holdsCurrent = group.categories.some((c) => c.id === state.category);
@@ -832,7 +888,8 @@
     const params = new URLSearchParams(query || "");
     state.tab = TABS.includes(tab) ? tab : store.get("tab", "prices");
     if (!TABS.includes(state.tab)) state.tab = "prices";
-    const category = params.get("category") || "all";
+    let category = params.get("category") || "all";
+    if (category === "favorites") { state.tab = "favorites"; category = "all"; } // Links from before Favorites became a tab.
     state.category = isKnown(category, state.professions) ? category : "all";
     state.search = (params.get("q") || "").toLowerCase();
     $("search").value = state.search;
@@ -840,6 +897,7 @@
 
   const LEGENDS = {
     prices: () => `${badge("cheap")} lower than its usual price this week, a good time to buy · ${badge("pricey")} higher than usual, a good time to sell · ▲ ▼ show how much the price moved. Hover a column title to see what it means.`,
+    favorites: () => `Everything about the items you track. Select ☆ next to any item, on any tab, to add it; select ★ to remove it. ${badge("cheap")} and ${badge("cheaper")} are good times to buy · ${badge("pricey")} and ${badge("pricier")} are good times to sell.`,
     alerts: () => `Items whose price moved a lot. ${badge("cheaper")} is a chance to buy, and ${badge("pricier")} is a chance to sell. Hover a column title to see what it means.`,
     profit: () => `${badge("good")} pays back at least 20% more than you spend · ${badge("fair")} small profit · ${badge("poor")} loses money. Profit is per craft, after the 5% auction cut.`,
     deals: () => `Items worth more as enchanting materials than they cost. ${badge("good")} expected to return at least 20% more than you spend · ${badge("fair")} small expected profit. Results vary item by item.`,
@@ -858,8 +916,9 @@
     $("source-filter").hidden = state.tab === "profit"; // Every recipe is crafted.
     hideTip();
     updateAlertBadge();
+    updateFavoriteBadge();
     renderCategories();
-    ({ prices: renderPrices, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+    ({ prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
     writeHash();
   }
 
@@ -1044,7 +1103,7 @@
     });
 
     $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
-    ["price-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
+    ["price-basis", "fav-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
     [["de-mode", "mode"], ["de-skill", "skill"], ["de-supply", "supply"]].forEach(([id, key]) => {
       const input = $(id);
       input.value = state.de[key];

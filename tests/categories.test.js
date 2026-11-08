@@ -38,11 +38,9 @@ test("every real item lands in exactly one item type", () => {
   }
 });
 
-test("all, favorites and professions", () => {
+test("all and professions", () => {
   const item = { cl: 7, sc: 9, g: "herb" };
   assert.ok(Categories.matches("all", 5, item, context()));
-  assert.ok(Categories.matches("favorites", "5", item, context([5])));
-  assert.ok(!Categories.matches("favorites", 6, item, context([5])));
   assert.ok(Categories.matches("prof:Alchemy", "5", item, context([], { 5: ["Alchemy"] })));
   assert.ok(!Categories.matches("prof:Mining", 5, item, context([], { 5: ["Alchemy"] })));
   assert.ok(Categories.matches("herb", 5, item, context()));
@@ -72,7 +70,7 @@ test("market categories", () => {
 
 test("unknown categories from a link are rejected", () => {
   assert.ok(Categories.isKnown("herb", []));
-  assert.ok(Categories.isKnown("favorites", []));
+  assert.ok(!Categories.isKnown("favorites", []), "favorites is a tab now, not a category");
   assert.ok(Categories.isKnown("prof:Alchemy", ["Alchemy"]));
   assert.ok(!Categories.isKnown("prof:Nonsense", ["Alchemy"]));
   assert.ok(!Categories.isKnown("nonsense", []));
