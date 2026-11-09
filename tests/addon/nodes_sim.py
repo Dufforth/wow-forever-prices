@@ -364,6 +364,17 @@ for n in ["Peacebloom", "Earthroot"]:
 lua.execute('HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", "Earthroot"); FIRE("LOOT_CLOSED"); RUN(0.2)')
 check("gathering removes the node your cast named, not a closer one", lua.eval("NAMES()") == "Peacebloom", lua.eval("NAMES()"))
 
+# Gathered nodes must vanish even when the hovered spot was off (user report, 4.4.0).
+lua = fresh(); lua.execute(BLOCKED)
+lua.execute('DufforthTweaksHelperDB.nodes.pins = { {name="Peacebloom",kind="herb",mapID=1415,east=2500+18,north=-2500+10,seenAt=NOW,misses=0}, {name="Peacebloom",kind="herb",mapID=1415,east=2500-8,north=-2500-14,seenAt=NOW,misses=0}, {name="Silverleaf",kind="herb",mapID=1415,east=2500+12,north=-2500,seenAt=NOW,misses=0} }')
+lua.execute('HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", "Peacebloom"); FIRE("LOOT_CLOSED"); RUN(0.2)')
+check("gathering removes every copy of that node near you, even 20 yards off", lua.eval("NAMES()") == "Silverleaf", lua.eval("NAMES()"))
+lua.execute('FIRE("LOOT_CLOSED"); RUN(0.2)')
+check("loot without a named cast removes the nearest dot within 20 yards", lua.eval("NAMES()") == "", lua.eval("NAMES()"))
+lua = fresh(); lua.execute(BLOCKED)
+lua.execute('CURSOR_AT(20, 10); GAMEHOVER("Peacebloom"); CURSOR_AT(26, 14); GAMEHOVER("Peacebloom"); RUN(0.1)')
+check("hovering the same node a bit off doesn't save a second copy", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
+
 # The game's tracking list can't always be read: never draw over the game's own dots.
 lua = fresh()
 lua.execute('C_Minimap.GetTrackingInfo = function(i) local t = TRACK[i]; return "x", 1, t.active, "spell", nil, t.spellID end')

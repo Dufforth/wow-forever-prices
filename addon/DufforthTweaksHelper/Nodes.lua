@@ -17,7 +17,9 @@ local SCAN_INTERVAL = 1.5 -- seconds between sweeps
 local LINK_PIXELS = GRID_STEP * 1.6 -- hits this close belong to the same dot
 local MATCH_YARDS = 15 -- a dot this close to a same-named icon is that icon
 local MATCH_PIXELS = 12 -- the same, when zoomed far out
-local LOOT_YARDS = 8 -- how near you must be to a node to have gathered it
+local LOOT_YARDS = 20 -- how near a remembered dot must be to you to be the node you gathered
+local NAMED_LOOT_YARDS = 45 -- the same, when your cast named the node (hovered spots can be well off)
+local HOVER_MATCH_YARDS = 30 -- a hover this close to a same-named dot is that dot, not a new one
 local INTERIOR = 0.75 -- dots near the edge are cut off, so their position is not trusted
 local MISS_INTERIOR = 0.7 -- how far out a missing dot counts as really missing
 local MISSES_TO_REMOVE = 2 -- sweeps in a row without the dot before its icon goes
@@ -834,7 +836,7 @@ local function LearnAtCursor(name, kind)
         return
     end
     local east, north = OffsetToWorld(ox, oy, v)
-    local reach = math.max(MATCH_YARDS, MATCH_PIXELS / v.pixelsPerYard)
+    local reach = math.max(HOVER_MATCH_YARDS, MATCH_PIXELS / v.pixelsPerYard)
     local now = time()
     local pin = FindPin(name, east, north, reach, {})
     if pin then
@@ -1108,21 +1110,35 @@ local function RemoveGatheredNode()
     if not v then
         return
     end
-    local reach = math.max(LOOT_YARDS, 2 / v.pixelsPerYard)
     local named = lastGather and GetTime() - lastGather.at <= GATHER_SECONDS and lastGather.name
     lastGather = nil
-    local bestIndex, bestDistance
-    for index, pin in ipairs(db.pins) do
-        if pin.mapID == v.mapID and (not named or pin.name == named) then
-            local dx, dy = pin.east - v.east, pin.north - v.north
-            local distance = dx * dx + dy * dy
-            if distance <= reach * reach and (not bestIndex or distance < bestDistance) then
-                bestIndex, bestDistance = index, distance
+    if named then
+        -- Every remembered dot of that node near you goes, including copies saved a bit off.
+        local reach = math.max(NAMED_LOOT_YARDS, 12 / v.pixelsPerYard)
+        for index = #db.pins, 1, -1 do
+            local pin = db.pins[index]
+            if pin.mapID == v.mapID and pin.name == named then
+                local dx, dy = pin.east - v.east, pin.north - v.north
+                if dx * dx + dy * dy <= reach * reach then
+                    table.remove(db.pins, index)
+                end
             end
         end
-    end
-    if bestIndex then
-        table.remove(db.pins, bestIndex)
+    else
+        local reach = math.max(LOOT_YARDS, 6 / v.pixelsPerYard)
+        local bestIndex, bestDistance
+        for index, pin in ipairs(db.pins) do
+            if pin.mapID == v.mapID then
+                local dx, dy = pin.east - v.east, pin.north - v.north
+                local distance = dx * dx + dy * dy
+                if distance <= reach * reach and (not bestIndex or distance < bestDistance) then
+                    bestIndex, bestDistance = index, distance
+                end
+            end
+        end
+        if bestIndex then
+            table.remove(db.pins, bestIndex)
+        end
     end
     sweep, wait = nil, 0.5
 end
