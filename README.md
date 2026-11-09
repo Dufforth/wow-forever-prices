@@ -37,7 +37,7 @@ Without them, the page still works using only the public source.
 
 The **Addon** button in the page's top bar downloads Dufforth Tweaks Helper, a gathering, disenchanting and crafting helper (tabs: Gather, Disenchant, Crafting). Its source is in `addon/DufforthTweaksHelper`, and every deploy builds the download from it, bundling Blizzard's latest prices for enchanting materials and disenchantable gear (`tools/build_addon_prices.py`), because addons can't reach the internet.
 
-- **Herbs and ores:** keeps herb and ore icons on the minimap when you swap tracking, swaps tracking on a timer, and colors tooltips by your gathering skill (`/nk`).
+- **Herbs and ores:** after you swap tracking, keeps a dot in each node's own color where the herbs or ores you hovered are, until you gather them, swaps tracking on a timer, and colors tooltips by your gathering skill (`/nk`).
 - **Disenchant tooltips:** weapon and armor tooltips show the materials, chances, prices and average value of disenchanting them.
 - **Disenchant window:** offers the next safe BoE item on one button. The game only allows one cast per click or key press, so it never disenchants on its own. It skips bound, Bind on Pickup, equipment-set, kept and locked items, anything above your quality or item level limit or Enchanting skill, and anything that sells for more on the auction house or to a vendor.
 - **Menu and minimap button:** every setting in one window (`/dufforth`).

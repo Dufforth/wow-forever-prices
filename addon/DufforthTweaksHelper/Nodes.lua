@@ -35,17 +35,78 @@ local DEFAULT_KEEP_MINUTES = 0 -- keep icons until you gather them (the user's c
 local OLD_DEFAULT_KEEP_MINUTES = 30
 local PROBING_BLOCKED_FROM_BUILD = 70862
 local HOVER_WEIGHT_CAP = 5 -- a remembered spot moves toward later hovers, up to 1/5 per hover
-local DEFAULT_RESPAWN_MINUTES = 10 -- a guess until you've seen nodes come back
-local RESPAWN_SAMPLES = 10 -- respawn times kept per node name
 local GATHER_SECONDS = 20 -- how long after a gathering cast the loot still counts as that node
-local DEFAULT_GATHERED_MINUTES = 60
-local GATHERED_GRACE = 10 -- seconds a gathered dot may linger before it counts as back
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
 -- A white disc, tinted to make the dots. If a client lacks it, the game's small yellow ball is used.
 local DOT = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local DOT_FALLBACK = "Interface\\COMMON\\Indicator-Yellow"
-local YELLOW = { 1, 0.82, 0 }
-local GRAY = { 0.6, 0.6, 0.6 }
+
+-- Each node's dot has its own color (the user's choice), so Copper and Tin, or Peacebloom and
+-- Silverleaf, can be told apart at a glance. Hover a dot for its name.
+local NODE_COLORS = {
+    ["Copper Vein"] = { 0.93, 0.52, 0.22 }, ["Poor Copper Vein"] = { 0.93, 0.52, 0.22 },
+    ["Tin Vein"] = { 0.55, 0.68, 0.8 },
+    ["Silver Vein"] = { 0.97, 0.97, 1 }, ["Ooze Covered Silver Vein"] = { 0.97, 0.97, 1 },
+    ["Iron Deposit"] = { 0.7, 0.33, 0.27 }, ["Cold Iron Deposit"] = { 0.7, 0.33, 0.27 },
+    ["Gold Vein"] = { 1, 0.84, 0.1 }, ["Ooze Covered Gold Vein"] = { 1, 0.84, 0.1 }, ["Fool's Gold Vein"] = { 1, 0.84, 0.1 },
+    ["Mithril Deposit"] = { 0.25, 0.85, 0.8 }, ["Ooze Covered Mithril Deposit"] = { 0.25, 0.85, 0.8 },
+    ["Truesilver Deposit"] = { 0.8, 0.68, 1 }, ["Ooze Covered Truesilver Deposit"] = { 0.8, 0.68, 1 },
+    ["Dark Iron Deposit"] = { 0.6, 0.3, 0.75 },
+    ["Small Thorium Vein"] = { 0.45, 0.8, 0.3 }, ["Ooze Covered Thorium Vein"] = { 0.45, 0.8, 0.3 },
+    ["Hakkari Thorium Vein"] = { 0.45, 0.8, 0.3 }, ["Heavy Thorium Vein"] = { 0.45, 0.8, 0.3 },
+    ["Rich Thorium Vein"] = { 0.15, 1, 0.45 }, ["Ooze Covered Rich Thorium Vein"] = { 0.15, 1, 0.45 },
+    ["Incendicite Mineral Vein"] = { 1, 0.3, 0.15 },
+    ["Lesser Bloodstone Deposit"] = { 0.85, 0.1, 0.25 },
+    ["Indurium Mineral Vein"] = { 0.85, 0.75, 0.5 },
+    ["Small Obsidian Chunk"] = { 0.5, 0.4, 0.65 }, ["Large Obsidian Chunk"] = { 0.5, 0.4, 0.65 },
+    ["Chunk of Amber"] = { 1, 0.62, 0.1 }, ["Large Chunk of Amber"] = { 1, 0.62, 0.1 },
+    ["Starsilver Vein"] = { 0.7, 0.9, 1 },
+    ["Greater Moonstone Formation"] = { 0.85, 0.92, 1 },
+    ["Peacebloom"] = { 1, 0.6, 0.82 }, ["Wilted Peacebloom"] = { 1, 0.6, 0.82 },
+    ["Silverleaf"] = { 0.78, 0.86, 0.78 }, ["Stunted Silverleaf"] = { 0.78, 0.86, 0.78 },
+    ["Earthroot"] = { 0.65, 0.48, 0.3 },
+    ["Mageroyal"] = { 0.72, 0.42, 1 },
+    ["Briarthorn"] = { 0.95, 0.3, 0.62 },
+    ["Stranglekelp"] = { 0.2, 0.65, 0.55 },
+    ["Bruiseweed"] = { 0.4, 0.5, 1 },
+    ["Wild Steelbloom"] = { 0.62, 0.66, 0.76 },
+    ["Grave Moss"] = { 0.55, 0.65, 0.2 },
+    ["Kingsblood"] = { 0.95, 0.15, 0.2 },
+    ["Liferoot"] = { 0.3, 0.88, 0.3 },
+    ["Fadeleaf"] = { 0.7, 0.6, 0.92 },
+    ["Goldthorn"] = { 1, 0.78, 0.25 },
+    ["Khadgar's Whisker"] = { 0.45, 0.78, 1 },
+    ["Wintersbite"] = { 0.82, 0.96, 1 },
+    ["Firebloom"] = { 1, 0.42, 0.1 },
+    ["Purple Lotus"] = { 0.62, 0.22, 0.85 },
+    ["Arthas' Tears"] = { 0.3, 0.42, 0.95 },
+    ["Sungrass"] = { 1, 1, 0.35 },
+    ["Blindweed"] = { 0.45, 0.55, 0.3 },
+    ["Ghost Mushroom"] = { 0.75, 0.85, 0.95 },
+    ["Gromsblood"] = { 0.72, 0.1, 0.12 },
+    ["Golden Sansam"] = { 1, 0.7, 0.2 },
+    ["Dreamfoil"] = { 0.4, 1, 0.72 },
+    ["Mountain Silversage"] = { 0.72, 0.9, 0.72 },
+    ["Plaguebloom"] = { 0.62, 0.92, 0.2 },
+    ["Icecap"] = { 0.6, 0.9, 1 },
+    ["Black Lotus"] = { 0.45, 0.3, 0.55 },
+}
+-- Nodes without their own color get one from a fixed set, always the same for the same name.
+local SPARE_COLORS = {
+    { 1, 0.5, 0.5 }, { 0.5, 1, 0.5 }, { 0.5, 0.7, 1 }, { 1, 0.85, 0.4 }, { 0.85, 0.5, 1 }, { 0.4, 1, 1 },
+}
+
+local function ColorFor(name)
+    local color = NODE_COLORS[name]
+    if color then
+        return color
+    end
+    local sum = 0
+    for i = 1, #name do
+        sum = sum + string.byte(name, i) * i
+    end
+    return SPARE_COLORS[sum % #SPARE_COLORS + 1]
+end
 
 local FIND_SPELLS = { [2383] = "herb", [8387] = "herb", [2580] = "ore", [8388] = "ore" }
 -- When the game gives no spell number: the tracking names and pictures.
@@ -297,6 +358,10 @@ local grid, gridWidth, gridSquare
 local icons = {}
 local stats = { sweeps = 0, lastDots = 0, lastError = nil, hovered = 0 }
 local lastGather -- { name, at }: the node your last gathering cast was aimed at
+-- Which tracking you last turned on (from your Find Herbs or Find Minerals cast, or a game dot
+-- you hovered). Used when the game's tracking list can't be read, so our dots never sit on top
+-- of the game's own.
+local lastTrackedKind
 
 -- True on clients that no longer let addons probe the minimap.
 local function ProbingBlocked()
@@ -389,12 +454,23 @@ local function KindOfTexture(texture)
     return FIND_TEXTURES[texture] or FIND_TEXTURES[string.lower(tostring(texture))]
 end
 
-local function RefreshTracking()
-    local now = {}
-    if C_Minimap and C_Minimap.GetNumTrackingTypes and C_Minimap.GetTrackingInfo then
-        for index = 1, C_Minimap.GetNumTrackingTypes() do
-            local info = C_Minimap.GetTrackingInfo(index)
-            if Usable(info) and Usable(info.active) and info.active then
+-- One tracking entry, whether the game returns a table or plain values
+-- (name, texture, active, type, subType, spellID).
+local function TrackingEntry(getInfo, index)
+    local first, texture, active, _, _, spellID = getInfo(index)
+    if type(first) == "table" then
+        return first
+    end
+    return { name = first, texture = texture, active = active, spellID = spellID }
+end
+
+local function ReadTrackingList(now, count, getInfo)
+    local read = false
+    for index = 1, count do
+        local ok, info = pcall(TrackingEntry, getInfo, index)
+        if ok and Usable(info) and info then
+            read = true
+            if Usable(info.active) and info.active then
                 local kind = (Usable(info.spellID) and FIND_SPELLS[info.spellID])
                     or (Usable(info.name) and FIND_NAMES[info.name]) or KindOfTexture(info.texture)
                 if kind then
@@ -402,11 +478,27 @@ local function RefreshTracking()
                 end
             end
         end
-    elseif GetTrackingTexture then
+    end
+    return read
+end
+
+local function RefreshTracking()
+    local now = {}
+    local read = false
+    if C_Minimap and C_Minimap.GetNumTrackingTypes and C_Minimap.GetTrackingInfo then
+        read = ReadTrackingList(now, C_Minimap.GetNumTrackingTypes() or 0, C_Minimap.GetTrackingInfo)
+    elseif GetNumTrackingTypes and GetTrackingInfo then
+        read = ReadTrackingList(now, GetNumTrackingTypes() or 0, GetTrackingInfo)
+    end
+    if not (now.herb or now.ore) and GetTrackingTexture then
         local kind = KindOfTexture(GetTrackingTexture())
         if kind then
-            now[kind] = true
+            now[kind], read = true, true
         end
+    end
+    -- Nothing readable: trust what you last turned on.
+    if not read and lastTrackedKind then
+        now[lastTrackedKind] = true
     end
     local changed = now.herb ~= tracked.herb or now.ore ~= tracked.ore
     tracked = now
@@ -530,63 +622,6 @@ local function FindPin(name, east, north, reach, matched)
     return best
 end
 
--- Respawn times you've seen, by node name, in seconds (the last few).
-local function RecordRespawn(name, seconds)
-    if seconds < 60 or seconds > 3 * 3600 then
-        return -- too quick to be a respawn, or the marker was simply old
-    end
-    db.respawn = db.respawn or {}
-    local list = db.respawn[name] or {}
-    list[#list + 1] = math.floor(seconds)
-    while #list > RESPAWN_SAMPLES do
-        table.remove(list, 1)
-    end
-    db.respawn[name] = list
-end
-
-local function Median(values)
-    if #values == 0 then
-        return nil
-    end
-    local sorted = {}
-    for i, v in ipairs(values) do sorted[i] = v end
-    table.sort(sorted)
-    local middle = math.floor((#sorted + 1) / 2)
-    return #sorted % 2 == 1 and sorted[middle] or (sorted[middle] + sorted[middle + 1]) / 2
-end
-
--- Expected respawn in seconds, and where it comes from: "seen" (this node's own times),
--- "kind" (other herbs or ores you've seen), or "guess" (the minutes you set).
-local function RespawnEstimate(name, kind)
-    local seen = (db.respawn or {})[name]
-    if seen and #seen > 0 then
-        return Median(seen), "seen", #seen
-    end
-    local same = {}
-    for other, list in pairs(db.respawn or {}) do
-        if KindOf(other) == kind then
-            for _, v in ipairs(list) do same[#same + 1] = v end
-        end
-    end
-    if #same > 0 then
-        return Median(same), "kind", #same
-    end
-    return (db.respawnMinutes or DEFAULT_RESPAWN_MINUTES) * 60, "guess", 0
-end
-
-local function ClearGatheredNear(name, east, north, reach, mapID, now)
-    for index = #db.gathered, 1, -1 do
-        local marker = db.gathered[index]
-        if marker.mapID == mapID and marker.name == name and now - marker.gatheredAt >= GATHERED_GRACE then
-            local dx, dy = marker.east - east, marker.north - north
-            if dx * dx + dy * dy <= reach * reach then
-                RecordRespawn(name, now - marker.gatheredAt)
-                table.remove(db.gathered, index)
-            end
-        end
-    end
-end
-
 local function FinishSweep(v)
     local matched = {}
     local dots = 0
@@ -613,7 +648,6 @@ local function FinishSweep(v)
                 db.pins[#db.pins + 1] = pin
             end
             if pin then
-                ClearGatheredNear(name, east, north, reach, v.mapID, now)
                 pin.seenAt = now
                 pin.misses = 0
                 matched[pin] = true
@@ -786,8 +820,7 @@ local function AddGatherLines(tooltip, name, kind, withName)
 end
 
 -- Hovering a tracked dot that has no icon on it shows the same information.
--- Remembers a node where the mouse is: a new icon, or a better position for one already there.
--- Seeing it again also clears a gathered marker of the same name there: it has come back.
+-- Remembers a node where the mouse is: a new dot, or a better position for one already there.
 local function LearnAtCursor(name, kind)
     local v = ReadView()
     if not v or not GetCursorPosition or not Minimap:GetLeft() then
@@ -816,7 +849,6 @@ local function LearnAtCursor(name, kind)
     end
     if pin then
         pin.seenAt, pin.misses = now, 0
-        ClearGatheredNear(name, east, north, reach, v.mapID, now)
     end
 end
 
@@ -834,6 +866,11 @@ local function OnGameMinimapTooltip(tooltip, data)
                 local kind = KindOf(name)
                 if kind and mouseOnMap then
                     LearnAtCursor(name, kind)
+                    if not tracked[kind] then
+                        lastTrackedKind = kind
+                        RefreshTracking()
+                        tracked[kind] = true
+                    end
                 end
                 if kind and AddGatherLines(tooltip, name, kind, true) then
                     added = true
@@ -846,28 +883,7 @@ local function OnGameMinimapTooltip(tooltip, data)
     end
 end
 
-local function ShowMarkerTooltip(icon)
-    local marker = icon.marker
-    local minutes = math.floor((time() - marker.gatheredAt) / 60)
-    GameTooltip:SetOwner(icon, "ANCHOR_LEFT")
-    GameTooltip:SetText(marker.name, 0.7, 0.7, 0.7)
-    GameTooltip:AddLine(minutes < 1 and "Gathered just now" or ("Gathered " .. minutes .. " min ago"), 0.8, 0.8, 0.8)
-    local estimate, source, count = RespawnEstimate(marker.name, marker.kind)
-    local left = math.ceil((estimate - (time() - marker.gatheredAt)) / 60)
-    GameTooltip:AddLine(left > 0 and ("Likely back in about " .. left .. " min") or "Likely back by now", left > 0 and 1 or 0.4, left > 0 and 0.82 or 1, left > 0 and 0 or 0.4)
-    local why = source == "seen" and string.format("Estimate: %d min, from %d time%s you saw this node come back.", math.floor(estimate / 60 + 0.5), count, count == 1 and "" or "s")
-        or source == "kind" and string.format("Estimate: %d min, from %d respawn%s of other %s you saw.", math.floor(estimate / 60 + 0.5), count, count == 1 and "" or "s", marker.kind == "herb" and "herbs" or "ores")
-        or string.format("Estimate: %d min, a guess you can change (Gather tab). It learns each time you hover a node that came back.", math.floor(estimate / 60 + 0.5))
-    GameTooltip:AddLine(why, 0.6, 0.6, 0.6, true)
-    GameTooltip:AddLine("The game doesn't share respawn times, and nodes can come back in a nearby spot.", 0.6, 0.6, 0.6, true)
-    GameTooltip:Show()
-end
-
 local function ShowPinTooltip(icon)
-    if icon.marker then
-        ShowMarkerTooltip(icon)
-        return
-    end
     local pin = icon.pin
     if not pin then
         return
@@ -951,9 +967,9 @@ local function Draw()
                         icons[shown] = icon
                     end
                     icon.pin = pin
-                    icon.marker = nil
                     icon:SetSize(size, size)
-                    icon.art:SetVertexColor(YELLOW[1], YELLOW[2], YELLOW[3])
+                    local color = ColorFor(pin.name)
+                    icon.art:SetVertexColor(color[1], color[2], color[3])
                     icon.label:SetShown(false)
                     icon:ClearAllPoints()
                     icon:SetPoint("CENTER", Minimap, "CENTER", ox, oy)
@@ -962,61 +978,14 @@ local function Draw()
                 end
             end
         end
-
-        -- Gathered markers: a gray dot with the minutes until it's likely back.
-        local now = time()
-        for _, marker in ipairs(db.gathered) do
-            if marker.mapID == v.mapID and shown < MAX_ICONS then
-                local ox, oy = WorldToOffset(marker.east, marker.north, v)
-                local inside
-                if square then
-                    inside = math.abs(ox) <= reach and math.abs(oy) <= reach
-                else
-                    inside = ox * ox + oy * oy <= reach * reach
-                end
-                if inside and not Crowded(placed, marker.name, ox, oy, spacing) then
-                    placed[#placed + 1] = { ox, oy, marker.name }
-                    shown = shown + 1
-                    local icon = icons[shown]
-                    if not icon then
-                        icon = NewIcon()
-                        icons[shown] = icon
-                    end
-                    icon.pin = nil
-                    icon.marker = marker
-                    icon:SetSize(size, size)
-                    icon.art:SetVertexColor(GRAY[1], GRAY[2], GRAY[3])
-                    local left = RespawnEstimate(marker.name, marker.kind) - (now - marker.gatheredAt)
-                    if left > 0 then
-                        icon.label:SetText("~" .. math.ceil(left / 60) .. "m")
-                        icon.label:SetTextColor(0.8, 0.8, 0.8)
-                    else
-                        icon.label:SetText("back?")
-                        icon.label:SetTextColor(0.4, 1, 0.4)
-                    end
-                    icon.label:SetShown(true)
-                    icon:ClearAllPoints()
-                    icon:SetPoint("CENTER", Minimap, "CENTER", ox, oy)
-                    icon:SetAlpha(left > 0 and 0.6 or 0.9)
-                    icon:Show()
-                end
-            end
-        end
     end
     for index = shown + 1, #icons do
         icons[index].pin = nil
-        icons[index].marker = nil
         icons[index]:Hide()
     end
 end
 
 local function ExpireOldPins()
-    local oldestMarker = time() - db.gatheredMinutes * 60
-    for index = #db.gathered, 1, -1 do
-        if db.gathered[index].gatheredAt < oldestMarker then
-            table.remove(db.gathered, index)
-        end
-    end
     if db.keepMinutes <= 0 then
         return
     end
@@ -1117,7 +1086,6 @@ end
 local function HideAllIcons()
     for _, icon in ipairs(icons) do
         icon.pin = nil
-        icon.marker = nil
         icon:Hide()
     end
 end
@@ -1141,9 +1109,11 @@ local function RemoveGatheredNode()
         return
     end
     local reach = math.max(LOOT_YARDS, 2 / v.pixelsPerYard)
+    local named = lastGather and GetTime() - lastGather.at <= GATHER_SECONDS and lastGather.name
+    lastGather = nil
     local bestIndex, bestDistance
     for index, pin in ipairs(db.pins) do
-        if pin.mapID == v.mapID then
+        if pin.mapID == v.mapID and (not named or pin.name == named) then
             local dx, dy = pin.east - v.east, pin.north - v.north
             local distance = dx * dx + dy * dy
             if distance <= reach * reach and (not bestIndex or distance < bestDistance) then
@@ -1151,18 +1121,8 @@ local function RemoveGatheredNode()
             end
         end
     end
-    local spot
     if bestIndex then
-        spot = table.remove(db.pins, bestIndex)
-    elseif lastGather and GetTime() - lastGather.at <= GATHER_SECONDS then
-        spot = { name = lastGather.name, kind = KindOf(lastGather.name), mapID = v.mapID, east = v.east, north = v.north }
-    end
-    lastGather = nil
-    if spot and db.gatheredMinutes > 0 then
-        db.gathered[#db.gathered + 1] = {
-            name = spot.name, kind = spot.kind, mapID = spot.mapID,
-            east = spot.east, north = spot.north, gatheredAt = time(),
-        }
+        table.remove(db.pins, bestIndex)
     end
     sweep, wait = nil, 0.5
 end
@@ -1188,7 +1148,6 @@ local function PrintStatus()
     Print("position: " .. (ReadView() and "ok" or "not available here"))
     Print("features: " .. (db.enabled and "ON" or "OFF"))
     Print("tracking swap: " .. DescribeSwap())
-    Print(string.format("gathered markers: %d (kept %d min)", #db.gathered, db.gatheredMinutes))
     Print("keep time: " .. (db.keepMinutes > 0 and (db.keepMinutes .. " min") or "until gathered"))
     if stats.lastError then
         Print("last error: " .. stats.lastError)
@@ -1207,7 +1166,6 @@ DufforthTweaksHelperNodes = {
         return {
             blocked = ProbingBlocked(),
             hovered = stats.hovered,
-            gathered = #db.gathered,
             api = Minimap.UpdateMouseoverAtPoint ~= nil and Minimap.SetUsingSoftCursor ~= nil
                 and C_TooltipInfo ~= nil and C_TooltipInfo.GetMinimapMouseover ~= nil,
             enabled = db.enabled == true,
@@ -1251,19 +1209,10 @@ local function HandleSlash(input)
         db.keepMinutes = math.max(0, math.floor(tonumber(rest)))
         Print(db.keepMinutes > 0 and ("unseen icons are removed after " .. db.keepMinutes .. " min.")
             or "icons now stay until you gather them.")
-    elseif command == "gathered" and tonumber(rest) then
-        db.gatheredMinutes = math.max(0, math.floor(tonumber(rest)))
-        ExpireOldPins()
-        Print(db.gatheredMinutes > 0 and ("gathered markers stay for " .. db.gatheredMinutes .. " min.")
-            or "gathered markers are off.")
-    elseif command == "respawn" and tonumber(rest) then
-        db.respawnMinutes = math.max(1, math.min(120, math.floor(tonumber(rest))))
-        Print("respawn guess is " .. db.respawnMinutes .. " min (used until you've seen nodes come back).")
     elseif command == "clear" then
         db.pins = {}
-        db.gathered = {}
         sweep, wait = nil, 0
-        Print("all icons cleared.")
+        Print("all dots cleared.")
     elseif command == "add" then
         local kind, name = string.match(rest, "^(%a+)%s+(.+)$")
         kind = kind and string.lower(kind)
@@ -1284,11 +1233,9 @@ local function HandleSlash(input)
         Print("/nk swap - start or stop swapping tracking (also: /nk swap on, /nk swap off)")
         Print("/nk swap <2-60> - seconds between swaps")
         Print("/nk toggle - start or stop icons, scanning and swapping (also: /nk on, /nk off)")
-        Print("/nk size <6-20> - icon size (10 matches the yellow tracking dots)")
-        Print("/nk gathered <minutes> - how long gathered markers stay (0 = off)")
-        Print("/nk respawn <minutes> - respawn guess until the addon has learned real times")
-        Print("/nk keep <minutes> - remove unseen icons after this long (0 = never)")
-        Print("/nk clear - remove all icons")
+        Print("/nk size <6-20> - dot size (8 is about the game's tracking dots)")
+        Print("/nk keep <minutes> - remove dots not hovered again after this long (0 = until gathered)")
+        Print("/nk clear - remove all dots")
         Print("/nk add herb|ore <name> - add a node missing from the list")
         Print("/nk unknown - list other names seen on the minimap")
     end
@@ -1313,10 +1260,8 @@ local function OnLogin()
         db.keepMinutes = DEFAULT_KEEP_MINUTES
     end
     db.swapSeconds = db.swapSeconds or DEFAULT_SWAP_SECONDS
-    db.gathered = db.gathered or {}
-    db.gatheredMinutes = db.gatheredMinutes or DEFAULT_GATHERED_MINUTES
-    db.respawnMinutes = db.respawnMinutes or DEFAULT_RESPAWN_MINUTES
-    db.respawn = db.respawn or {}
+    -- Gathered markers and respawn guesses were removed (the user's choice).
+    db.gathered, db.gatheredMinutes, db.respawnMinutes, db.respawn = nil, nil, nil, nil
     if db.enabled == nil then
         db.enabled = true
     end
@@ -1357,9 +1302,10 @@ holder:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 holder:RegisterEvent("LOOT_CLOSED")
 holder:RegisterEvent("LOOT_OPENED")
 holder:RegisterEvent("UNIT_SPELLCAST_SENT")
+holder:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 holder:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-holder:SetScript("OnEvent", function(_, event, unit, target)
+holder:SetScript("OnEvent", function(_, event, unit, target, spellID)
     if event == "PLAYER_LOGIN" then
         OnLogin()
     elseif not db then
@@ -1374,6 +1320,15 @@ holder:SetScript("OnEvent", function(_, event, unit, target)
         -- Herb Gathering and Mining are aimed at the node, so the cast names it.
         if unit == "player" and Usable(target) and target and KindOf(CleanLine(target)) then
             lastGather = { name = CleanLine(target), at = GetTime() }
+        end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- Turning on Find Herbs or Find Minerals: remember it in case the tracking list can't be read.
+        if unit == "player" and Usable(spellID) and FIND_SPELLS[spellID] then
+            lastTrackedKind = FIND_SPELLS[spellID]
+            if RefreshTracking() then
+                trustMissesAt = GetTime() + SWAP_GRACE
+                sweep, wait = nil, SWAP_SETTLE
+            end
         end
     elseif event == "LOOT_OPENED" then
         lootOpen = true
