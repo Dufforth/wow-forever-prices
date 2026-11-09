@@ -92,31 +92,30 @@ def tip(it, skill=10):
 
 
 texts, lines, advice = tip(item(2, 30, 4))
-check("a blank line, then the advice tag first", texts[0] == " " and "Disenchant it" in texts[1] and advice.key == "de")
-check("the tag says the skill you still need", "(needs Enchanting 50)" in texts[1])
-check("the disenchant line names the skill needed", texts[2] == "Disenchant (Enchanting 50)")
-check("it turns red below the skill", lines[3][3] == 1 and lines[3][4] < 1)
-check("one line per material, name before amount", "75%  Soul Dust x1-2" in texts[3] and "5%  Large Glimmering Shard x1" in texts[5])
-check("auction and vendor lines", texts[6] == "Auction house, after 5% cut" and lines[7][2] == "not listed" and texts[7] == "Vendor pays" and lines[8][2] == "nothing")
-check("fresh prices need no age note", len(texts) == 8)
-check("enough skill: no 'needs' note", "needs" not in tip(item(2, 30, 4), 300)[0][1])
+check("header names the skill needed", texts[0] == "Disenchants into (Enchanting 50)")
+check("header turns red below the skill", lines[1][3] == 1 and lines[1][4] < 1)
+check("one line per material, as before", "75%  1-2x Soul Dust" in texts[1] and "5%  1x Large Glimmering Shard" in texts[3])
+check("average value line", texts[4] == "  Average value")
+check("no repeated vendor or auction lines", not any("Vendor" in t or "Auction" in t for t in texts))
+check("last line is the tag, green for disenchant", texts[5] == "Best: disenchant it (needs Enchanting 50)" and lines[6][3] < 0.5 and lines[6][4] == 1 and len(texts) == 6)
+check("enough skill: no 'needs' note", tip(item(2, 30, 4), 300)[0][5] == "Best: disenchant it")
 
 rich = item(2, 30, 4); rich.id = 7; rich.sellPrice = 50
 shipped[market][7] = 100000
 texts, lines, advice = tip(rich, 300)
-check("sells for more on the AH: tag says so", advice.key == "ah" and "Sell on the auction house" in texts[1] and abs(advice.value - 95000) < 1e-6)
+check("sells for more on the AH: gold tag", advice.key == "ah" and texts[-1] == "Best: sell on the auction house" and lines[len(texts)][3] == 1 and lines[len(texts)][5] == 0)
 rich.sellPrice = 999999
-check("a vendor pays most: tag says so", tip(rich, 300)[2].key == "vendor")
-rich.sellPrice = 50; rich.bindType = 1
 texts, lines, advice = tip(rich, 300)
-check("Bind on Pickup can't go to the AH", advice.key == "de" and lines[7][2] == "can't (Bind on Pickup)")
+check("a vendor pays most: gray tag", advice.key == "vendor" and texts[-1] == "Best: sell to a vendor")
+rich.sellPrice = 50; rich.bindType = 1
+check("Bind on Pickup can't go to the AH", tip(rich, 300)[2].key == "de")
 check("advice ties go to the least work", DE.Advice(100, 100, 100).key == "vendor" and DE.Advice(None, None, None) is None)
 
 shipped.at = 1000000 - 3 * 86400
 texts, _, _ = tip(item(2, 30, 4))
-check("old prices say how old they are", "3 days old" in texts[-1])
+check("old prices say how old they are", texts[4] == "  Average value (prices 3 days old)")
 texts, lines, _ = tip(item(4, 60, 4), 300)
-check("epic: no chance shown when certain", "    Nexus Crystal x1" in texts and lines[3][3] != 1)
+check("epic: no chance shown when certain", texts[1] == "  1x Nexus Crystal" and lines[1][3] != 1)
 check("cloth gets no lines", DE.TooltipLines(item(1, 5, 7), market, shipped, 1000000, None) is None)
 
 # Real tooltip hooks: the fallback path adds lines once per item.
@@ -124,7 +123,7 @@ GT = g.GameTooltip
 GT.id = 1
 g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
 g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
-check("tooltip gets the lines once", len(GT.lines) == 9)
+check("tooltip gets the lines once", len(GT.lines) == 6)
 g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
 GT.lines = lua.table()
 GT.id = 6

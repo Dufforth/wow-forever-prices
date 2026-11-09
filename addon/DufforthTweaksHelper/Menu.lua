@@ -154,7 +154,7 @@ end
 local function BuildDisenchant(page)
     local y = -4
     y = Header(page, y, "Item tooltips")
-    y = Check(page, y, "Disenchant advice in item tooltips", "Weapon and armor tooltips get a tag that says what pays most (disenchant it, sell it on the auction house, or sell it to a vendor), then the materials with their chances and prices, and the average value. Same as /dufforth de.",
+    y = Check(page, y, "Disenchant advice in item tooltips", "Weapon and armor tooltips show the disenchant materials with their chances and prices, the average value, and a colored tag that says what pays most: disenchant (green), auction house (gold) or vendor (gray). Same as /dufforth de.",
         function() return DB().showDisenchant ~= false end, function(on) DufforthTweaksHelperDE.Toggle(on and "on" or "off") end)
     y = y - 8
     y = Header(page, y, "Disenchant from your bags")

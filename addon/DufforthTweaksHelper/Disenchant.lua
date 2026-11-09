@@ -1,6 +1,6 @@
--- Disenchant advice in item tooltips: a tag that says what pays most (disenchant, sell on
--- the auction house, or sell to a vendor), then what weapons and armor can turn into, the
--- chance of each material, its price, and the average value. Uses the same Classic tables as the
+-- Disenchant values in item tooltips: what weapons and armor can turn into, the chance of
+-- each material, its price, the average value, and one colored tag that says what pays most:
+-- disenchant (green), sell on the auction house (gold) or sell to a vendor (gray). Uses the same Classic tables as the
 -- Forever Prices page. Prices are Blizzard's, bundled with each download (Prices.lua).
 -- Turn it off with /dufforth de off.
 
@@ -134,9 +134,9 @@ end
 -- (vendor, then auction house, then disenchant).
 -- Returns { key = "vendor" | "ah" | "de", label, value, r, g, b }, or nil when nothing is known.
 local ADVICE = {
-    vendor = { label = "Sell to a vendor", icon = "Interface\Icons\INV_Misc_Bag_10", r = 0.85, g = 0.85, b = 0.85 },
-    ah = { label = "Sell on the auction house", icon = "Interface\Icons\INV_Misc_Coin_02", r = 1, g = 0.82, b = 0 },
-    de = { label = "Disenchant it", icon = "Interface\Icons\INV_Enchant_Disenchant", r = 0.25, g = 1, b = 0.45 },
+    vendor = { label = "Best: sell to a vendor", r = 0.75, g = 0.75, b = 0.75 },
+    ah = { label = "Best: sell on the auction house", r = 1, g = 0.82, b = 0 },
+    de = { label = "Best: disenchant it", r = 0.3, g = 1, b = 0.4 },
 }
 local function Advice(deValue, ahNet, vendor)
     local best
@@ -146,13 +146,13 @@ local function Advice(deValue, ahNet, vendor)
     end
     if not best then return nil end
     local style = ADVICE[best.key]
-    best.label, best.icon, best.r, best.g, best.b = style.label, style.icon, style.r, style.g, style.b
+    best.label, best.r, best.g, best.b = style.label, style.r, style.g, style.b
     return best
 end
 
-local GRAY, WHITE, BLUE = { 0.62, 0.62, 0.62 }, { 1, 1, 1 }, { 0.45, 0.8, 1 }
-
 -- The lines added to a tooltip: { left, right, r, g, b } each. Kept apart from the tooltip so tests can read them.
+-- The game (and other addons) already show the vendor and auction prices, so this adds only
+-- what disenchanting gives and one colored tag: disenchant (green), auction house (gold) or vendor (gray).
 -- item: { id, quality, level, classID, slot, sellPrice, bindType }.
 local function TooltipLines(item, market, shipped, now, skill)
     local outcomes = Outcomes(item)
@@ -160,41 +160,37 @@ local function TooltipLines(item, market, shipped, now, skill)
     local need = SkillNeeded(item)
     local function priceOf(id) return Price(id, market, shipped) end
     local value = ExpectedValue(outcomes, priceOf)
-    local bop = item.bindType == 1
     local ah = item.id and priceOf(item.id)
-    local ahNet = (ah and not bop) and ah * (1 - AUCTION_CUT) or nil
+    local ahNet = (ah and item.bindType ~= 1) and ah * (1 - AUCTION_CUT) or nil
     local vendor = item.sellPrice and item.sellPrice > 0 and item.sellPrice or nil
     local lacking = need and need > 1 and skill ~= nil and (skill == false or skill < need)
 
-    local lines = { { " " } }
-    local advice = Advice(value, ahNet, vendor)
-    if advice then
-        local tag = string.format("|T%s:16|t %s", advice.icon, advice.label)
-        if advice.key == "de" and lacking then tag = tag .. " (needs Enchanting " .. need .. ")" end
-        lines[#lines + 1] = { tag, Money(advice.value), advice.r, advice.g, advice.b }
+    local lines = {}
+    local header = "Disenchants into"
+    local r, g, b = 0.4, 0.8, 1
+    if need and need > 1 then
+        header = header .. string.format(" (Enchanting %d)", need)
+        if lacking then r, g, b = 1, 0.35, 0.35 end
     end
-
-    local header = "Disenchant"
-    if need and need > 1 then header = header .. string.format(" (Enchanting %d)", need) end
-    local color = lacking and { 1, 0.35, 0.35 } or BLUE
-    lines[#lines + 1] = { header, value and ("avg " .. Money(value)) or "no price", color[1], color[2], color[3] }
+    lines[#lines + 1] = { header, nil, r, g, b }
     for _, o in ipairs(outcomes) do
         if o.chance > 0 then
-            local amount = o.min == o.max and ("x" .. o.min) or ("x" .. o.min .. "-" .. o.max)
+            local amount = o.min == o.max and tostring(o.min) or (o.min .. "-" .. o.max)
             local chance = o.chance >= 0.995 and "" or (string.format("%g%%", math.floor(o.chance * 1000 + 0.5) / 10) .. "  ")
             local price = priceOf(o.id)
-            lines[#lines + 1] = { "    " .. chance .. MaterialName(o.id) .. " " .. amount, price and (Money(price) .. " each") or "no price", GRAY[1], GRAY[2], GRAY[3] }
+            lines[#lines + 1] = { "  " .. chance .. amount .. "x " .. MaterialName(o.id), price and (Money(price) .. " each") or "no price", 1, 1, 1 }
         end
     end
-    if bop then
-        lines[#lines + 1] = { "Auction house", "can't (Bind on Pickup)", WHITE[1], WHITE[2], WHITE[3] }
-    else
-        lines[#lines + 1] = { "Auction house, after 5% cut", ahNet and Money(ahNet) or "not listed", WHITE[1], WHITE[2], WHITE[3] }
+    if value then
+        local age = shipped and shipped.at and now - shipped.at or 0
+        local note = age > OLD_PRICES_SECONDS and string.format(" (prices %d days old)", math.floor(age / 86400)) or ""
+        lines[#lines + 1] = { "  Average value" .. note, Money(value), 0.6, 1, 0.6 }
     end
-    lines[#lines + 1] = { "Vendor pays", vendor and Money(vendor) or "nothing", WHITE[1], WHITE[2], WHITE[3] }
-    local age = shipped and shipped.at and now - shipped.at or 0
-    if age > OLD_PRICES_SECONDS then
-        lines[#lines + 1] = { string.format("Prices are %d days old: download the addon again for new ones", math.floor(age / 86400)), nil, GRAY[1], GRAY[2], GRAY[3] }
+    local advice = Advice(value, ahNet, vendor)
+    if advice then
+        local tag = advice.label
+        if advice.key == "de" and lacking then tag = tag .. " (needs Enchanting " .. need .. ")" end
+        lines[#lines + 1] = { tag, nil, advice.r, advice.g, advice.b }
     end
     return lines, advice
 end
