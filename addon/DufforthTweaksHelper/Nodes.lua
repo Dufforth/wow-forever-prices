@@ -1,4 +1,4 @@
--- Dufforth AH Scanner: remembers the herbs and ore your tracking shows, and keeps an icon
+-- Dufforth Tweaks Helper, Gather: remembers the herbs and ore your tracking shows, and keeps an icon
 -- on the minimap for each after you swap tracking, until you gather it.
 --
 -- The game gives addons no list of tracked nodes. Forever does let an addon move the
@@ -23,14 +23,20 @@ local DEFAULT_SWAP_SECONDS = 4
 local FIND_HERBS, FIND_MINERALS = 2383, 2580
 local EDGE_MARGIN = 4
 local MAX_ICONS = 60
-local DEFAULT_SIZE = 14
+local DEFAULT_SIZE = 10 -- the size of the game's yellow tracking dots
+local OLD_DEFAULT_SIZE = 14
+local MIN_SIZE, MAX_SIZE = 6, 20
 local DEFAULT_KEEP_MINUTES = 30
 local DEFAULT_GATHERED_MINUTES = 60
 local GATHERED_GRACE = 10 -- seconds a gathered dot may linger before it counts as back
-local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
+local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
 local ROUND_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
 local FIND_SPELLS = { [2383] = "herb", [8387] = "herb", [2580] = "ore", [8388] = "ore" }
+-- When the game gives no spell number: the tracking names and pictures.
+local FIND_NAMES = { ["Find Herbs"] = "herb", ["Find Minerals"] = "ore" }
+local FIND_TEXTURES = { [133939] = "herb", [136025] = "ore",
+    ["interface\\icons\\inv_misc_flower_02"] = "herb", ["interface\\icons\\spell_nature_earthquake"] = "ore" }
 local STYLE = {
     herb = { icon = "Interface\\Icons\\INV_Misc_Flower_02", r = 0.2, g = 0.9, b = 0.3, label = "Herb" },
     ore = { icon = "Interface\\Icons\\Spell_Nature_Earthquake", r = 1, g = 0.55, b = 0.1, label = "Ore" },
@@ -276,7 +282,7 @@ local grid, gridWidth, gridSquare
 local icons = {}
 local stats = { sweeps = 0, lastDots = 0, lastError = nil }
 
-local holder = CreateFrame("Frame", "DufforthAHScannerNodesFrame", Minimap)
+local holder = CreateFrame("Frame", "DufforthTweaksHelperNodesFrame", Minimap)
 
 local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. message)
@@ -354,15 +360,30 @@ end
 -- Tracking
 -- ---------------------------------------------------------------------------
 
+local function KindOfTexture(texture)
+    if not Usable(texture) then
+        return nil
+    end
+    return FIND_TEXTURES[texture] or FIND_TEXTURES[string.lower(tostring(texture))]
+end
+
 local function RefreshTracking()
     local now = {}
-    for index = 1, C_Minimap.GetNumTrackingTypes() do
-        local info = C_Minimap.GetTrackingInfo(index)
-        if Usable(info) and Usable(info.active) and Usable(info.spellID) and info.active then
-            local kind = FIND_SPELLS[info.spellID]
-            if kind then
-                now[kind] = true
+    if C_Minimap and C_Minimap.GetNumTrackingTypes and C_Minimap.GetTrackingInfo then
+        for index = 1, C_Minimap.GetNumTrackingTypes() do
+            local info = C_Minimap.GetTrackingInfo(index)
+            if Usable(info) and Usable(info.active) and info.active then
+                local kind = (Usable(info.spellID) and FIND_SPELLS[info.spellID])
+                    or (Usable(info.name) and FIND_NAMES[info.name]) or KindOfTexture(info.texture)
+                if kind then
+                    now[kind] = true
+                end
             end
+        end
+    elseif GetTrackingTexture then
+        local kind = KindOfTexture(GetTrackingTexture())
+        if kind then
+            now[kind] = true
         end
     end
     local changed = now.herb ~= tracked.herb or now.ore ~= tracked.ore
@@ -770,15 +791,21 @@ end
 
 local function NewIcon()
     local icon = CreateFrame("Frame", nil, holder)
-    icon:SetFrameLevel(Minimap:GetFrameLevel() + 5)
+    icon:SetFrameLevel(holder:GetFrameLevel()) -- under the minimap's buttons (mail, zoom, tracking)
     icon.art = icon:CreateTexture(nil, "OVERLAY")
     icon.art:SetAllPoints()
     icon.art:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     -- Item pictures are square; the mask cuts them to a plain circle.
-    icon.mask = icon:CreateMaskTexture()
-    icon.mask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    icon.mask:SetAllPoints(icon.art)
-    icon.art:AddMaskTexture(icon.mask)
+    -- If the game lacks the mask picture, skip it: a square icon beats an invisible one.
+    if icon.CreateMaskTexture and icon.art.AddMaskTexture then
+        icon.mask = icon:CreateMaskTexture()
+        if icon.mask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") ~= false then
+            icon.mask:SetAllPoints(icon.art)
+            icon.art:AddMaskTexture(icon.mask)
+        else
+            icon.mask = nil
+        end
+    end
     icon.label = icon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     icon.label:SetPoint("LEFT", icon, "RIGHT", 1, 0)
     icon:EnableMouse(true)
@@ -792,11 +819,26 @@ local function NewIcon()
     return icon
 end
 
+-- True when the same node already has an icon drawn this close, so duplicates don't pile up.
+local function Crowded(placed, name, ox, oy, spacing)
+    for _, spot in ipairs(placed) do
+        if spot[3] == name then
+            local dx, dy = spot[1] - ox, spot[2] - oy
+            if dx * dx + dy * dy < spacing * spacing then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function Draw()
     local shown = 0
     local v = ReadView()
+    local placed = {}
     if v then
         local size = db.size
+        local spacing = size * 0.7
         local square = IsSquare()
         local reach = v.half - size * 0.75 - EDGE_MARGIN
         for _, pin in ipairs(db.pins) do
@@ -808,7 +850,8 @@ local function Draw()
                 else
                     inside = ox * ox + oy * oy <= reach * reach
                 end
-                if inside then
+                if inside and not Crowded(placed, pin.name, ox, oy, spacing) then
+                    placed[#placed + 1] = { ox, oy, pin.name }
                     shown = shown + 1
                     local icon = icons[shown]
                     if not icon then
@@ -843,7 +886,8 @@ local function Draw()
                 else
                     inside = ox * ox + oy * oy <= reach * reach
                 end
-                if inside then
+                if inside and not Crowded(placed, marker.name, ox, oy, spacing) then
+                    placed[#placed + 1] = { ox, oy, marker.name }
                     shown = shown + 1
                     local icon = icons[shown]
                     if not icon then
@@ -1054,6 +1098,28 @@ local function PrintStatus()
     end
 end
 
+-- For the Gather tab: is the game letting us read the minimap, and what was found.
+DufforthTweaksHelperNodes = {
+    Status = function()
+        if not db then
+            return nil
+        end
+        local kinds = {}
+        if tracked.herb then kinds[#kinds + 1] = "herbs" end
+        if tracked.ore then kinds[#kinds + 1] = "ore" end
+        return {
+            api = Minimap.UpdateMouseoverAtPoint ~= nil and Minimap.SetUsingSoftCursor ~= nil
+                and C_TooltipInfo ~= nil and C_TooltipInfo.GetMinimapMouseover ~= nil,
+            enabled = db.enabled == true,
+            tracking = #kinds > 0 and table.concat(kinds, " and ") or nil,
+            icons = #db.pins,
+            lastDots = stats.lastDots,
+            sweeps = stats.sweeps,
+            lastError = stats.lastError,
+        }
+    end,
+}
+
 local function HandleSlash(input)
     local command, rest = string.match(input or "", "^%s*(%S*)%s*(.-)%s*$")
     command = string.lower(command or "")
@@ -1079,7 +1145,7 @@ local function HandleSlash(input)
             Print("use: /nk swap, /nk swap on, /nk swap off, or /nk swap <seconds>")
         end
     elseif command == "size" and tonumber(rest) then
-        db.size = math.max(8, math.min(28, math.floor(tonumber(rest))))
+        db.size = math.max(MIN_SIZE, math.min(MAX_SIZE, math.floor(tonumber(rest))))
         Print("icon size is now " .. db.size .. ".")
     elseif command == "keep" and tonumber(rest) then
         db.keepMinutes = math.max(0, math.floor(tonumber(rest)))
@@ -1118,27 +1184,31 @@ local function HandleSlash(input)
         Print("/nk swap - start or stop swapping tracking (also: /nk swap on, /nk swap off)")
         Print("/nk swap <2-60> - seconds between swaps")
         Print("/nk toggle - start or stop icons, scanning and swapping (also: /nk on, /nk off)")
-        Print("/nk size <8-28> - icon size")
+        Print("/nk size <6-20> - icon size (10 matches the yellow tracking dots)")
         Print("/nk names - show or hide names beside the icons")
         Print("/nk gathered <minutes> - how long gathered markers stay (0 = off)")
         Print("/nk keep <minutes> - remove unseen icons after this long (0 = never)")
         Print("/nk clear - remove all icons")
         Print("/nk add herb|ore <name> - add a node missing from the list")
-        Print("/nk unknown - list other names the scan has seen")
+        Print("/nk unknown - list other names seen on the minimap")
     end
 end
 
 local function OnLogin()
-    DufforthAHScannerDB = DufforthAHScannerDB or {}
-    DufforthAHScannerDB.nodes = DufforthAHScannerDB.nodes or {}
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    DufforthTweaksHelperDB.nodes = DufforthTweaksHelperDB.nodes or {}
     -- Saved by the tent timer, which no longer exists.
-    DufforthAHScannerDB.chars, DufforthAHScannerDB.position, DufforthAHScannerDB.hidden = nil, nil, nil
-    DufforthAHScannerDB.collapsed, DufforthAHScannerDB.offlineTicks, DufforthAHScannerDB.auraName = nil, nil, nil
-    db = DufforthAHScannerDB.nodes
+    DufforthTweaksHelperDB.chars, DufforthTweaksHelperDB.position, DufforthTweaksHelperDB.hidden = nil, nil, nil
+    DufforthTweaksHelperDB.collapsed, DufforthTweaksHelperDB.offlineTicks, DufforthTweaksHelperDB.auraName = nil, nil, nil
+    db = DufforthTweaksHelperDB.nodes
     db.pins = db.pins or {}
     db.custom = db.custom or {}
     db.unknown = {}
-    db.size = db.size or DEFAULT_SIZE
+    -- The old default (14) was too big next to the game's tracking dots.
+    if not db.size or db.size == OLD_DEFAULT_SIZE then
+        db.size = DEFAULT_SIZE
+    end
+    db.size = math.max(MIN_SIZE, math.min(MAX_SIZE, db.size))
     db.keepMinutes = db.keepMinutes or DEFAULT_KEEP_MINUTES
     db.swapSeconds = db.swapSeconds or DEFAULT_SWAP_SECONDS
     db.gathered = db.gathered or {}
@@ -1154,17 +1224,20 @@ local function OnLogin()
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.MinimapMouseover, OnGameMinimapTooltip)
     end
 
-    SLASH_DUFFORTHAHSCANNERNODES1 = "/nk"
-    SlashCmdList.DUFFORTHAHSCANNERNODES = HandleSlash
+    SLASH_DUFFORTHTWEAKSHELPERNODES1 = "/nk"
+    SlashCmdList.DUFFORTHTWEAKSHELPERNODES = HandleSlash
 
     local expireTimer = 0
     holder:SetScript("OnUpdate", function(_, elapsed)
         if not db.enabled then
             return
         end
-        RunSwap(elapsed)
-        RunSweep(elapsed)
-        Draw()
+        local ok, err = pcall(RunSwap, elapsed)
+        if ok then ok, err = pcall(RunSweep, elapsed) end
+        if ok then ok, err = pcall(Draw) end
+        if not ok then
+            stats.lastError = tostring(err)
+        end
         expireTimer = expireTimer + elapsed
         if expireTimer >= 5 then
             expireTimer = 0

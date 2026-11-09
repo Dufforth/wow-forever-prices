@@ -1,14 +1,14 @@
--- Disenchant values in item tooltips: what weapons and armor can turn into, the chance of
--- each material, its price, and the average value. Uses the same Classic tables as the
+-- Disenchant advice in item tooltips: a tag that says what pays most (disenchant, sell on
+-- the auction house, or sell to a vendor), then what weapons and armor can turn into, the
+-- chance of each material, its price, and the average value. Uses the same Classic tables as the
 -- Forever Prices page. Prices are Blizzard's, bundled with each download (Prices.lua).
 -- Turn it off with /dufforth de off.
 
-local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
+local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
 local AUCTION_CUT = 0.05
 local OLD_PRICES_SECONDS = 2 * 24 * 3600 -- older bundled prices say how old they are
 local WEAPON, ARMOR = 2, 4
 local UNCOMMON, RARE, EPIC = 2, 3, 4
-local ENCHANTING = 333
 local SKIP_SLOTS = { INVTYPE_BODY = true, INVTYPE_TABARD = true } -- shirts and tabards
 
 -- Row fields: item levels from, to; dust, essence, shard item IDs; dust and essence chance
@@ -56,7 +56,7 @@ end
 local function Outcomes(item)
     if not item or not item.level or (item.classID ~= WEAPON and item.classID ~= ARMOR) then return nil end
     if SKIP_SLOTS[item.slot or ""] then return nil end
-    if item.id and DufforthAHScannerNoDE and DufforthAHScannerNoDE[item.id] then return nil end -- the game won't
+    if item.id and DufforthTweaksHelperNoDE and DufforthTweaksHelperNoDE[item.id] then return nil end -- the game won't
     local level = item.level
     if item.quality == UNCOMMON then
         local row = FindBand(UNCOMMON_TABLE, level)
@@ -126,47 +126,77 @@ end
 
 -- Your Enchanting skill, or false if you don't have it, or nil if the game can't tell.
 local function EnchantingSkill()
-    if GetProfessions and GetProfessionInfo then
-        local first, second = GetProfessions()
-        for _, index in ipairs({ first or 0, second or 0 }) do
-            if index ~= 0 then
-                local _, _, rank, _, _, _, line, modifier = GetProfessionInfo(index)
-                if line == ENCHANTING and rank then return rank + (modifier or 0) end
-            end
-        end
-        return false
-    end
+    local professions = DufforthTweaksHelper and DufforthTweaksHelper.Professions and DufforthTweaksHelper.Professions()
+    if professions then return professions.Enchanting or false end
 end
 
+-- What to do with the item: the option that pays most. Ties go to the least work
+-- (vendor, then auction house, then disenchant).
+-- Returns { key = "vendor" | "ah" | "de", label, value, r, g, b }, or nil when nothing is known.
+local ADVICE = {
+    vendor = { label = "Sell to a vendor", icon = "Interface\Icons\INV_Misc_Bag_10", r = 0.85, g = 0.85, b = 0.85 },
+    ah = { label = "Sell on the auction house", icon = "Interface\Icons\INV_Misc_Coin_02", r = 1, g = 0.82, b = 0 },
+    de = { label = "Disenchant it", icon = "Interface\Icons\INV_Enchant_Disenchant", r = 0.25, g = 1, b = 0.45 },
+}
+local function Advice(deValue, ahNet, vendor)
+    local best
+    for _, option in ipairs({ { "vendor", vendor }, { "ah", ahNet }, { "de", deValue } }) do
+        local value = option[2]
+        if value and value > 0 and (not best or value > best.value) then best = { key = option[1], value = value } end
+    end
+    if not best then return nil end
+    local style = ADVICE[best.key]
+    best.label, best.icon, best.r, best.g, best.b = style.label, style.icon, style.r, style.g, style.b
+    return best
+end
+
+local GRAY, WHITE, BLUE = { 0.62, 0.62, 0.62 }, { 1, 1, 1 }, { 0.45, 0.8, 1 }
+
 -- The lines added to a tooltip: { left, right, r, g, b } each. Kept apart from the tooltip so tests can read them.
+-- item: { id, quality, level, classID, slot, sellPrice, bindType }.
 local function TooltipLines(item, market, shipped, now, skill)
     local outcomes = Outcomes(item)
     if not outcomes then return nil end
     local need = SkillNeeded(item)
-    local lines = {}
-    local header = "Disenchants into"
-    local r, g, b = 0.4, 0.8, 1
-    if need and need > 1 then
-        header = header .. string.format(" (Enchanting %d)", need)
-        if skill ~= nil and (skill == false or skill < need) then r, g, b = 1, 0.35, 0.35 end
-    end
-    lines[#lines + 1] = { header, nil, r, g, b }
     local function priceOf(id) return Price(id, market, shipped) end
+    local value = ExpectedValue(outcomes, priceOf)
+    local bop = item.bindType == 1
+    local ah = item.id and priceOf(item.id)
+    local ahNet = (ah and not bop) and ah * (1 - AUCTION_CUT) or nil
+    local vendor = item.sellPrice and item.sellPrice > 0 and item.sellPrice or nil
+    local lacking = need and need > 1 and skill ~= nil and (skill == false or skill < need)
+
+    local lines = { { " " } }
+    local advice = Advice(value, ahNet, vendor)
+    if advice then
+        local tag = string.format("|T%s:16|t %s", advice.icon, advice.label)
+        if advice.key == "de" and lacking then tag = tag .. " (needs Enchanting " .. need .. ")" end
+        lines[#lines + 1] = { tag, Money(advice.value), advice.r, advice.g, advice.b }
+    end
+
+    local header = "Disenchant"
+    if need and need > 1 then header = header .. string.format(" (Enchanting %d)", need) end
+    local color = lacking and { 1, 0.35, 0.35 } or BLUE
+    lines[#lines + 1] = { header, value and ("avg " .. Money(value)) or "no price", color[1], color[2], color[3] }
     for _, o in ipairs(outcomes) do
         if o.chance > 0 then
-            local amount = o.min == o.max and tostring(o.min) or (o.min .. "-" .. o.max)
+            local amount = o.min == o.max and ("x" .. o.min) or ("x" .. o.min .. "-" .. o.max)
             local chance = o.chance >= 0.995 and "" or (string.format("%g%%", math.floor(o.chance * 1000 + 0.5) / 10) .. "  ")
             local price = priceOf(o.id)
-            lines[#lines + 1] = { "  " .. chance .. amount .. "x " .. MaterialName(o.id), price and (Money(price) .. " each") or "no price", 1, 1, 1 }
+            lines[#lines + 1] = { "    " .. chance .. MaterialName(o.id) .. " " .. amount, price and (Money(price) .. " each") or "no price", GRAY[1], GRAY[2], GRAY[3] }
         end
     end
-    local value = ExpectedValue(outcomes, priceOf)
-    if value then
-        local age = shipped and shipped.at and now - shipped.at or 0
-        local note = age > OLD_PRICES_SECONDS and string.format(" (prices %d days old)", math.floor(age / 86400)) or ""
-        lines[#lines + 1] = { "  Average value" .. note, Money(value), 0.6, 1, 0.6 }
+    if bop then
+        lines[#lines + 1] = { "Auction house", "can't (Bind on Pickup)", WHITE[1], WHITE[2], WHITE[3] }
+    else
+        lines[#lines + 1] = { "Auction house, after 5% cut", ahNet and Money(ahNet) or "not listed", WHITE[1], WHITE[2], WHITE[3] }
     end
-    return lines
+    lines[#lines + 1] = { "Vendor pays", vendor and Money(vendor) or "nothing", WHITE[1], WHITE[2], WHITE[3] }
+    local age = shipped and shipped.at and now - shipped.at or 0
+    if age > OLD_PRICES_SECONDS then
+        lines[#lines + 1] = { string.format("Prices are %d days old: download the addon again for new ones", math.floor(age / 86400)), nil, GRAY[1], GRAY[2], GRAY[3] }
+    end
+    return lines, advice
 end
 
 -- Average value of disenchanting one item, or nil.
@@ -176,14 +206,14 @@ local function ValueFor(item, market, shipped)
     return ExpectedValue(outcomes, function(id) return Price(id, market, shipped) end)
 end
 
-DufforthAHScannerDE = {
-    Outcomes = Outcomes, SkillNeeded = SkillNeeded, Price = Price, ExpectedValue = ExpectedValue,
-    TooltipLines = TooltipLines, ValueFor = ValueFor, EnchantingSkill = EnchantingSkill, Money = Money,
+DufforthTweaksHelperDE = {
+    Outcomes = Outcomes, SkillNeeded = SkillNeeded, Price = Price, ExpectedValue = ExpectedValue, Advice = Advice,
+    TooltipLines = TooltipLines, ValueFor = ValueFor, EnchantingSkill = EnchantingSkill, Money = Money, MaterialName = MaterialName,
 }
 
 -- ---- Tooltip ----
 local function Enabled()
-    return not (DufforthAHScannerDB and DufforthAHScannerDB.showDisenchant == false)
+    return not (DufforthTweaksHelperDB and DufforthTweaksHelperDB.showDisenchant == false)
 end
 
 local function ItemFromID(id)
@@ -192,13 +222,13 @@ local function ItemFromID(id)
     if not quality then return nil end
     return { id = id, name = name, icon = icon, quality = quality, level = level, classID = classID, slot = slot, sellPrice = sellPrice, bindType = bindType }
 end
-DufforthAHScannerDE.ItemFromID = ItemFromID
+DufforthTweaksHelperDE.ItemFromID = ItemFromID
 
 local function AddToTooltip(tooltip, id)
     if not Enabled() or not tooltip or not id then return end
     if tooltip.dufforthDE == id then return end -- some tooltips fire twice for one item
-    local lines = TooltipLines(ItemFromID(id), DufforthAHScanner and DufforthAHScanner.MarketName and DufforthAHScanner.MarketName() or "",
-        DufforthAHScannerPrices, time(), EnchantingSkill())
+    local lines = TooltipLines(ItemFromID(id), DufforthTweaksHelper and DufforthTweaksHelper.MarketName and DufforthTweaksHelper.MarketName() or "",
+        DufforthTweaksHelperPrices, time(), EnchantingSkill())
     if not lines then return end
     tooltip.dufforthDE = id
     for _, line in ipairs(lines) do
@@ -237,14 +267,14 @@ for _, name in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "Sh
 end
 
 -- /dufforth de [on|off] goes through Core.lua's slash command.
-function DufforthAHScannerDE.Toggle(option)
-    DufforthAHScannerDB = DufforthAHScannerDB or {}
+function DufforthTweaksHelperDE.Toggle(option)
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
     if option == "on" then
-        DufforthAHScannerDB.showDisenchant = true
+        DufforthTweaksHelperDB.showDisenchant = true
     elseif option == "off" then
-        DufforthAHScannerDB.showDisenchant = false
+        DufforthTweaksHelperDB.showDisenchant = false
     else
-        DufforthAHScannerDB.showDisenchant = not Enabled()
+        DufforthTweaksHelperDB.showDisenchant = not Enabled()
     end
-    DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. "Disenchant values in tooltips: " .. (Enabled() and "ON" or "OFF") .. ".")
+    DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. "Disenchant advice in tooltips: " .. (Enabled() and "ON" or "OFF") .. ".")
 end

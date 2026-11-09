@@ -35,7 +35,7 @@ Without them, the page still works using only the public source.
 
 ## The addon
 
-The **Addon** button in the page's top bar downloads Dufforth AH Scanner. Its source is in `addon/DufforthAHScanner`, and every deploy builds the download from it, bundling Blizzard's latest prices for enchanting materials and disenchantable gear (`tools/build_addon_prices.py`), because addons can't reach the internet.
+The **Addon** button in the page's top bar downloads Dufforth Tweaks Helper, a gathering, disenchanting and crafting helper (tabs: Gather, Disenchant, Crafting). Its source is in `addon/DufforthTweaksHelper`, and every deploy builds the download from it, bundling Blizzard's latest prices for enchanting materials and disenchantable gear (`tools/build_addon_prices.py`), because addons can't reach the internet.
 
 - **Herbs and ores:** keeps herb and ore icons on the minimap when you swap tracking, swaps tracking on a timer, and colors tooltips by your gathering skill (`/nk`).
 - **Disenchant tooltips:** weapon and armor tooltips show the materials, chances, prices and average value of disenchanting them.
@@ -59,6 +59,7 @@ pip install lupa
 python tests/addon/nodes_sim.py
 python tests/addon/de_sim.py
 python tests/addon/menu_sim.py
+python tests/addon/crafting_sim.py
 ```
 
 ## Notes

@@ -43,7 +43,7 @@
     { targets: ["#columns-toggle"], title: "Columns and sorting",
       text: "Show, hide or reorder columns, and sort by more than one, like item level and then name. Click a column title to sort." },
     { targets: ["#addon-download"], title: "The addon",
-      text: "Get the free Dufforth AH Scanner addon for your game here. Happy trading!" },
+      text: "Get the free Dufforth Tweaks Helper addon for your game here. Happy trading!" },
   ];
 
   const visible = (el) => el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";

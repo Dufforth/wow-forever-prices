@@ -13,7 +13,7 @@
 -- Items that can't be ticked at all: locked (being moved or traded), or above your
 -- Enchanting skill. Items the game won't disenchant never appear. Nothing changes in combat.
 
-local PREFIX = "|cff66ccffDufforth AH Scanner:|r "
+local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
 local DISENCHANT = 13262
 local BIND_ON_EQUIP = 2
 local AUCTION_CUT = 0.05
@@ -25,12 +25,12 @@ local function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. message)
 end
 
--- Settings live in DufforthAHScannerDB.autoDE.
+-- Settings live in DufforthTweaksHelperDB.autoDE.
 local DEFAULTS = { maxQuality = 2, maxLevel = 0, skipWorthMore = true, skipVendor = true }
 local function Options()
-    DufforthAHScannerDB = DufforthAHScannerDB or {}
-    local o = DufforthAHScannerDB.autoDE or {}
-    DufforthAHScannerDB.autoDE = o
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    local o = DufforthTweaksHelperDB.autoDE or {}
+    DufforthTweaksHelperDB.autoDE = o
     for key, value in pairs(DEFAULTS) do
         if o[key] == nil then o[key] = value end
     end
@@ -91,7 +91,7 @@ local function ReadSlot(bag, slot)
         local _, _, isLocked, _, _, _, _, _, _, itemID = GetContainerItemInfo(bag, slot)
         id, locked = itemID, isLocked
     end
-    local item = id and DufforthAHScannerDE.ItemFromID(id)
+    local item = id and DufforthTweaksHelperDE.ItemFromID(id)
     if not item then return nil end
     item.bag, item.bagSlot, item.locked = bag, slot, locked
     item.bound = IsBound(bag, slot, info)
@@ -112,16 +112,16 @@ end
 -- Every item in your bags that can be disenchanted, in bag order, with its reason if any.
 local function Rows()
     local o = Options()
-    local market = DufforthAHScanner and DufforthAHScanner.MarketName and DufforthAHScanner.MarketName() or ""
-    local skill = DufforthAHScannerDE.EnchantingSkill()
+    local market = DufforthTweaksHelper and DufforthTweaksHelper.MarketName and DufforthTweaksHelper.MarketName() or ""
+    local skill = DufforthTweaksHelperDE.EnchantingSkill()
     local rows = {}
     for _, bag in ipairs(BAGS) do
         for slot = 1, NumSlots(bag) do
             local item = ReadSlot(bag, slot)
-            if item and DufforthAHScannerDE.Outcomes(item) then
-                item.ahPrice = DufforthAHScannerDE.Price(item.id, market, DufforthAHScannerPrices)
-                item.value = DufforthAHScannerDE.ValueFor(item, market, DufforthAHScannerPrices)
-                local reason, hard = Classify(item, o, skill, item.value, DufforthAHScannerDE.SkillNeeded(item))
+            if item and DufforthTweaksHelperDE.Outcomes(item) then
+                item.ahPrice = DufforthTweaksHelperDE.Price(item.id, market, DufforthTweaksHelperPrices)
+                item.value = DufforthTweaksHelperDE.ValueFor(item, market, DufforthTweaksHelperPrices)
+                local reason, hard = Classify(item, o, skill, item.value, DufforthTweaksHelperDE.SkillNeeded(item))
                 rows[#rows + 1] = { item = item, reason = reason, hard = hard }
             end
         end
@@ -129,7 +129,7 @@ local function Rows()
     return rows
 end
 
-DufforthAHScannerAutoDE = { Classify = Classify, Options = Options, Rows = Rows, IsSelected = IsSelected, DEFAULTS = DEFAULTS, QUALITY_NAMES = QUALITY_NAMES, choice = choice }
+DufforthTweaksHelperAutoDE = { Classify = Classify, Options = Options, Rows = Rows, IsSelected = IsSelected, DEFAULTS = DEFAULTS, QUALITY_NAMES = QUALITY_NAMES, choice = choice }
 
 -- ---- Window ----
 local frame, castButton, rowFrames = nil, nil, {}
@@ -158,7 +158,7 @@ local function DrawRows()
             line.name:SetText(QualityColor(row.item.quality) .. (row.item.name or ("Item " .. row.item.id)) .. "|r")
             line.check:SetChecked(IsSelected(row))
             line.check:SetEnabled(not row.hard)
-            local value = row.item.value and DufforthAHScannerDE.Money(row.item.value) or "no price"
+            local value = row.item.value and DufforthTweaksHelperDE.Money(row.item.value) or "no price"
             line.detail:SetText(row.reason and ("|cff999999" .. row.reason .. "|r") or value)
         end
     end
@@ -186,7 +186,7 @@ local function Refresh()
     if #rows == 0 then
         frame.status:SetText("Nothing in your bags can be disenchanted.")
     else
-        frame.status:SetText(string.format("%d of %d ticked · about %s", count, #rows, DufforthAHScannerDE.Money(total)))
+        frame.status:SetText(string.format("%d of %d ticked · about %s", count, #rows, DufforthTweaksHelperDE.Money(total)))
     end
     if next then
         castButton:SetAttribute("type", "spell")
@@ -260,7 +260,7 @@ local function SmallButton(text, width, onClick)
 end
 
 local function Build()
-    frame = CreateFrame("Frame", "DufforthAHScannerDEFrame", UIParent, "BasicFrameTemplateWithInset")
+    frame = CreateFrame("Frame", "DufforthTweaksHelperDEFrame", UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(360, 56 + VISIBLE_ROWS * ROW_HEIGHT + 86)
     frame:SetPoint("CENTER", 260, 0)
     frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
@@ -269,10 +269,10 @@ local function Build()
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
     frame:Hide()
-    tinsert(UISpecialFrames, "DufforthAHScannerDEFrame") -- Escape closes it
+    tinsert(UISpecialFrames, "DufforthTweaksHelperDEFrame") -- Escape closes it
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     frame.title:SetPoint("TOP", 0, -5)
-    frame.title:SetText("Disenchant from your bags")
+    frame.title:SetText("Disenchant list")
 
     local all = SmallButton("Tick all", 70, function() SetAll(true) end)
     all:SetPoint("TOPLEFT", 12, -30)
@@ -291,7 +291,7 @@ local function Build()
     note:SetPoint("BOTTOMLEFT", 14, 40); note:SetWidth(332); note:SetJustifyH("LEFT")
     note:SetText("The game allows one disenchant per click: press the button (or its key, under Key Bindings > AddOns) after each cast.")
 
-    castButton = CreateFrame("Button", "DufforthAHScannerDEButton", frame, "SecureActionButtonTemplate,UIPanelButtonTemplate")
+    castButton = CreateFrame("Button", "DufforthTweaksHelperDEButton", frame, "SecureActionButtonTemplate,UIPanelButtonTemplate")
     castButton:SetSize(200, 24); castButton:SetPoint("BOTTOM", 0, 12)
     castButton:SetText("Disenchant next")
     castButton:RegisterForClicks("AnyUp", "AnyDown")
@@ -309,17 +309,17 @@ local function Build()
     end)
 end
 
-function DufforthAHScannerAutoDE.Toggle()
+function DufforthTweaksHelperAutoDE.Toggle()
     if InCombatLockdown and InCombatLockdown() then
-        Print("the disenchant window can't open in combat.")
+        Print("the disenchant list can't open in combat.")
         return
     end
     if not frame then Build() end
     frame:SetShown(not frame:IsShown())
 end
 
-DufforthAHScannerAutoDE.Refresh = Refresh
-DufforthAHScannerAutoDE.SetAll = SetAll
+DufforthTweaksHelperAutoDE.Refresh = Refresh
+DufforthTweaksHelperAutoDE.SetAll = SetAll
 
-BINDING_HEADER_DUFFORTHAHSCANNER = "Dufforth AH Scanner"
-_G["BINDING_NAME_CLICK DufforthAHScannerDEButton:LeftButton"] = "Disenchant the next ticked item"
+BINDING_HEADER_DUFFORTHTWEAKSHELPER = "Dufforth Tweaks Helper"
+_G["BINDING_NAME_CLICK DufforthTweaksHelperDEButton:LeftButton"] = "Disenchant the next ticked item"

@@ -7,7 +7,7 @@ import sys
 import lupa.lua51 as L
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ADDON = os.path.join(ROOT, "addon", "DufforthAHScanner")
+ADDON = os.path.join(ROOT, "addon", "DufforthTweaksHelper")
 
 
 def source(name):
@@ -26,7 +26,7 @@ math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 GetCursorPosition = function() return 0, 100 end
 C_Timer = { After = function(_, f) f() end }
 SlashCmdList = {
-  DUFFORTHAHSCANNERNODES = function(t) NODES[#NODES+1] = t end,
+  DUFFORTHTWEAKSHELPERNODES = function(t) NODES[#NODES+1] = t end,
 }
 C_Spell = { GetSpellInfo = function() return { name = "Disenchant" } end }
 
@@ -91,15 +91,15 @@ C_Container = {
 }
 GetProfessions = function() return 1, nil end
 GetProfessionInfo = function() return "Enchanting", nil, 100, 300, nil, nil, 333, 0 end
-DufforthAHScanner = { MarketName = function() return "forever.normal.horde.us" end }
-DufforthAHScannerPrices = { ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000 } }
-DufforthAHScannerDB = { nodes = { enabled = true, labels = false, swapEnabled = false, swapSeconds = 4, size = 14, keepMinutes = 30, gatheredMinutes = 60 } }
+DufforthTweaksHelper = { MarketName = function() return "forever.normal.horde.us" end }
+DufforthTweaksHelperPrices = { ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000 } }
+DufforthTweaksHelperDB = { nodes = { enabled = true, labels = false, swapEnabled = false, swapSeconds = 4, size = 14, keepMinutes = 30, gatheredMinutes = 60 } }
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(MOCK)
 lua.execute("GetRealmName = function() return 'Realm 4' end; UnitFactionGroup = function() return 'Horde' end")
-for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Menu.lua"):
+for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Crafting.lua", "Menu.lua"):
     lua.execute(source(name))
 g = lua.globals()
 fails = []
@@ -111,7 +111,7 @@ def check(name, ok):
         fails.append(name)
 
 
-AUTO = g.DufforthAHScannerAutoDE
+AUTO = g.DufforthTweaksHelperAutoDE
 opts = AUTO.Options()
 
 
@@ -145,7 +145,7 @@ check("every disenchantable item is listed, cloth is not", names == ["Green Helm
 check("only the safe one starts ticked", [bool(AUTO.IsSelected(rows[i])) for i in range(1, len(rows) + 1)] == [True, False, False, False])
 
 AUTO.Toggle()
-frame, button = g.DufforthAHScannerDEFrame, g.DufforthAHScannerDEButton
+frame, button = g.DufforthTweaksHelperDEFrame, g.DufforthTweaksHelperDEButton
 check("the button disenchants the helm in bag 0 slot 1",
       button.attributes["type"] == "spell" and button.attributes["spell"] == "Disenchant" and button.attributes["target-bag"] == 0 and button.attributes["target-slot"] == 1)
 check("the button counts ticked items", button.text == "Disenchant next (1)")
@@ -175,11 +175,18 @@ g.COMBAT = False
 # Menu and minimap button.
 loader = lua.eval("function() for i = #ALL, 1, -1 do local f = ALL[i]; if rawget(f, 'name') == nil and f.events.PLAYER_LOGIN then return f end end end")()
 loader.scripts.OnEvent(loader, "PLAYER_LOGIN")
-mini = g.DufforthAHScannerMinimapButton
+mini = g.DufforthTweaksHelperMinimapButton
 check("minimap button exists and shows", mini is not None and mini.shown)
 mini.scripts.OnClick(mini, "LeftButton")
-menu = g.DufforthAHScannerMenu
+menu = g.DufforthTweaksHelperMenu
 check("left-click opens the menu", menu is not None and menu.shown)
+tab_names = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Gather", "Disenchant", "Crafting")]
+check("the window has Gather, Disenchant and Crafting tabs", tab_names == ["Gather", "Disenchant", "Crafting"])
+g.DufforthTweaksHelperMenu_Toggle("crafting")
+check("/dufforth crafting opens the Crafting tab", g.DufforthTweaksHelperDB.menuTab == "Crafting" and menu.shown)
+g.DufforthTweaksHelperMenu_Toggle("gather")
+check("/dufforth gather opens the Gather tab", g.DufforthTweaksHelperDB.menuTab == "Gather")
+check("the minimap button is a question mark (help)", 'local ICON = "Interface' in source("Menu.lua") and 'INV_Misc_QuestionMark" -- a question mark' in source("Menu.lua"))
 
 
 # Find a checkbox by the label next to it: labels are font strings created right after their box.
@@ -201,25 +208,25 @@ names = box_for("Names beside icons")
 names.checked = True
 names.scripts.OnClick(names)
 check("ticking names runs /nk names", list(g.NODES.values())[-1] == "names")
-tips = box_for("Disenchant values in item tooltips")
+tips = box_for("Disenchant advice in item tooltips")
 tips.checked = False
 tips.scripts.OnClick(tips)
-check("unticking tooltips turns them off", g.DufforthAHScannerDB.showDisenchant is False)
+check("unticking tooltips turns them off", g.DufforthTweaksHelperDB.showDisenchant is False)
 hide = box_for("Show the minimap button")
 hide.checked = False
 hide.scripts.OnClick(hide)
-check("the minimap button can be hidden", mini.shown is False and g.DufforthAHScannerDB.minimap.hide is True)
-check("/dufforth is registered", g.SlashCmdList.DUFFORTHAHSCANNER is not None)
+check("the minimap button can be hidden", mini.shown is False and g.DufforthTweaksHelperDB.minimap.hide is True)
+check("/dufforth is registered", g.SlashCmdList.DUFFORTHTWEAKSHELPER is not None)
 check("the menu has no auction scan section", box_for("Light scan when the auction house opens") is None)
 core = lua.eval("function() for i = 1, #ALL do local f = ALL[i]; if f.events.ADDON_LOADED then return f end end end")()
-g.DufforthAHScannerDB.scans = lua.table_from({"x": 1})
-g.DufforthAHScannerDB.autoScan = False
-core.scripts.OnEvent(core, "ADDON_LOADED", "DufforthAHScanner")
-check("old scan data is dropped on load", g.DufforthAHScannerDB.scans is None and g.DufforthAHScannerDB.autoScan is None)
-check("market name for a normal Horde realm", g.DufforthAHScanner.MarketName() == "forever.normal.horde.us")
+g.DufforthTweaksHelperDB.scans = lua.table_from({"x": 1})
+g.DufforthTweaksHelperDB.autoScan = False
+core.scripts.OnEvent(core, "ADDON_LOADED", "DufforthTweaksHelper")
+check("old scan data is dropped on load", g.DufforthTweaksHelperDB.scans is None and g.DufforthTweaksHelperDB.autoScan is None)
+check("market name for a normal Horde realm", g.DufforthTweaksHelper.MarketName() == "forever.normal.horde.us")
 mini.scripts.OnDragStart(mini)
 mini.scripts.OnUpdate(mini)
-check("dragging saves the button's angle", abs(g.DufforthAHScannerDB.minimap.angle - 90) < 1e-6)
+check("dragging saves the button's angle", abs(g.DufforthTweaksHelperDB.minimap.angle - 90) < 1e-6)
 
 if fails:
     sys.exit(f"{len(fails)} failed")

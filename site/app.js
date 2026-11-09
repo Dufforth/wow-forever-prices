@@ -1307,12 +1307,64 @@ common.level,
     }
   }
 
-  function toast(text) {
+  // A notice in the corner: a bold title, one line per item, and a bar showing the time left.
+  // It stays longer when there's more to read (12 to 45 seconds), pauses while the pointer or
+  // keyboard focus is on it, and closes with its X button or Esc.
+  const toastState = { timer: 0, left: 0, started: 0 };
+  function hideToast() {
+    clearTimeout(toastState.timer);
+    $("toast").hidden = true;
+  }
+  function toastSeconds(words) {
+    return Math.max(12, Math.min(45, Math.round(6 + words / 3)));
+  }
+  function toast(message, options = {}) {
     const box = $("toast");
-    box.textContent = text;
+    const lines = options.lines || [];
+    const part = (tag, cls, text) => { const node = document.createElement(tag); node.className = cls; node.textContent = text; return node; };
+    box.replaceChildren();
+    const body = part("div", "toast-body", "");
+    if (options.title) body.append(part("div", "toast-title", options.title));
+    if (message) body.append(part("div", "toast-text", message));
+    if (lines.length) {
+      const list = part("ul", "toast-lines", "");
+      for (const line of lines) list.append(part("li", "", line));
+      body.append(list);
+    }
+    if (options.more) body.append(part("div", "toast-more", options.more));
+    if (options.action) {
+      const go = part("button", "toast-action", options.action.label);
+      go.type = "button";
+      go.addEventListener("click", () => { hideToast(); options.action.run(); });
+      body.append(go);
+    }
+    const close = part("button", "toast-close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close this notice");
+    close.addEventListener("click", hideToast);
+    const words = [options.title, message, ...lines, options.more].join(" ").split(/\s+/).filter(Boolean).length;
+    const seconds = options.seconds || toastSeconds(words);
+    const bar = part("div", "toast-time", "");
+    bar.style.animationDuration = `${seconds}s`;
+    box.append(body, close, bar);
     box.hidden = false;
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => { box.hidden = true; }, 8000);
+    toastState.left = seconds * 1000;
+    toastState.started = Date.now();
+    clearTimeout(toastState.timer);
+    toastState.timer = setTimeout(hideToast, toastState.left);
+  }
+  function pauseToast() {
+    if ($("toast").hidden || $("toast").classList.contains("paused")) return;
+    clearTimeout(toastState.timer);
+    toastState.left = Math.max(2000, toastState.left - (Date.now() - toastState.started));
+    $("toast").classList.add("paused");
+  }
+  function resumeToast() {
+    const box = $("toast");
+    if (box.hidden || !box.classList.contains("paused") || box.matches(":hover") || box.contains(document.activeElement)) return;
+    box.classList.remove("paused");
+    toastState.started = Date.now();
+    toastState.timer = setTimeout(hideToast, toastState.left);
   }
 
   function notifyChanges() {
@@ -1323,10 +1375,10 @@ common.level,
     if (seen == null) return; // First visit: nothing has changed since you last looked.
     const alerts = allAlerts();
     if (!alerts.length) return;
-    const lines = alerts.slice(0, 3).map((a) => `${itemOf(a.id).n} ${a.amount > 0 ? "+" : "-"}${Math.abs(a.percent).toFixed(0)}% (${money(Math.abs(a.amount))})`);
-    const more = alerts.length > 3 ? ` and ${alerts.length - 3} more` : "";
+    const lines = alerts.slice(0, 5).map((a) => `${itemOf(a.id).n}: ${a.amount > 0 ? "up" : "down"} ${Math.abs(a.percent).toFixed(0)}% (${a.amount > 0 ? "+" : "-"}${money(Math.abs(a.amount))})`);
+    const more = alerts.length > 5 ? `And ${alerts.length - 5} more on the Alerts tab.` : "";
     const title = `${alerts.length} big price change${alerts.length > 1 ? "s" : ""}`;
-    toast(`${title}: ${lines.join(", ")}${more}`);
+    toast("", { title, lines, more, action: { label: "See all alerts", run: () => { state.tab = "alerts"; resetAndRender(); } } });
     if ("Notification" in window && Notification.permission === "granted" && store.get("notify", false)) {
       new Notification(title, { body: lines.join("\n") + more, tag: "forever-prices" });
     }
@@ -1430,7 +1482,7 @@ common.level,
           state.flash = { ids, until: Date.now() + FLASH_MS };
           render(); // keeps your tab, filters, page and scroll position
           setTimeout(() => { state.flash = null; }, FLASH_MS);
-          if (ids.size) toast(`New prices: ${number(ids.size)} item${ids.size === 1 ? "" : "s"} changed.`);
+          if (ids.size) toast(`${number(ids.size)} item${ids.size === 1 ? "" : "s"} changed. Changed rows flash for a few seconds.`, { title: "New prices" });
         }
       }
       notifyChanges();
@@ -1600,12 +1652,16 @@ common.level,
     $("detail-close").addEventListener("click", () => $("detail").close());
     $("detail").addEventListener("click", (event) => { if (event.target === $("detail")) $("detail").close(); });
     $("detail-favorite").addEventListener("click", () => { toggleFavorite(state.detailId); updateDetailFavorite(); render(); });
-    $("toast").addEventListener("click", () => { $("toast").hidden = true; state.tab = "alerts"; resetAndRender(); });
+    $("toast").addEventListener("pointerenter", pauseToast);
+    $("toast").addEventListener("pointerleave", resumeToast);
+    $("toast").addEventListener("focusin", pauseToast);
+    $("toast").addEventListener("focusout", () => setTimeout(resumeToast, 0));
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("toast").hidden && !$("detail").open) hideToast(); });
 
     $("notify").addEventListener("click", async () => {
       if (Notification.permission === "default") await Notification.requestPermission();
       if (Notification.permission === "granted") store.set("notify", !store.get("notify", false));
-      else toast("Notifications are blocked. Allow them for this site in your browser settings.");
+      else toast("Allow them for this site in your browser settings, then click the bell again.", { title: "Notifications are blocked" });
       updateNotifyButton();
     });
     window.addEventListener("hashchange", () => { readHash(); state.page = 0; render(); });
@@ -1817,7 +1873,7 @@ common.level,
       if (!/^[\w.-]+\.zip$/.test(latest.file)) return;
       const link = $("addon-download");
       link.href = `downloads/${latest.file}`;
-      link.dataset.hint = `Download the free Dufforth AH Scanner addon, version ${latest.version}`;
+      link.dataset.hint = `Download the free Dufforth Tweaks Helper addon, version ${latest.version}`;
       link.setAttribute("aria-label", link.dataset.hint);
     }).catch(() => { /* The plain link still works. */ });
     getJson("all_items.json").then((items) => {

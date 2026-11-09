@@ -3,7 +3,7 @@
 
     python tools/build_addon_zip.py _site/downloads
 
-Writes DufforthAHScanner-<version>.zip, a copy under a name that never changes,
+Writes DufforthTweaksHelper-<version>.zip, a copy under a name that never changes,
 and latest.json, which tells the page which version to offer.
 """
 import json
@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ADDON = ROOT / "addon" / "DufforthAHScanner"
+ADDON = ROOT / "addon" / "DufforthTweaksHelper"
 
 
 def version():

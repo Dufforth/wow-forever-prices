@@ -69,6 +69,7 @@ jobs:
           python tests/addon/nodes_sim.py > /dev/null
           python tests/addon/de_sim.py > /dev/null
           python tests/addon/menu_sim.py > /dev/null
+          python tests/addon/crafting_sim.py > /dev/null
 
       - name: Get saved prices
         env:
@@ -107,7 +108,8 @@ jobs:
           cp -r site/. _site/
           # Version tags so browsers load the new scripts and styles after each deploy.
           sed -i -E "s/(href|src)=\"([a-z]+\.(js|css))\"/\1=\"\2?v=${GITHUB_SHA::7}\"/" _site/index.html
-          python tools/build_addon_prices.py state addon/DufforthAHScanner/Prices.lua || true
+          python tools/build_addon_crafts.py addon/DufforthTweaksHelper/Crafts.lua
+          python tools/build_addon_prices.py state addon/DufforthTweaksHelper/Prices.lua || true
           python tools/build_addon_zip.py _site/downloads
           cp -r state/. _site/data/ || true
 

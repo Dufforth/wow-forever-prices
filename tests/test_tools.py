@@ -9,9 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_addon_zip  # noqa: E402
 import build_addon_prices  # noqa: E402
+import build_addon_crafts  # noqa: E402
 import install_addon  # noqa: E402
 
-NAME = "DufforthAHScanner"
+NAME = "DufforthTweaksHelper"
 
 
 class AddonZipTests(unittest.TestCase):
@@ -38,7 +39,8 @@ class AddonZipTests(unittest.TestCase):
 
     def test_toc_has_the_new_name_and_saves_under_it(self):
         toc = (ROOT / f"addon/{NAME}/{NAME}.toc").read_text(encoding="utf-8")
-        self.assertRegex(toc, r"(?m)^## Title: Dufforth AH Scanner\s*$")
+        self.assertRegex(toc, r"(?m)^## Title: Dufforth Tweaks Helper\s*$")
+        self.assertIn("INV_Misc_QuestionMark", toc)
         self.assertRegex(toc, rf"(?m)^## SavedVariables: {NAME}DB\s*$")
         self.assertRegex(toc, r"(?m)^## Interface: \d+")
 
@@ -47,6 +49,8 @@ class AddonZipTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("Gathering Tracker", text, path.name)
             self.assertNotIn("TentTimer", text, path.name)
+            self.assertNotIn("Scanner", text, path.name)
+            self.assertNotIn("/ahscan", text, path.name)
 
 
 class AddonPriceTests(unittest.TestCase):
@@ -54,15 +58,43 @@ class AddonPriceTests(unittest.TestCase):
         items = {"10940": [80, 95, 10, 0, 0, 0], "10938": [100, None, 3, 0, 0, 0], "11083": [500, 540, 0, 0, 0, 0], "2589": [10, 12, 99, 0, 0, 0]}
         self.assertEqual(build_addon_prices.prices_for(items, [10940, 10938, 11083]), {10940: 95, 10938: 100})
         text = build_addon_prices.lua({"forever.normal.horde.us": {10940: 95}, "forever.rp.horde.us": {}}, 123)
-        self.assertIn('DufforthAHScannerPrices = { at = 123,', text)
+        self.assertIn('DufforthTweaksHelperPrices = { at = 123,', text)
         self.assertIn('["forever.normal.horde.us"] = { [10940]=95 },', text)
         self.assertNotIn("forever.rp.horde.us", text)
-        self.assertIn("DufforthAHScannerNoDE = { [11287]=true }", build_addon_prices.lua({}, 1, [11287]))
+        self.assertIn("DufforthTweaksHelperNoDE = { [11287]=true }", build_addon_prices.lua({}, 1, [11287]))
 
     def test_wants_every_material_and_the_gear_list(self):
         ids = build_addon_prices.wanted_ids()
         self.assertIn(20725, ids)
         self.assertGreater(len(ids), 1000)
+
+
+class AddonCraftsTests(unittest.TestCase):
+    def test_lists_gear_recipes_with_vendor_prices_and_material_recipes(self):
+        catalog = {"items": {
+            "1": {"n": "Linen Cloth", "q": 1, "cl": 7},
+            "2": {"n": "Thread", "q": 1, "cl": 7, "v": 1, "buy": 10},
+            "3": {"n": "Bolt", "q": 1, "cl": 7},
+            "900": {"n": 'Green "Robe"', "q": 2, "il": 30, "cl": 4, "inv": 20},
+            "901": {"n": "Green Shirt", "q": 2, "il": 30, "cl": 4, "inv": 4},
+            "902": {"n": "Wand", "q": 2, "il": 20, "cl": 2, "inv": 26, "nd": 1},
+        }, "recipes": [
+            {"s": 10, "p": "Tailoring", "sk": 50, "o": ["trainer"], "i": 900, "c": 1, "r": [[3, 2], [2, 1]]},
+            {"s": 11, "p": "Tailoring", "sk": 60, "o": ["trainer"], "i": 901, "c": 1, "r": [[3, 1]]},
+            {"s": 12, "p": "Enchanting", "sk": 10, "o": ["trainer"], "i": 902, "c": 1, "r": [[1, 1]]},
+            {"s": 13, "p": "Tailoring", "sk": 1, "o": ["trainer"], "i": 3, "c": 1, "r": [[1, 2]]},
+        ], "noDisenchant": [902]}
+        text, gear, materials, vendor = build_addon_crafts.lua(catalog)
+        self.assertEqual((gear, materials, vendor), (1, 1, 1))
+        self.assertIn('{ 10, 9, 50, 900, 1, 2, 30, 4, 0, "Green \\"Robe\\"", { 3, 2, 2, 1 } },', text)
+        self.assertIn("[3] = { 1, { 1, 2 } },", text)
+        self.assertIn("DufforthTweaksHelperVendor = { [2]=10 }", text)
+        self.assertEqual(build_addon_crafts.reagent_ids(catalog), ([1, 2, 3], [900]))
+
+    def test_prices_cover_every_crafting_material(self):
+        reagents, products = build_addon_crafts.reagent_ids(build_addon_crafts.load_catalog())
+        ids = set(build_addon_prices.wanted_ids())
+        self.assertTrue(set(reagents) <= ids and set(products) <= ids)
 
 
 class InstallTests(unittest.TestCase):
@@ -88,6 +120,16 @@ class InstallTests(unittest.TestCase):
             self.assertFalse((game / "Interface/AddOns/TentTimer").exists())
             self.assertIn(f'{NAME}DB = {{\n["nodes"] = {{ ["swapSeconds"] = 7 }}', (saved / f"{NAME}.lua").read_text())
             self.assertTrue((saved / "TentTimer.lua").exists(), "the old settings stay as a backup")
+
+    def test_moves_dufforth_ah_scanner_settings_first(self):
+        with tempfile.TemporaryDirectory() as folder:
+            game, saved = self.game(folder)
+            (game / "Interface/AddOns/DufforthAHScanner").mkdir(parents=True)
+            (saved / "DufforthAHScanner.lua").write_text('DufforthAHScannerDB = {\n["nodes"] = { ["size"] = 12 },\n}\n')
+            _, moved = install_addon.install(game)
+            self.assertEqual(moved, 1)
+            self.assertFalse((game / "Interface/AddOns/DufforthAHScanner").exists())
+            self.assertIn(f'{NAME}DB = {{\n["nodes"] = {{ ["size"] = 12 }}', (saved / f"{NAME}.lua").read_text())
 
     def test_never_overwrites_settings_already_moved(self):
         with tempfile.TemporaryDirectory() as folder:

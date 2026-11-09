@@ -208,7 +208,19 @@ dialog .table-wrap { flex: none; container-type: normal; }
 .chart .tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); padding: 4px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; transform: translate(-50%, -110%); }
 .range { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--space-2); }
 .detail-table td, .detail-table th { padding: 4px 8px; }
-.toast { position: fixed; right: var(--space-3); bottom: 34px; max-width: min(380px, calc(100vw - 24px)); background: var(--ink); color: var(--bg); padding: 10px 12px; border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); cursor: pointer; z-index: 18; font-size: 13px; }
+.toast { position: fixed; right: var(--space-3); bottom: 34px; width: min(400px, calc(100vw - 24px)); background: var(--ink); color: var(--bg); padding: 12px 40px 14px 14px; border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); z-index: 18; font-size: 14px; line-height: 1.45; overflow: hidden; }
+.toast-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.toast-lines { margin: 4px 0 0; padding-left: 18px; }
+.toast-lines li + li { margin-top: 2px; }
+.toast-more { margin-top: 6px; opacity: 0.85; }
+.toast-action { margin-top: 10px; min-height: 30px; padding: 4px 12px; border-radius: 6px; border: 0; background: var(--bg); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+.toast-close { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--bg); font-size: 20px; line-height: 1; cursor: pointer; }
+.toast-close:hover, .toast-close:focus-visible { background: color-mix(in srgb, var(--bg) 18%, transparent); }
+.toast-action:focus-visible, .toast-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toast-time { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--accent); transform-origin: left; animation: toast-time linear forwards; }
+.toast.paused .toast-time { animation-play-state: paused; }
+@keyframes toast-time { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .toast-time { animation: none; } }
 
 /* Roomy screens: the page fits the window, and the table scrolls inside it */
 @media (min-width: 1000px) and (min-height: 480px) {
