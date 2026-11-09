@@ -262,8 +262,9 @@ lua.execute("SWAP(false, true); RUN(6)")
 check("herb STAYS after swapping to ore", "Peacebloom" in lua.eval("NAMES()"), lua.eval("NAMES()"))
 check("ore appears after the swap", "Copper Vein" in lua.eval("NAMES()"), lua.eval("NAMES()"))
 check("only the untracked herb gets a drawn dot (the game draws the ore)", lua.eval("DRAWNNAMES()") == "Peacebloom", lua.eval("DRAWNNAMES()"))
-check("the dot is Peacebloom pink, no picture or name", lua.eval('DRAWN("Peacebloom").art.r') == 1 and abs(lua.eval('DRAWN("Peacebloom").art.g') - 0.6) < 1e-9 and lua.eval('DRAWN("Peacebloom").label.visible') is False and "TempPortraitAlphaMask" in lua.eval('DRAWN("Peacebloom").art.texture'))
-check("dots are 8 px by default", lua.eval("DufforthTweaksHelperDB.nodes.size") == 8)
+check("it shows the Peacebloom picture, cut round, with no name", lua.eval('DRAWN("Peacebloom").art.texture') == 100000 + 2447 and lua.eval('DRAWN("Peacebloom").label.visible') is False)
+check("icons are 12 px by default", lua.eval("DufforthTweaksHelperDB.nodes.size") == 12)
+check("the game's tracked ore keeps its own yellow dot: nothing of ours on it", lua.eval('DRAWN("Copper Vein")') is None)
 lua.execute("SWAP(true, false); RUN(6)")
 check("ore stays after swapping back", lua.eval("NAMES()") == "Copper Vein,Peacebloom", lua.eval("NAMES()"))
 check("no duplicates after several swaps", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 2, lua.eval("#DufforthTweaksHelperDB.nodes.pins"))
@@ -392,7 +393,7 @@ check("...and after Find Minerals only herbs", lua.eval("DRAWNNAMES()") == "Peac
 lua.execute(BLOCKED)
 lua.execute('CURSOR_AT(0, 0); GAMEHOVER("Peacebloom"); RUN(0.1)')
 check("hovering one of the game's herb dots hides our herb dots", "Peacebloom" not in lua.eval("DRAWNNAMES()"), lua.eval("DRAWNNAMES()"))
-check("each node has its own color", lua.eval('DRAWN("Copper Vein") and DRAWN("Copper Vein").art.r') == 0.93)
+check("each node shows its own picture", lua.eval('DRAWN("Copper Vein") and DRAWN("Copper Vein").art.texture') == 100000 + 2770)
 
 lua = fresh()
 lua.execute('SlashCmdList.DUFFORTHTWEAKSHELPERNODES("keep 0"); ADD("Peacebloom","herb",60,40); RUN(3); SWAP(false,true); RUN(1); NOW = NOW + 600*60; RUN(6)')
@@ -496,7 +497,9 @@ lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("names"); lua.execute("RUN(
 check("even after the old /nk names", lua.eval('DRAWN("Copper Vein").label.visible') is False)
 lua = fresh()
 lua.execute('DufforthTweaksHelperDB = {nodes={size=10, pins={{name="Tin Vein",kind="ore",mapID=1415,east=2510,north=-2490,seenAt=NOW,misses=0}}}}; FIRE("PLAYER_LOGIN"); SWAP(true,false); RUN(0.1)')
-check("dots saved before this update show, at the new 8 px size", lua.eval('DRAWN("Tin Vein") ~= nil') is True and lua.eval("DufforthTweaksHelperDB.nodes.size") == 8)
+check("nodes saved before this update show, at the new 12 px size", lua.eval('DRAWN("Tin Vein") ~= nil') is True and lua.eval("DufforthTweaksHelperDB.nodes.size") == 12)
+lua.execute('NO_ITEM_ICONS = true; DufforthTweaksHelperDB.nodes.pins[1].name = "Copper Vein"; RUN(0.1)')
+check("with no item picture it falls back to the ore picture", lua.eval('DRAWN("Copper Vein").art.texture') == r"Interface\Icons\Spell_Nature_Earthquake", lua.eval('DRAWN("Copper Vein").art.texture'))
 
 # 9. Hover: can you gather it?
 COLORS = {"orange": 1.0, "yellow": 1.0, "green": 0.25, "gray": 0.5, "red": 1.0}

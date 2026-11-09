@@ -30,8 +30,8 @@ local DEFAULT_SWAP_SECONDS = 4
 local FIND_HERBS, FIND_MINERALS = 2383, 2580
 local EDGE_MARGIN = 4
 local MAX_ICONS = 60
-local DEFAULT_SIZE = 8 -- about the size of the game's yellow tracking dots
-local OLD_DEFAULT_SIZES = { [10] = true, [14] = true }
+local DEFAULT_SIZE = 12 -- small, but big enough to tell the pictures apart
+local OLD_DEFAULT_SIZES = { [8] = true, [10] = true, [14] = true }
 local MIN_SIZE, MAX_SIZE = 6, 20
 local DEFAULT_KEEP_MINUTES = 0 -- keep icons until you gather them (the user's choice)
 local OLD_DEFAULT_KEEP_MINUTES = 30
@@ -39,76 +39,8 @@ local PROBING_BLOCKED_FROM_BUILD = 70862
 local HOVER_WEIGHT_CAP = 5 -- a remembered spot moves toward later hovers, up to 1/5 per hover
 local GATHER_SECONDS = 20 -- how long after a gathering cast the loot still counts as that node
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
--- A white disc, tinted to make the dots. If a client lacks it, the game's small yellow ball is used.
-local DOT = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local DOT_FALLBACK = "Interface\\COMMON\\Indicator-Yellow"
-
--- Each node's dot has its own color (the user's choice), so Copper and Tin, or Peacebloom and
--- Silverleaf, can be told apart at a glance. Hover a dot for its name.
-local NODE_COLORS = {
-    ["Copper Vein"] = { 0.93, 0.52, 0.22 }, ["Poor Copper Vein"] = { 0.93, 0.52, 0.22 },
-    ["Tin Vein"] = { 0.55, 0.68, 0.8 },
-    ["Silver Vein"] = { 0.97, 0.97, 1 }, ["Ooze Covered Silver Vein"] = { 0.97, 0.97, 1 },
-    ["Iron Deposit"] = { 0.7, 0.33, 0.27 }, ["Cold Iron Deposit"] = { 0.7, 0.33, 0.27 },
-    ["Gold Vein"] = { 1, 0.84, 0.1 }, ["Ooze Covered Gold Vein"] = { 1, 0.84, 0.1 }, ["Fool's Gold Vein"] = { 1, 0.84, 0.1 },
-    ["Mithril Deposit"] = { 0.25, 0.85, 0.8 }, ["Ooze Covered Mithril Deposit"] = { 0.25, 0.85, 0.8 },
-    ["Truesilver Deposit"] = { 0.8, 0.68, 1 }, ["Ooze Covered Truesilver Deposit"] = { 0.8, 0.68, 1 },
-    ["Dark Iron Deposit"] = { 0.6, 0.3, 0.75 },
-    ["Small Thorium Vein"] = { 0.45, 0.8, 0.3 }, ["Ooze Covered Thorium Vein"] = { 0.45, 0.8, 0.3 },
-    ["Hakkari Thorium Vein"] = { 0.45, 0.8, 0.3 }, ["Heavy Thorium Vein"] = { 0.45, 0.8, 0.3 },
-    ["Rich Thorium Vein"] = { 0.15, 1, 0.45 }, ["Ooze Covered Rich Thorium Vein"] = { 0.15, 1, 0.45 },
-    ["Incendicite Mineral Vein"] = { 1, 0.3, 0.15 },
-    ["Lesser Bloodstone Deposit"] = { 0.85, 0.1, 0.25 },
-    ["Indurium Mineral Vein"] = { 0.85, 0.75, 0.5 },
-    ["Small Obsidian Chunk"] = { 0.5, 0.4, 0.65 }, ["Large Obsidian Chunk"] = { 0.5, 0.4, 0.65 },
-    ["Chunk of Amber"] = { 1, 0.62, 0.1 }, ["Large Chunk of Amber"] = { 1, 0.62, 0.1 },
-    ["Starsilver Vein"] = { 0.7, 0.9, 1 },
-    ["Greater Moonstone Formation"] = { 0.85, 0.92, 1 },
-    ["Peacebloom"] = { 1, 0.6, 0.82 }, ["Wilted Peacebloom"] = { 1, 0.6, 0.82 },
-    ["Silverleaf"] = { 0.78, 0.86, 0.78 }, ["Stunted Silverleaf"] = { 0.78, 0.86, 0.78 },
-    ["Earthroot"] = { 0.65, 0.48, 0.3 },
-    ["Mageroyal"] = { 0.72, 0.42, 1 },
-    ["Briarthorn"] = { 0.95, 0.3, 0.62 },
-    ["Stranglekelp"] = { 0.2, 0.65, 0.55 },
-    ["Bruiseweed"] = { 0.4, 0.5, 1 },
-    ["Wild Steelbloom"] = { 0.62, 0.66, 0.76 },
-    ["Grave Moss"] = { 0.55, 0.65, 0.2 },
-    ["Kingsblood"] = { 0.95, 0.15, 0.2 },
-    ["Liferoot"] = { 0.3, 0.88, 0.3 },
-    ["Fadeleaf"] = { 0.7, 0.6, 0.92 },
-    ["Goldthorn"] = { 1, 0.78, 0.25 },
-    ["Khadgar's Whisker"] = { 0.45, 0.78, 1 },
-    ["Wintersbite"] = { 0.82, 0.96, 1 },
-    ["Firebloom"] = { 1, 0.42, 0.1 },
-    ["Purple Lotus"] = { 0.62, 0.22, 0.85 },
-    ["Arthas' Tears"] = { 0.3, 0.42, 0.95 },
-    ["Sungrass"] = { 1, 1, 0.35 },
-    ["Blindweed"] = { 0.45, 0.55, 0.3 },
-    ["Ghost Mushroom"] = { 0.75, 0.85, 0.95 },
-    ["Gromsblood"] = { 0.72, 0.1, 0.12 },
-    ["Golden Sansam"] = { 1, 0.7, 0.2 },
-    ["Dreamfoil"] = { 0.4, 1, 0.72 },
-    ["Mountain Silversage"] = { 0.72, 0.9, 0.72 },
-    ["Plaguebloom"] = { 0.62, 0.92, 0.2 },
-    ["Icecap"] = { 0.6, 0.9, 1 },
-    ["Black Lotus"] = { 0.45, 0.3, 0.55 },
-}
--- Nodes without their own color get one from a fixed set, always the same for the same name.
-local SPARE_COLORS = {
-    { 1, 0.5, 0.5 }, { 0.5, 1, 0.5 }, { 0.5, 0.7, 1 }, { 1, 0.85, 0.4 }, { 0.85, 0.5, 1 }, { 0.4, 1, 1 },
-}
-
-local function ColorFor(name)
-    local color = NODE_COLORS[name]
-    if color then
-        return color
-    end
-    local sum = 0
-    for i = 1, #name do
-        sum = sum + string.byte(name, i) * i
-    end
-    return SPARE_COLORS[sum % #SPARE_COLORS + 1]
-end
+-- A round mask: item pictures are cut to a circle, with a thin dark ring behind them.
+local ROUND = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
 local FIND_SPELLS = { [2383] = "herb", [8387] = "herb", [2580] = "ore", [8388] = "ore" }
 -- When the game gives no spell number: the tracking names and pictures.
@@ -900,21 +832,50 @@ local function ShowPinTooltip(icon)
     GameTooltip:Show()
 end
 
+-- The node's own item picture (Peacebloom, Copper Ore...), or the general herb or ore picture.
+local itemPictures = {}
+
+local function PictureFor(pin)
+    local picture = itemPictures[pin.name]
+    if picture then
+        return picture
+    end
+    local item = NODE_ITEMS[pin.name]
+    local getIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+    if item and getIcon then
+        local ok, found = pcall(getIcon, item)
+        if ok and Usable(found) and found then
+            itemPictures[pin.name] = found
+            return found
+        end
+    end
+    return STYLE[pin.kind].icon
+end
+
 local function NewIcon()
     local icon = CreateFrame("Frame", nil, holder)
     icon:SetFrameLevel(holder:GetFrameLevel()) -- under the minimap's buttons (mail, zoom, tracking)
-    -- A plain dot with a thin dark edge, like the game's own tracking dots.
+    -- The node's picture, cut round, on a thin dark ring so it reads on any ground.
     icon.edge = icon:CreateTexture(nil, "ARTWORK")
     icon.edge:SetPoint("TOPLEFT", -1, 1)
     icon.edge:SetPoint("BOTTOMRIGHT", 1, -1)
-    icon.art = icon:CreateTexture(nil, "OVERLAY")
-    icon.art:SetAllPoints()
-    if icon.art:SetTexture(DOT) == false then
-        icon.art:SetTexture(DOT_FALLBACK)
+    if icon.edge:SetTexture(ROUND) == false then
         icon.edge:Hide()
     else
-        icon.edge:SetTexture(DOT)
         icon.edge:SetVertexColor(0, 0, 0, 0.85)
+    end
+    icon.art = icon:CreateTexture(nil, "OVERLAY")
+    icon.art:SetAllPoints()
+    icon.art:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- If the game lacks the mask, a square picture beats an invisible one.
+    if icon.CreateMaskTexture and icon.art.AddMaskTexture then
+        icon.mask = icon:CreateMaskTexture()
+        if icon.mask:SetTexture(ROUND, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") ~= false then
+            icon.mask:SetAllPoints(icon.art)
+            icon.art:AddMaskTexture(icon.mask)
+        else
+            icon.mask = nil
+        end
     end
     icon.label = icon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     icon.label:SetPoint("LEFT", icon, "RIGHT", 1, 0)
@@ -970,8 +931,7 @@ local function Draw()
                     end
                     icon.pin = pin
                     icon:SetSize(size, size)
-                    local color = ColorFor(pin.name)
-                    icon.art:SetVertexColor(color[1], color[2], color[3])
+                    icon.art:SetTexture(PictureFor(pin))
                     icon.label:SetShown(false)
                     icon:ClearAllPoints()
                     icon:SetPoint("CENTER", Minimap, "CENTER", ox, oy)
@@ -1267,7 +1227,7 @@ local function OnLogin()
     db.pins = db.pins or {}
     db.custom = db.custom or {}
     db.unknown = {}
-    -- Old defaults (14, then 10) were too big next to the game's tracking dots.
+    -- Old defaults: 14 and 10 (icons), 8 (plain dots).
     if not db.size or OLD_DEFAULT_SIZES[db.size] then
         db.size = DEFAULT_SIZE
     end

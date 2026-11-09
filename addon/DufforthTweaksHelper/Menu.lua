@@ -120,7 +120,7 @@ local function GatherStatus()
     if not status then return "" end
     if not status.enabled then return "Herb and ore icons are off." end
     if status.blocked or not status.api then
-        return string.format("|cffffd100Hover each yellow dot on the minimap once|r: when you swap tracking, it stays as a dot in that node's color until you gather it. (Since the 7 November game patch, addons can't read the minimap by themselves.) Dots saved: %d.",
+        return string.format("|cffffd100Hover each yellow dot on the minimap once|r: when you swap to the other tracking, it shows as a small picture of that node until you gather it. (Since the 7 November game patch, addons can't read the minimap by themselves.) Nodes saved: %d.",
             status.icons)
     end
     if not status.tracking then return "|cffffd100Turn on Find Herbs or Find Minerals so icons can be found.|r" end
@@ -136,13 +136,13 @@ local function BuildGather(page)
     status:SetPoint("TOPLEFT", 12, y); status:SetWidth(WIDTH - 50); status:SetJustifyH("LEFT")
     refreshers[#refreshers + 1] = function() status:SetText(GatherStatus()) end
     y = y - 58
-    y = Check(page, y, "Keep herb and ore dots after swapping tracking", "Remembers each herb and ore dot you hover on the minimap. After you swap tracking, it keeps a dot there in that node's own color (Copper orange, Tin blue-gray, Peacebloom pink, and so on), so herbs stay visible while you find minerals and the other way round, until you gather it. While a tracking is on, the game shows its own dots and the addon adds nothing on top. Hover a dot to see its name. Same as /nk on and /nk off.",
+    y = Check(page, y, "Keep herb and ore icons after swapping tracking", "Remembers each herb and ore dot you hover on the minimap. After you swap tracking, it shows a small picture of that node there (Peacebloom, Copper Ore, and so on), so herbs stay visible while you find minerals and the other way round, until you gather it. While a tracking is on, the game shows its own dots and the addon adds nothing on top. Hover a picture to see its name. Same as /nk on and /nk off.",
         function() return Nodes().enabled end, function(on) NodesCommand(on and "on" or "off") end)
     y = Check(page, y, "Swap tracking automatically", "Switches between Find Herbs and Find Minerals on a timer. Needs both Herbalism and Mining. Pauses in combat, in cities and inns, in instances, while dead, on flight paths and while stealthed.",
         function() return Nodes().swapEnabled end, function(on) NodesCommand(on and "swap on" or "swap off") end)
     y = Stepper(page, y, "Swap every", "Seconds between tracking swaps.",
         function() return Nodes().swapSeconds end, function(v) NodesCommand("swap " .. v) end, 2, 60, 1, function(v) return (v or 0) .. " sec" end)
-    y = Stepper(page, y, "Dot size", "Size of the remembered dots. 8 is about the game's own tracking dots.",
+    y = Stepper(page, y, "Icon size", "Size of the node pictures shown for the kind you are not tracking.",
         function() return Nodes().size end, function(v) NodesCommand("size " .. v) end, 6, 20, 1)
     y = Stepper(page, y, "Forget unseen dots after", "Dots are removed after this long without being hovered again. 'until gathered' keeps them until you gather the node.",
         function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 10, function(v) return v == 0 and "until gathered" or (v .. " min") end)

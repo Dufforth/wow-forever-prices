@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Dufforth Tweaks Helper
 ## Notes: Gathering, disenchanting and crafting help. Keeps herb and ore icons on the minimap, swaps tracking, says in item tooltips whether to disenchant, sell on the auction house or sell to a vendor, disenchants BoE gear one click at a time, and recommends gear worth crafting to disenchant.
-## Version: 4.4.1
+## Version: 4.5.0
 ## IconTexture: Interface\Icons\INV_Misc_QuestionMark
 ## SavedVariables: DufforthTweaksHelperDB
 
