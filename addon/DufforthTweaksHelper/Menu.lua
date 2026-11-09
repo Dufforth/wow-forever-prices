@@ -120,8 +120,8 @@ local function GatherStatus()
     if not status then return "" end
     if not status.enabled then return "Herb and ore icons are off." end
     if status.blocked or not status.api then
-        return string.format("|cffffd100Hover each yellow dot on the minimap once|r: when you swap to the other tracking, it shows as a small picture of that node until you gather it. (Since the 7 November game patch, addons can't read the minimap by themselves.) Nodes saved: %d.",
-            status.icons)
+        return string.format("When you track the other kind, pictures show every spot where you gathered that herb or ore before (|cffffd100spawn spots: %d|r), and each dot you hovered (|cffffd100%d|r). Since the 7 November game patch, addons can't read the minimap by themselves.",
+            status.spots or 0, status.icons)
     end
     if not status.tracking then return "|cffffd100Turn on Find Herbs or Find Minerals so icons can be found.|r" end
     local text = string.format("Tracking %s. Icons saved: %d. Dots seen in the last check: %d.", status.tracking, status.icons, status.lastDots)
@@ -140,13 +140,16 @@ local function BuildGather(page)
         function() return Nodes().enabled end, function(on) NodesCommand(on and "on" or "off") end)
     y = Check(page, y, "Swap tracking automatically", "Switches between Find Herbs and Find Minerals on a timer. Needs both Herbalism and Mining. Pauses in combat, in cities and inns, in instances, while dead, on flight paths and while stealthed.",
         function() return Nodes().swapEnabled end, function(on) NodesCommand(on and "swap on" or "swap off") end)
+    y = Check(page, y, "Show spawn spots from my gathering history", "Every herb and ore you gather is saved where you stood. When you track the other kind, a slightly faded picture shows each of those spots, with no hovering needed. The node may not be there right now; a spot you just gathered hides for 10 minutes. Same as /nk history on and off.",
+        function() return Nodes().showHistory end, function(on) NodesCommand(on and "history on" or "history off") end)
     y = Stepper(page, y, "Swap every", "Seconds between tracking swaps.",
         function() return Nodes().swapSeconds end, function(v) NodesCommand("swap " .. v) end, 2, 60, 1, function(v) return (v or 0) .. " sec" end)
     y = Stepper(page, y, "Icon size", "Size of the node pictures shown for the kind you are not tracking.",
         function() return Nodes().size end, function(v) NodesCommand("size " .. v) end, 6, 20, 1)
     y = Stepper(page, y, "Forget unseen dots after", "Dots are removed after this long without being hovered again. 'until gathered' keeps them until you gather the node.",
         function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 10, function(v) return v == 0 and "until gathered" or (v .. " min") end)
-    Button(page, y, "Clear all dots", "Removes every remembered dot.", function() NodesCommand("clear") end)
+    Button(page, y, "Clear hovered nodes", "Removes the nodes you hovered. Your gathering history stays.", function() NodesCommand("clear") end)
+    Button(page, y - 30, "Clear gathering history", "Removes every saved spawn spot. Same as /nk history clear.", function() NodesCommand("history clear") end)
     Button(page, y, "Status in chat", "Prints what the icon finder sees right now, to help when icons don't show. Same as /nk status.", function() NodesCommand("status") end, 184, 150)
 end
 

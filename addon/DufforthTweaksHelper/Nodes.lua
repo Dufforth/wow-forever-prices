@@ -20,6 +20,10 @@ local MATCH_PIXELS = 12 -- the same, when zoomed far out
 local LOOT_YARDS = 20 -- how near a remembered dot must be to you to be the node you gathered
 local NAMED_LOOT_YARDS = 45 -- the same, when your cast named the node (hovered spots can be well off)
 local HOVER_MATCH_YARDS = 30 -- a hover this close to a same-named dot is that dot, not a new one
+local HISTORY_MERGE_YARDS = 12 -- gathers this close, same node, are one spawn spot
+local HISTORY_HIDE_SECONDS = 10 * 60 -- a spot you just gathered is empty for a while: hide it
+local MAX_HISTORY = 3000
+local HOVER_SAMPLES_MAX = 120
 local INTERIOR = 0.75 -- dots near the edge are cut off, so their position is not trusted
 local MISS_INTERIOR = 0.7 -- how far out a missing dot counts as really missing
 local MISSES_TO_REMOVE = 2 -- sweeps in a row without the dot before its icon goes
@@ -296,6 +300,9 @@ local lastGather -- { name, at }: the node your last gathering cast was aimed at
 -- you hovered). Used when the game's tracking list can't be read, so our dots never sit on top
 -- of the game's own.
 local lastTrackedKind
+-- While the game's tooltip for a hovered dot stays up, the cursor positions are collected
+-- (they cover the dot), and the middle of them is used: much closer than the first touch.
+local hoverSession -- { pin, name, start = {east, north, hovers}, minE, maxE, minN, maxN, count }
 
 -- True on clients that no longer let addons probe the minimap.
 local function ProbingBlocked()
@@ -783,7 +790,51 @@ local function LearnAtCursor(name, kind)
     end
     if pin then
         pin.seenAt, pin.misses = now, 0
+        if not hoverSession or hoverSession.pin ~= pin then
+            hoverSession = { pin = pin, start = { pin.east, pin.north, pin.hovers or 1 },
+                minE = east, maxE = east, minN = north, maxN = north, count = 1 }
+        end
     end
+end
+
+local function FinishHover()
+    local session = hoverSession
+    hoverSession = nil
+    local pin = session.pin
+    local centerE, centerN = (session.minE + session.maxE) / 2, (session.minN + session.maxN) / 2
+    local e0, n0, hovers = session.start[1], session.start[2], session.start[3]
+    if hovers <= 1 then
+        pin.east, pin.north = centerE, centerN
+    else
+        local weight = math.min(hovers - 1, HOVER_WEIGHT_CAP)
+        pin.east = (e0 * weight + centerE) / (weight + 1)
+        pin.north = (n0 * weight + centerN) / (weight + 1)
+    end
+end
+
+-- Every frame while a hover session is open: add the cursor, or close it when the tooltip goes.
+local function TrackHover()
+    if not hoverSession then
+        return
+    end
+    local v = ReadView()
+    local shown = GameTooltip.IsShown and GameTooltip:IsShown()
+    if not v or not Minimap:IsMouseOver() or not shown or hoverSession.count >= HOVER_SAMPLES_MAX then
+        FinishHover()
+        return
+    end
+    local x, y = GetCursorPosition()
+    local scale = Minimap:GetEffectiveScale()
+    local east, north = OffsetToWorld(x / scale - Minimap:GetLeft() - v.half, y / scale - Minimap:GetBottom() - v.half, v)
+    local dx, dy = east - hoverSession.start[1], north - hoverSession.start[2]
+    local limit = HOVER_MATCH_YARDS
+    if dx * dx + dy * dy > limit * limit then
+        FinishHover() -- moved on to something else
+        return
+    end
+    hoverSession.minE, hoverSession.maxE = math.min(hoverSession.minE, east), math.max(hoverSession.maxE, east)
+    hoverSession.minN, hoverSession.maxN = math.min(hoverSession.minN, north), math.max(hoverSession.maxN, north)
+    hoverSession.count = hoverSession.count + 1
 end
 
 local function OnGameMinimapTooltip(tooltip, data)
@@ -817,7 +868,25 @@ local function OnGameMinimapTooltip(tooltip, data)
     end
 end
 
+local function ShowSpotTooltip(icon)
+    local spot = icon.spot
+    local style = STYLE[spot.kind]
+    GameTooltip:SetOwner(icon, "ANCHOR_LEFT")
+    local color = DescribeGather(spot.name, spot.kind) or style
+    GameTooltip:SetText(spot.name, color.r, color.g, color.b)
+    AddGatherLines(GameTooltip, spot.name, spot.kind, false)
+    local days = math.floor((time() - spot.lastAt) / 86400)
+    GameTooltip:AddLine(string.format("Spawn spot: you gathered it here %d time%s, last %s.", spot.count,
+        spot.count == 1 and "" or "s", days < 1 and "today" or (days == 1 and "yesterday" or (days .. " days ago"))), 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("It may not be there right now.", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+end
+
 local function ShowPinTooltip(icon)
+    if icon.spot then
+        ShowSpotTooltip(icon)
+        return
+    end
     local pin = icon.pin
     if not pin then
         return
@@ -912,8 +981,16 @@ local function Draw()
         local spacing = size * 0.7
         local square = IsSquare()
         local reach = v.half - size * 0.75 - EDGE_MARGIN
-        for _, pin in ipairs(db.pins) do
-            if pin.mapID == v.mapID and not tracked[pin.kind] and shown < MAX_ICONS then
+        local now = time()
+        local lists = { db.pins }
+        if db.showHistory and db.history then
+            lists[2] = db.history
+        end
+        for listIndex, list in ipairs(lists) do
+        local isSpot = listIndex == 2
+        for _, pin in ipairs(list) do
+            if pin.mapID == v.mapID and not tracked[pin.kind] and shown < MAX_ICONS
+                and not (isSpot and now - pin.lastAt < HISTORY_HIDE_SECONDS) then
                 local ox, oy = WorldToOffset(pin.east, pin.north, v)
                 local inside
                 if square then
@@ -929,20 +1006,23 @@ local function Draw()
                         icon = NewIcon()
                         icons[shown] = icon
                     end
-                    icon.pin = pin
+                    icon.pin = (not isSpot) and pin or nil
+                    icon.spot = isSpot and pin or nil
                     icon:SetSize(size, size)
                     icon.art:SetTexture(PictureFor(pin))
                     icon.label:SetShown(false)
                     icon:ClearAllPoints()
                     icon:SetPoint("CENTER", Minimap, "CENTER", ox, oy)
-                    icon:SetAlpha(1)
+                    icon:SetAlpha(isSpot and 0.75 or 1)
                     icon:Show()
                 end
             end
         end
+        end
     end
     for index = shown + 1, #icons do
         icons[index].pin = nil
+        icons[index].spot = nil
         icons[index]:Hide()
     end
 end
@@ -1065,13 +1145,44 @@ end
 -- Gathering and events
 -- ---------------------------------------------------------------------------
 
+-- Spawn spots: where you have gathered each node, at your position when the cast started
+-- (within a few yards of the node). They show for the kind you are not tracking.
+local function RecordHistory(name, mapID, east, north)
+    if not (name and mapID and east and north) or db.history == nil then
+        return
+    end
+    local now = time()
+    for _, spot in ipairs(db.history) do
+        if spot.mapID == mapID and spot.name == name then
+            local dx, dy = spot.east - east, spot.north - north
+            if dx * dx + dy * dy <= HISTORY_MERGE_YARDS * HISTORY_MERGE_YARDS then
+                local weight = math.min(spot.count, 5)
+                spot.east = (spot.east * weight + east) / (weight + 1)
+                spot.north = (spot.north * weight + north) / (weight + 1)
+                spot.count = spot.count + 1
+                spot.lastAt = now
+                return
+            end
+        end
+    end
+    if #db.history >= MAX_HISTORY then
+        table.remove(db.history, 1)
+    end
+    db.history[#db.history + 1] = { name = name, kind = KindOf(name), mapID = mapID,
+        east = east, north = north, count = 1, lastAt = now }
+end
+
 local function RemoveGatheredNode()
     local v = ReadView()
     if not v then
         return
     end
-    local named = lastGather and GetTime() - lastGather.at <= GATHER_SECONDS and lastGather.name
+    local gather = lastGather
+    local named = gather and GetTime() - gather.at <= GATHER_SECONDS and gather.name
     lastGather = nil
+    if named and gather.mapID == v.mapID then
+        RecordHistory(named, gather.mapID, gather.east, gather.north)
+    end
     if named then
         -- Every remembered dot of that node near you goes, including copies saved a bit off.
         local reach = math.max(NAMED_LOOT_YARDS, 12 / v.pixelsPerYard)
@@ -1147,6 +1258,8 @@ DufforthTweaksHelperNodes = {
             enabled = db.enabled == true,
             tracking = #kinds > 0 and table.concat(kinds, " and ") or nil,
             icons = #db.pins,
+            spots = #db.history,
+            showHistory = db.showHistory == true,
             lastDots = stats.lastDots,
             sweeps = stats.sweeps,
             lastError = stats.lastError,
@@ -1185,6 +1298,17 @@ local function HandleSlash(input)
         db.keepMinutes = math.max(0, math.floor(tonumber(rest)))
         Print(db.keepMinutes > 0 and ("unseen icons are removed after " .. db.keepMinutes .. " min.")
             or "icons now stay until you gather them.")
+    elseif command == "history" then
+        local option = string.lower(rest)
+        if option == "clear" then
+            db.history = {}
+            Print("gathering history cleared.")
+        elseif option == "on" or option == "off" then
+            db.showHistory = option == "on"
+            Print("spawn spots from your gathering history " .. (db.showHistory and "ON" or "OFF") .. ".")
+        else
+            Print(string.format("gathering history: %d spots, shown %s. Use /nk history on, off or clear.", #db.history, db.showHistory and "ON" or "OFF"))
+        end
     elseif command == "clear" then
         db.pins = {}
         sweep, wait = nil, 0
@@ -1211,7 +1335,8 @@ local function HandleSlash(input)
         Print("/nk toggle - start or stop icons, scanning and swapping (also: /nk on, /nk off)")
         Print("/nk size <6-20> - dot size (8 is about the game's tracking dots)")
         Print("/nk keep <minutes> - remove dots not hovered again after this long (0 = until gathered)")
-        Print("/nk clear - remove all dots")
+        Print("/nk clear - remove the nodes you hovered (history stays)")
+        Print("/nk history on|off|clear - spawn spots where you gathered before")
         Print("/nk add herb|ore <name> - add a node missing from the list")
         Print("/nk unknown - list other names seen on the minimap")
     end
@@ -1238,6 +1363,10 @@ local function OnLogin()
     db.swapSeconds = db.swapSeconds or DEFAULT_SWAP_SECONDS
     -- Gathered markers and respawn guesses were removed (the user's choice).
     db.gathered, db.gatheredMinutes, db.respawnMinutes, db.respawn = nil, nil, nil, nil
+    db.history = db.history or {}
+    if db.showHistory == nil then
+        db.showHistory = true
+    end
     if db.enabled == nil then
         db.enabled = true
     end
@@ -1259,6 +1388,7 @@ local function OnLogin()
         end
         local ok, err = pcall(RunSwap, elapsed)
         if ok then ok, err = pcall(RunSweep, elapsed) end
+        if ok then ok, err = pcall(TrackHover) end
         if ok then ok, err = pcall(Draw) end
         if not ok then
             stats.lastError = tostring(err)
@@ -1295,7 +1425,9 @@ holder:SetScript("OnEvent", function(_, event, unit, target, spellID)
     elseif event == "UNIT_SPELLCAST_SENT" then
         -- Herb Gathering and Mining are aimed at the node, so the cast names it.
         if unit == "player" and Usable(target) and target and KindOf(CleanLine(target)) then
-            lastGather = { name = CleanLine(target), at = GetTime() }
+            local v = ReadView()
+            lastGather = { name = CleanLine(target), at = GetTime(),
+                mapID = v and v.mapID, east = v and v.east, north = v and v.north }
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- Turning on Find Herbs or Find Minerals: remember it in case the tracking list can't be read.

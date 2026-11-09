@@ -120,7 +120,7 @@ function CreateFrame(kind, name, parent)
   function f:Show() self.shown = true end
   function f:Hide() self.shown = false end
   if name == "DufforthTweaksHelperNodesFrame" then HOLDER = f elseif name == "DufforthTweaksHelperFrame" then TENTFRAME = f else ICONS[#ICONS+1] = f end
-  return setmetatable(f, { __index = function(_, k) if k == "marker" or k == "pin" then return nil end return function() end end })
+  return setmetatable(f, { __index = function(_, k) if k == "marker" or k == "pin" or k == "spot" then return nil end return function() end end })
 end
 UIParent = {}
 KNOWN = { [2383] = true, [2580] = true }
@@ -375,6 +375,55 @@ check("loot without a named cast removes the nearest dot within 20 yards", lua.e
 lua = fresh(); lua.execute(BLOCKED)
 lua.execute('CURSOR_AT(20, 10); GAMEHOVER("Peacebloom"); CURSOR_AT(26, 14); GAMEHOVER("Peacebloom"); RUN(0.1)')
 check("hovering the same node a bit off doesn't save a second copy", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
+
+# 4.6.0: gathering history. Spawn spots show for the untracked kind with no hovering.
+SPOTS = r"""
+function SPOTNAMES()
+  local t = {}
+  for _, i in ipairs(ICONS) do local sp = rawget(i, "spot"); if i.shown and sp then t[#t+1] = sp.name end end
+  table.sort(t); return table.concat(t, ",")
+end
+function SPOT(name) for _, i in ipairs(ICONS) do local sp = rawget(i, "spot"); if i.shown and sp and sp.name == name then return i end end end
+function GATHER(name) HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", name); FIRE("LOOT_CLOSED") end
+"""
+lua = fresh(); lua.execute(BLOCKED); lua.execute(SPOTS)
+check("history is on by default", lua.eval("DufforthTweaksHelperDB.nodes.showHistory") is True)
+lua.execute('GATHER("Peacebloom"); PLAYER.x = PLAYER.x + 80/MAP_W; GATHER("Copper Vein"); PLAYER.x = PLAYER.x - 80/MAP_W; RUN(0.1)')
+check("each gather saves a spawn spot", lua.eval("#DufforthTweaksHelperDB.nodes.history") == 2)
+lua.execute('SWAP(false,true); RUN(0.1)')
+check("a spot you just gathered stays hidden", lua.eval("SPOTNAMES()") == "", lua.eval("SPOTNAMES()"))
+lua.execute('NOW = NOW + 11*60; RUN(0.1)')
+check("finding minerals: the herb spawn spot shows, no hover needed", lua.eval("SPOTNAMES()") == "Peacebloom", lua.eval("SPOTNAMES()"))
+check("it shows the node's picture, a bit faded", lua.eval('SPOT("Peacebloom").art.texture') == 100000 + 2447 and lua.eval('SPOT("Peacebloom").alpha') == 0.75)
+err = lua.eval('(function() local i = SPOT("Peacebloom"); local px, py = worldToPx(2500, -2500); return math.sqrt((i.ox-px)^2 + (i.oy-py)^2) end)()')
+check("the spot sits where you stood when gathering", err < 0.5, f"{err:.2f} px off")
+lua.execute('local i = SPOT("Peacebloom"); i.scripts.OnEnter(i)')
+check("hovering a spot explains it", "you gathered it here 1 time, last today" in lua.eval("TIPTEXT()"), lua.eval("TIPTEXT()"))
+lua.execute('SWAP(true,false); RUN(0.1)')
+check("finding herbs: only the ore spot shows", lua.eval("SPOTNAMES()") == "Copper Vein", lua.eval("SPOTNAMES()"))
+lua.execute('PLAYER.x = PLAYER.x + 5/MAP_W; GATHER("Peacebloom"); PLAYER.x = PLAYER.x - 5/MAP_W; RUN(0.1)')
+check("gathering the same spot again adds to it, not a new one", lua.eval("#DufforthTweaksHelperDB.nodes.history") == 2 and lua.eval("DufforthTweaksHelperDB.nodes.history[1].count") == 2)
+lua.execute('MAPID = 1416; SWAP(false,true); NOW = NOW + 11*60; RUN(0.1)')
+check("other zones show none", lua.eval("SPOTNAMES()") == "")
+lua.execute('MAPID = 1415; RUN(0.1)')
+lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("history off"); lua.execute("RUN(0.1)")
+check("/nk history off hides spots", lua.eval("SPOTNAMES()") == "")
+lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("history on"); lua.execute("RUN(0.1)")
+check("/nk history on shows them", lua.eval("SPOTNAMES()") == "Peacebloom", lua.eval("SPOTNAMES()"))
+lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("clear"); lua.execute("RUN(0.1)")
+check("clearing hovered nodes keeps the history", lua.eval("SPOTNAMES()") == "Peacebloom")
+lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("history clear"); lua.execute("RUN(0.1)")
+check("/nk history clear removes it", lua.eval("SPOTNAMES()") == "" and lua.eval("#DufforthTweaksHelperDB.nodes.history") == 0)
+lua.execute('CASTFAIL = true; HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", "Chest"); FIRE("LOOT_CLOSED")')
+check("looting something that isn't a node saves nothing", lua.eval("#DufforthTweaksHelperDB.nodes.history") == 0)
+
+# Hover: the middle of the cursor positions while the tooltip is up, not the first touch.
+lua = fresh(); lua.execute(BLOCKED)
+lua.execute('TIPON = true; GameTooltip.IsShown = function() return TIPON end')
+lua.execute('CURSOR_AT(30, 20); OVER = true; GAMEHOOK(GameTooltip, { lines = { { leftText = "Peacebloom" } } })')
+lua.execute('RUN(0.05); CURSOR_AT(34, 20); RUN(0.05); CURSOR_AT(26, 24); RUN(0.05); CURSOR_AT(30, 16); RUN(0.05); TIPON = false; RUN(0.05); OVER = false')
+ox, oy = lua.eval("(function() local p = PINS()[1]; local x, y = worldToPx(p.east, p.north); return x end)()"), lua.eval("(function() local p = PINS()[1]; local x, y = worldToPx(p.east, p.north); return y end)()")
+check("hovered spot is the middle of where the tooltip showed", abs(ox - 30) < 0.5 and abs(oy - 20) < 0.5, f"{ox:.1f},{oy:.1f}")
 
 # The game's tracking list can't always be read: never draw over the game's own dots.
 lua = fresh()
