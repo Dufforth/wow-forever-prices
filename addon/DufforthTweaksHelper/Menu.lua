@@ -118,8 +118,11 @@ end
 local function GatherStatus()
     local status = DufforthTweaksHelperNodes and DufforthTweaksHelperNodes.Status and DufforthTweaksHelperNodes.Status()
     if not status then return "" end
-    if not status.api then return "|cffff5555This game version doesn't let addons read the minimap, so icons can't be found.|r" end
     if not status.enabled then return "Herb and ore icons are off." end
+    if status.blocked or not status.api then
+        return string.format("|cffffd100Hover each yellow dot on the minimap once|r: it gets an icon with its picture that stays through tracking swaps until you gather it. (Since the 7 November game patch, addons can't read the minimap by themselves.) Icons saved: %d. Gathered spots: %d.",
+            status.icons, status.gathered)
+    end
     if not status.tracking then return "|cffffd100Turn on Find Herbs or Find Minerals so icons can be found.|r" end
     local text = string.format("Tracking %s. Icons saved: %d. Dots seen in the last check: %d.", status.tracking, status.icons, status.lastDots)
     if status.lastError then text = text .. "\n|cffff5555Last error: " .. status.lastError .. "|r" end
@@ -132,8 +135,8 @@ local function BuildGather(page)
     local status = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     status:SetPoint("TOPLEFT", 12, y); status:SetWidth(WIDTH - 50); status:SetJustifyH("LEFT")
     refreshers[#refreshers + 1] = function() status:SetText(GatherStatus()) end
-    y = y - 30
-    y = Check(page, y, "Keep herb and ore icons on the minimap", "Remembers the herbs and ore your tracking shows and keeps a small icon on each after you swap tracking, until you gather it. Same as /nk on and /nk off.",
+    y = y - 58
+    y = Check(page, y, "Keep herb and ore icons on the minimap", "Remembers each herb and ore dot you hover on the minimap, and each node you gather, and keeps a small icon with its picture there after you swap tracking, until you gather it. Same as /nk on and /nk off.",
         function() return Nodes().enabled end, function(on) NodesCommand(on and "on" or "off") end)
     y = Check(page, y, "Names beside icons", "Shows the herb or ore name next to each icon. Same as /nk names.",
         function() return Nodes().labels end, function(on) if (Nodes().labels and true or false) ~= on then NodesCommand("names") end end)
@@ -143,9 +146,9 @@ local function BuildGather(page)
         function() return Nodes().swapSeconds end, function(v) NodesCommand("swap " .. v) end, 2, 60, 1, function(v) return (v or 0) .. " sec" end)
     y = Stepper(page, y, "Icon size", "Size of the herb and ore icons. 10 matches the game's yellow tracking dots.",
         function() return Nodes().size end, function(v) NodesCommand("size " .. v) end, 6, 20, 1)
-    y = Stepper(page, y, "Forget unseen icons after", "Icons you haven't seen again are removed after this long. 0 keeps them until you gather them.",
-        function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 10, function(v) return v == 0 and "never" or (v .. " min") end)
-    y = Stepper(page, y, "Gathered markers last", "How long a 'gathered' marker stays where you picked a node. 0 turns them off.",
+    y = Stepper(page, y, "Forget unseen icons after", "Icons are removed after this long without being hovered again. 'until gathered' keeps them until you gather the node.",
+        function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 10, function(v) return v == 0 and "until gathered" or (v .. " min") end)
+    y = Stepper(page, y, "Gathered markers last", "A gray marker shows where you gathered a node and how many minutes ago, so you can come back. The game doesn't tell addons respawn times; hovering the dot when it's back clears the marker. 0 turns markers off.",
         function() return Nodes().gatheredMinutes end, function(v) NodesCommand("gathered " .. v) end, 0, 240, 10, function(v) return v == 0 and "off" or (v .. " min") end)
     Button(page, y, "Clear all icons", "Removes every herb and ore icon and gathered marker.", function() NodesCommand("clear") end)
     Button(page, y, "Status in chat", "Prints what the icon finder sees right now, to help when icons don't show. Same as /nk status.", function() NodesCommand("status") end, 184, 150)

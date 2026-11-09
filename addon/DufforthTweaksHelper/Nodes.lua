@@ -5,6 +5,11 @@
 -- minimap's mouseover to any point and read the names under it, so the minimap is
 -- swept with a grid of those probes, and each dot found is stored as a world position.
 -- The herb and ore name list comes from ForeverMinimap (ljukas/forever-addons, MIT).
+--
+-- Forever client 1.60.1.70862 (7 November 2026) stopped that probing for addons: every probe
+-- reads nothing, or the dot the player last hovered (ForeverMinimap found the same and turned
+-- its scan off). From that build on, a dot is remembered when YOU hover it on the minimap (the
+-- game's own tooltip names it), and a gathered spot when you gather it (the cast names the node).
 
 local GRID_STEP = 7 -- minimap pixels between probes
 local PROBES_PER_FRAME = 60
@@ -26,7 +31,11 @@ local MAX_ICONS = 60
 local DEFAULT_SIZE = 10 -- the size of the game's yellow tracking dots
 local OLD_DEFAULT_SIZE = 14
 local MIN_SIZE, MAX_SIZE = 6, 20
-local DEFAULT_KEEP_MINUTES = 30
+local DEFAULT_KEEP_MINUTES = 0 -- keep icons until you gather them (the user's choice)
+local OLD_DEFAULT_KEEP_MINUTES = 30
+local PROBING_BLOCKED_FROM_BUILD = 70862
+local HOVER_WEIGHT_CAP = 5 -- a remembered spot moves toward later hovers, up to 1/5 per hover
+local GATHER_SECONDS = 20 -- how long after a gathering cast the loot still counts as that node
 local DEFAULT_GATHERED_MINUTES = 60
 local GATHERED_GRACE = 10 -- seconds a gathered dot may linger before it counts as back
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
@@ -280,7 +289,14 @@ local swapTimer = 0
 local lootOpen = false
 local grid, gridWidth, gridSquare
 local icons = {}
-local stats = { sweeps = 0, lastDots = 0, lastError = nil }
+local stats = { sweeps = 0, lastDots = 0, lastError = nil, hovered = 0 }
+local lastGather -- { name, at }: the node your last gathering cast was aimed at
+
+-- True on clients that no longer let addons probe the minimap.
+local function ProbingBlocked()
+    local build = GetBuildInfo and tonumber((select(2, GetBuildInfo())))
+    return build ~= nil and build >= PROBING_BLOCKED_FROM_BUILD
+end
 
 local holder = CreateFrame("Frame", "DufforthTweaksHelperNodesFrame", Minimap)
 
@@ -576,7 +592,7 @@ local function FinishSweep(v)
 end
 
 local function RunSweep(elapsed)
-    if not (tracked.herb or tracked.ore) then
+    if ProbingBlocked() or not (tracked.herb or tracked.ore) then
         sweep = nil
         return
     end
@@ -738,17 +754,55 @@ local function AddGatherLines(tooltip, name, kind, withName)
 end
 
 -- Hovering a tracked dot that has no icon on it shows the same information.
+-- Remembers a node where the mouse is: a new icon, or a better position for one already there.
+-- Seeing it again also clears a gathered marker of the same name there: it has come back.
+local function LearnAtCursor(name, kind)
+    local v = ReadView()
+    if not v or not GetCursorPosition or not Minimap:GetLeft() then
+        return
+    end
+    local x, y = GetCursorPosition()
+    local scale = Minimap:GetEffectiveScale()
+    local ox = x / scale - Minimap:GetLeft() - v.half
+    local oy = y / scale - Minimap:GetBottom() - v.half
+    if ox * ox + oy * oy > v.half * v.half * 1.2 then
+        return
+    end
+    local east, north = OffsetToWorld(ox, oy, v)
+    local reach = math.max(MATCH_YARDS, MATCH_PIXELS / v.pixelsPerYard)
+    local now = time()
+    local pin = FindPin(name, east, north, reach, {})
+    if pin then
+        local weight = math.min(pin.hovers or 1, HOVER_WEIGHT_CAP)
+        pin.east = (pin.east * weight + east) / (weight + 1)
+        pin.north = (pin.north * weight + north) / (weight + 1)
+        pin.hovers = (pin.hovers or 1) + 1
+    elseif #db.pins < 500 then
+        pin = { name = name, kind = kind, mapID = v.mapID, east = east, north = north, hovers = 1 }
+        db.pins[#db.pins + 1] = pin
+        stats.hovered = stats.hovered + 1
+    end
+    if pin then
+        pin.seenAt, pin.misses = now, 0
+        ClearGatheredNear(name, east, north, reach, v.mapID, now)
+    end
+end
+
 local function OnGameMinimapTooltip(tooltip, data)
     if not db or not db.enabled or not Usable(data) or not Usable(data.lines) then
         return
     end
     local added = false
+    local mouseOnMap = Minimap:IsMouseOver()
     for _, line in ipairs(data.lines) do
         local text = Usable(line) and line.leftText
         if text and Usable(text) then
             for part in string.gmatch(text, "[^\n]+") do
                 local name = CleanLine(part)
                 local kind = KindOf(name)
+                if kind and mouseOnMap then
+                    LearnAtCursor(name, kind)
+                end
                 if kind and AddGatherLines(tooltip, name, kind, true) then
                     added = true
                 end
@@ -766,7 +820,7 @@ local function ShowMarkerTooltip(icon)
     GameTooltip:SetOwner(icon, "ANCHOR_LEFT")
     GameTooltip:SetText(marker.name, 0.7, 0.7, 0.7)
     GameTooltip:AddLine(minutes < 1 and "Gathered just now" or ("Gathered " .. minutes .. " min ago"), 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("It may not come back in this exact spot", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("The game doesn't share respawn times. When the dot is back, hover it to clear this.", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
@@ -1058,14 +1112,18 @@ local function RemoveGatheredNode()
             end
         end
     end
+    local spot
     if bestIndex then
-        local pin = table.remove(db.pins, bestIndex)
-        if db.gatheredMinutes > 0 then
-            db.gathered[#db.gathered + 1] = {
-                name = pin.name, kind = pin.kind, mapID = pin.mapID,
-                east = pin.east, north = pin.north, gatheredAt = time(),
-            }
-        end
+        spot = table.remove(db.pins, bestIndex)
+    elseif lastGather and GetTime() - lastGather.at <= GATHER_SECONDS then
+        spot = { name = lastGather.name, kind = KindOf(lastGather.name), mapID = v.mapID, east = v.east, north = v.north }
+    end
+    lastGather = nil
+    if spot and db.gatheredMinutes > 0 then
+        db.gathered[#db.gathered + 1] = {
+            name = spot.name, kind = spot.kind, mapID = spot.mapID,
+            east = spot.east, north = spot.north, gatheredAt = time(),
+        }
     end
     sweep, wait = nil, 0.5
 end
@@ -1108,6 +1166,9 @@ DufforthTweaksHelperNodes = {
         if tracked.herb then kinds[#kinds + 1] = "herbs" end
         if tracked.ore then kinds[#kinds + 1] = "ore" end
         return {
+            blocked = ProbingBlocked(),
+            hovered = stats.hovered,
+            gathered = #db.gathered,
             api = Minimap.UpdateMouseoverAtPoint ~= nil and Minimap.SetUsingSoftCursor ~= nil
                 and C_TooltipInfo ~= nil and C_TooltipInfo.GetMinimapMouseover ~= nil,
             enabled = db.enabled == true,
@@ -1209,7 +1270,9 @@ local function OnLogin()
         db.size = DEFAULT_SIZE
     end
     db.size = math.max(MIN_SIZE, math.min(MAX_SIZE, db.size))
-    db.keepMinutes = db.keepMinutes or DEFAULT_KEEP_MINUTES
+    if db.keepMinutes == nil or db.keepMinutes == OLD_DEFAULT_KEEP_MINUTES then
+        db.keepMinutes = DEFAULT_KEEP_MINUTES
+    end
     db.swapSeconds = db.swapSeconds or DEFAULT_SWAP_SECONDS
     db.gathered = db.gathered or {}
     db.gatheredMinutes = db.gatheredMinutes or DEFAULT_GATHERED_MINUTES
@@ -1252,9 +1315,10 @@ holder:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 holder:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 holder:RegisterEvent("LOOT_CLOSED")
 holder:RegisterEvent("LOOT_OPENED")
+holder:RegisterEvent("UNIT_SPELLCAST_SENT")
 holder:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-holder:SetScript("OnEvent", function(_, event)
+holder:SetScript("OnEvent", function(_, event, unit, target)
     if event == "PLAYER_LOGIN" then
         OnLogin()
     elseif not db then
@@ -1264,6 +1328,11 @@ holder:SetScript("OnEvent", function(_, event)
             -- Dots take a moment to change after a swap, so don't count them as gone yet.
             trustMissesAt = GetTime() + SWAP_GRACE
             sweep, wait = nil, SWAP_SETTLE
+        end
+    elseif event == "UNIT_SPELLCAST_SENT" then
+        -- Herb Gathering and Mining are aimed at the node, so the cast names it.
+        if unit == "player" and Usable(target) and target and KindOf(CleanLine(target)) then
+            lastGather = { name = CleanLine(target), at = GetTime() }
         end
     elseif event == "LOOT_OPENED" then
         lootOpen = true

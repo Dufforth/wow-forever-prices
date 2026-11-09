@@ -304,8 +304,40 @@ check("no scanning while the mouse is on the minimap", lua.eval("PROBES") == 0)
 lua.execute('OVER = false; RUN(3)'); check("scanning resumes", lua.eval("COUNT()") == 1)
 
 lua = fresh()
+check("icons stay until gathered by default", lua.eval("DufforthTweaksHelperDB.nodes.keepMinutes") == 0)
+lua.execute('SlashCmdList.DUFFORTHTWEAKSHELPERNODES("keep 30")')
 lua.execute('ADD("Peacebloom","herb",60,40); RUN(3); SWAP(false,true); RUN(1); REMOVE("Peacebloom"); NOW = NOW + 31*60; RUN(6)')
-check("unseen icon removed after keep time", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 0)
+check("unseen icon removed after keep time, if one is set", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 0)
+
+# Client 70862 and later: no probing; dots are learned from the player's hover and from gathering.
+BLOCKED = r"""
+GetBuildInfo = function() return "1.60.1", "70862" end
+CURSOR_AT = function(ox, oy) GetCursorPosition = function() return 1000 + 70 + ox, 600 + 70 + oy end end
+function GAMEHOVER(name) OVER = true; GAMEHOOK(GameTooltip, { lines = { { leftText = name } } }); OVER = false end
+"""
+lua = fresh(); lua.execute(BLOCKED)
+lua.execute('ADD("Peacebloom","herb",60,40); RUN(3)')
+check("blocked client: nothing is probed", lua.eval("PROBES") == 0 and lua.eval("COUNT()") == 0)
+ox, oy = lua.eval('(function() local x, y = worldToPx(WORLD[1].east, WORLD[1].north) return x end)()'), lua.eval('(function() local x, y = worldToPx(WORLD[1].east, WORLD[1].north) return y end)()')
+lua.execute(f'CURSOR_AT({ox + 2}, {oy - 1}); GAMEHOVER("Peacebloom"); RUN(0.2)')
+check("hovering a dot gives it an icon with its picture", lua.eval("NAMES()") == "Peacebloom" and lua.eval('FIND("Peacebloom").art.texture') == 100000 + 2447)
+check("the icon sits where you hovered", lua.eval('ERR("Peacebloom")') < 3)
+lua.execute('GAMEHOVER("Peacebloom"); RUN(0.2)')
+check("hovering again doesn't add a second icon", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
+lua.execute('SWAP(false,true); RUN(10); NOW = NOW + 3*3600; RUN(6)')
+check("it stays through tracking swaps and time", lua.eval("NAMES()") == "Peacebloom")
+lua.execute('CURSOR_AT(0, 0); GAMEHOOK(GameTooltip, { lines = { { leftText = "SomeFriend" } } }); RUN(0.2)')
+check("other names under the cursor add nothing", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
+# Walk to it and gather: the cast names the node.
+lua.execute('PLAYER.x = PLAYER.x + 60/MAP_W; PLAYER.y = PLAYER.y - 40/MAP_H; FIRE("UNIT_SPELLCAST_SENT", "player", "Peacebloom"); HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", "Peacebloom"); FIRE("LOOT_CLOSED"); RUN(1)')
+check("gathering removes the icon and leaves a marker", lua.eval("COUNT()") == 0 and lua.eval('MARK("Peacebloom") ~= nil') is True)
+lua = fresh(); lua.execute(BLOCKED)
+lua.execute('HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", "Copper Vein"); FIRE("LOOT_CLOSED"); RUN(1)')
+check("gathering a node you never hovered still leaves a marker", lua.eval('MARK("Copper Vein") ~= nil') is True)
+lua.execute('NOW = NOW + 15; HOLDER.scripts.OnEvent(HOLDER, "UNIT_SPELLCAST_SENT", "player", "Some Chest"); FIRE("LOOT_CLOSED"); RUN(1)')
+check("looting something else adds no marker", lua.eval("MARKS()") == 1)
+lua.execute('NOW = NOW + 12*60; CURSOR_AT(0, 0); GAMEHOVER("Copper Vein"); RUN(0.2)')
+check("hovering the node when it's back clears the marker", lua.eval('MARK("Copper Vein")') is None and lua.eval('FIND("Copper Vein") ~= nil') is True)
 lua = fresh()
 lua.execute('SlashCmdList.DUFFORTHTWEAKSHELPERNODES("keep 0"); ADD("Peacebloom","herb",60,40); RUN(3); SWAP(false,true); RUN(1); NOW = NOW + 600*60; RUN(6)')
 check("/nk keep 0 keeps icons", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
