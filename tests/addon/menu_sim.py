@@ -204,10 +204,7 @@ swap = box_for("Swap tracking automatically")
 swap.checked = True
 swap.scripts.OnClick(swap)
 check("ticking swap runs /nk swap on", list(g.NODES.values())[-1] == "swap on")
-names = box_for("Names beside icons")
-names.checked = True
-names.scripts.OnClick(names)
-check("ticking names runs /nk names", list(g.NODES.values())[-1] == "names")
+check("no names option any more", box_for("Names beside icons") is None)
 tips = box_for("Disenchant advice in item tooltips")
 tips.checked = False
 tips.scripts.OnClick(tips)

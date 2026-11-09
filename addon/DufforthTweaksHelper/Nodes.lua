@@ -28,8 +28,8 @@ local DEFAULT_SWAP_SECONDS = 4
 local FIND_HERBS, FIND_MINERALS = 2383, 2580
 local EDGE_MARGIN = 4
 local MAX_ICONS = 60
-local DEFAULT_SIZE = 10 -- the size of the game's yellow tracking dots
-local OLD_DEFAULT_SIZE = 14
+local DEFAULT_SIZE = 8 -- about the size of the game's yellow tracking dots
+local OLD_DEFAULT_SIZES = { [10] = true, [14] = true }
 local MIN_SIZE, MAX_SIZE = 6, 20
 local DEFAULT_KEEP_MINUTES = 0 -- keep icons until you gather them (the user's choice)
 local OLD_DEFAULT_KEEP_MINUTES = 30
@@ -41,7 +41,11 @@ local GATHER_SECONDS = 20 -- how long after a gathering cast the loot still coun
 local DEFAULT_GATHERED_MINUTES = 60
 local GATHERED_GRACE = 10 -- seconds a gathered dot may linger before it counts as back
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
-local ROUND_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+-- A white disc, tinted to make the dots. If a client lacks it, the game's small yellow ball is used.
+local DOT = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local DOT_FALLBACK = "Interface\\COMMON\\Indicator-Yellow"
+local YELLOW = { 1, 0.82, 0 }
+local GRAY = { 0.6, 0.6, 0.6 }
 
 local FIND_SPELLS = { [2383] = "herb", [8387] = "herb", [2580] = "ore", [8388] = "ore" }
 -- When the game gives no spell number: the tracking names and pictures.
@@ -690,25 +694,6 @@ end
 -- Drawing
 -- ---------------------------------------------------------------------------
 
--- The node's own item picture, or the general herb or ore picture if it has none.
-local itemPictures = {}
-
-local function PictureFor(pin)
-    local picture = itemPictures[pin.name]
-    if picture then
-        return picture
-    end
-    local item = NODE_ITEMS[pin.name]
-    if item and C_Item and C_Item.GetItemIconByID then
-        picture = C_Item.GetItemIconByID(item)
-        if Usable(picture) and picture then
-            itemPictures[pin.name] = picture
-            return picture
-        end
-    end
-    return STYLE[pin.kind].icon
-end
-
 -- ---------------------------------------------------------------------------
 -- Can you gather it? Skill, and the color for how likely a skill point is.
 -- ---------------------------------------------------------------------------
@@ -900,19 +885,18 @@ end
 local function NewIcon()
     local icon = CreateFrame("Frame", nil, holder)
     icon:SetFrameLevel(holder:GetFrameLevel()) -- under the minimap's buttons (mail, zoom, tracking)
+    -- A plain dot with a thin dark edge, like the game's own tracking dots.
+    icon.edge = icon:CreateTexture(nil, "ARTWORK")
+    icon.edge:SetPoint("TOPLEFT", -1, 1)
+    icon.edge:SetPoint("BOTTOMRIGHT", 1, -1)
     icon.art = icon:CreateTexture(nil, "OVERLAY")
     icon.art:SetAllPoints()
-    icon.art:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    -- Item pictures are square; the mask cuts them to a plain circle.
-    -- If the game lacks the mask picture, skip it: a square icon beats an invisible one.
-    if icon.CreateMaskTexture and icon.art.AddMaskTexture then
-        icon.mask = icon:CreateMaskTexture()
-        if icon.mask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") ~= false then
-            icon.mask:SetAllPoints(icon.art)
-            icon.art:AddMaskTexture(icon.mask)
-        else
-            icon.mask = nil
-        end
+    if icon.art:SetTexture(DOT) == false then
+        icon.art:SetTexture(DOT_FALLBACK)
+        icon.edge:Hide()
+    else
+        icon.edge:SetTexture(DOT)
+        icon.edge:SetVertexColor(0, 0, 0, 0.85)
     end
     icon.label = icon:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     icon.label:SetPoint("LEFT", icon, "RIGHT", 1, 0)
@@ -950,7 +934,7 @@ local function Draw()
         local square = IsSquare()
         local reach = v.half - size * 0.75 - EDGE_MARGIN
         for _, pin in ipairs(db.pins) do
-            if pin.mapID == v.mapID and shown < MAX_ICONS then
+            if pin.mapID == v.mapID and not tracked[pin.kind] and shown < MAX_ICONS then
                 local ox, oy = WorldToOffset(pin.east, pin.north, v)
                 local inside
                 if square then
@@ -966,24 +950,20 @@ local function Draw()
                         icon = NewIcon()
                         icons[shown] = icon
                     end
-                    local style = STYLE[pin.kind]
                     icon.pin = pin
                     icon.marker = nil
-                    icon.art:SetDesaturated(false)
                     icon:SetSize(size, size)
-                    icon.art:SetTexture(PictureFor(pin))
-                    icon.label:SetText(pin.name)
-                    icon.label:SetTextColor(style.r, style.g, style.b)
-                    icon.label:SetShown(db.labels == true)
+                    icon.art:SetVertexColor(YELLOW[1], YELLOW[2], YELLOW[3])
+                    icon.label:SetShown(false)
                     icon:ClearAllPoints()
                     icon:SetPoint("CENTER", Minimap, "CENTER", ox, oy)
-                    icon:SetAlpha(tracked[pin.kind] and 1 or 0.8)
+                    icon:SetAlpha(1)
                     icon:Show()
                 end
             end
         end
 
-        -- Gathered markers: a gray picture with the minutes since you gathered it.
+        -- Gathered markers: a gray dot with the minutes until it's likely back.
         local now = time()
         for _, marker in ipairs(db.gathered) do
             if marker.mapID == v.mapID and shown < MAX_ICONS then
@@ -1005,8 +985,7 @@ local function Draw()
                     icon.pin = nil
                     icon.marker = marker
                     icon:SetSize(size, size)
-                    icon.art:SetTexture(PictureFor(marker))
-                    icon.art:SetDesaturated(true)
+                    icon.art:SetVertexColor(GRAY[1], GRAY[2], GRAY[3])
                     local left = RespawnEstimate(marker.name, marker.kind) - (now - marker.gatheredAt)
                     if left > 0 then
                         icon.label:SetText("~" .. math.ceil(left / 60) .. "m")
@@ -1280,9 +1259,6 @@ local function HandleSlash(input)
     elseif command == "respawn" and tonumber(rest) then
         db.respawnMinutes = math.max(1, math.min(120, math.floor(tonumber(rest))))
         Print("respawn guess is " .. db.respawnMinutes .. " min (used until you've seen nodes come back).")
-    elseif command == "names" then
-        db.labels = not db.labels
-        Print("names beside icons " .. (db.labels and "ON" or "OFF") .. ".")
     elseif command == "clear" then
         db.pins = {}
         db.gathered = {}
@@ -1309,7 +1285,6 @@ local function HandleSlash(input)
         Print("/nk swap <2-60> - seconds between swaps")
         Print("/nk toggle - start or stop icons, scanning and swapping (also: /nk on, /nk off)")
         Print("/nk size <6-20> - icon size (10 matches the yellow tracking dots)")
-        Print("/nk names - show or hide names beside the icons")
         Print("/nk gathered <minutes> - how long gathered markers stay (0 = off)")
         Print("/nk respawn <minutes> - respawn guess until the addon has learned real times")
         Print("/nk keep <minutes> - remove unseen icons after this long (0 = never)")
@@ -1329,8 +1304,8 @@ local function OnLogin()
     db.pins = db.pins or {}
     db.custom = db.custom or {}
     db.unknown = {}
-    -- The old default (14) was too big next to the game's tracking dots.
-    if not db.size or db.size == OLD_DEFAULT_SIZE then
+    -- Old defaults (14, then 10) were too big next to the game's tracking dots.
+    if not db.size or OLD_DEFAULT_SIZES[db.size] then
         db.size = DEFAULT_SIZE
     end
     db.size = math.max(MIN_SIZE, math.min(MAX_SIZE, db.size))

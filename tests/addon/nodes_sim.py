@@ -92,7 +92,7 @@ GetProfessions = function() return PROF[1] and 1 or nil, PROF[2] and 2 or nil en
 GetProfessionInfo = function(i) local p = PROF[i]; return "Prof", 1, p.rank, 300, 1, 1, p.line, p.mod end
 Enum = { TooltipDataType = { MinimapMouseover = 99 } }
 TooltipDataProcessor = { AddTooltipPostCall = function(kind, f) GAMEHOOK = f end }
-function HOVER(name) local i = FIND(name); i.scripts.OnEnter(i) end
+function HOVER(name) local i = DRAWN(name); i.scripts.OnEnter(i) end
 ICONS, FONTS = {}, {}
 UnitName = function() return "Dufforth" end
 GetRealmName = function() return "CAMWOW US1 Realm 4 PvP" end
@@ -163,7 +163,13 @@ function SHOWN()
   end
   return out
 end
-function COUNT() return #SHOWN() end
+-- Remembered nodes (stored), whether or not a dot is drawn for them right now.
+function PINS()
+  local out = {}
+  for _, p in ipairs(DufforthTweaksHelperDB.nodes.pins) do if p.mapID == (MAPID or 1415) then out[#out+1] = p end end
+  return out
+end
+function COUNT() return #PINS() end
 function MARK(name)
   for _, i in ipairs(ICONS) do
     local m = rawget(i, "marker")
@@ -177,12 +183,30 @@ function MARKS()
 end
 function NAMES()
   local t = {}
+  for _, p in ipairs(PINS()) do t[#t+1] = p.name end
+  table.sort(t)
+  return table.concat(t, ",")
+end
+-- The drawn dot for a node, or nil.
+function DRAWN(name)
+  for _, i in ipairs(SHOWN()) do if i.pin.name == name then return i end end
+end
+function DRAWNNAMES()
+  local t = {}
   for _, i in ipairs(SHOWN()) do t[#t+1] = i.pin.name end
   table.sort(t)
   return table.concat(t, ",")
 end
+-- The drawn dot, or a stand-in at the remembered spot.
 function FIND(name)
-  for _, i in ipairs(SHOWN()) do if i.pin.name == name then return i end end
+  local drawn = DRAWN(name)
+  if drawn then return drawn end
+  for _, p in ipairs(PINS()) do
+    if p.name == name then
+      local ox, oy = worldToPx(p.east, p.north)
+      return { pin = p, ox = ox, oy = oy, stand_in = true }
+    end
+  end
 end
 function ERR(name)
   local i = FIND(name)
@@ -237,12 +261,9 @@ check("soft cursor always on while probing, off after", lua.eval("SOFT_ON_DURING
 lua.execute("SWAP(false, true); RUN(6)")
 check("herb STAYS after swapping to ore", "Peacebloom" in lua.eval("NAMES()"), lua.eval("NAMES()"))
 check("ore appears after the swap", "Copper Vein" in lua.eval("NAMES()"), lua.eval("NAMES()"))
-check("remembered herb is dimmed", lua.eval('FIND("Peacebloom").alpha') == 0.8)
-check("tracked ore is full strength", lua.eval('FIND("Copper Vein").alpha') == 1)
-h, o = lua.eval('FIND("Peacebloom").art.texture'), lua.eval('FIND("Copper Vein").art.texture')
-check("herb and ore use different pictures", h != o, f"{h} / {o}")
-check("icons have no border", lua.eval('rawget(FIND("Peacebloom"), "border")') is None and lua.eval('rawget(FIND("Copper Vein"), "border")') is None)
-check("icons are cut to a circle", lua.eval('FIND("Peacebloom").art.mask ~= nil') is True and "TempPortraitAlphaMask" in lua.eval('FIND("Peacebloom").art.mask.texture'))
+check("only the untracked herb gets a drawn dot (the game draws the ore)", lua.eval("DRAWNNAMES()") == "Peacebloom", lua.eval("DRAWNNAMES()"))
+check("the dot is plain yellow, no picture or name", lua.eval('DRAWN("Peacebloom").art.r') == 1 and abs(lua.eval('DRAWN("Peacebloom").art.g') - 0.82) < 1e-9 and lua.eval('DRAWN("Peacebloom").label.visible') is False and "TempPortraitAlphaMask" in lua.eval('DRAWN("Peacebloom").art.texture'))
+check("dots are 8 px by default", lua.eval("DufforthTweaksHelperDB.nodes.size") == 8)
 lua.execute("SWAP(true, false); RUN(6)")
 check("ore stays after swapping back", lua.eval("NAMES()") == "Copper Vein,Peacebloom", lua.eval("NAMES()"))
 check("no duplicates after several swaps", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 2, lua.eval("#DufforthTweaksHelperDB.nodes.pins"))
@@ -279,7 +300,7 @@ lua = fresh()
 lua.execute('ADD("Peacebloom","herb",60,40); RUN(3); SWAP(false,true); PLAYER.x = PLAYER.x + 30/MAP_W; PLAYER.y = PLAYER.y + 20/MAP_H; RUN(0.1)')
 err = lua.eval('ERR("Peacebloom")'); check("icon follows the world when you walk", err < 3, f"{err:.2f} px off")
 lua.execute('PLAYER.x = PLAYER.x + 500/MAP_W; RUN(0.1)')
-check("icon hidden when out of minimap range", lua.eval("COUNT()") == 0)
+check("dot hidden when out of minimap range", lua.eval("DRAWNNAMES()") == "")
 check("...but still remembered", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
 lua.execute('PLAYER.x = PLAYER.x - 500/MAP_W; RUN(0.1)')
 check("...and back when you return", lua.eval("COUNT()") == 1)
@@ -320,7 +341,10 @@ lua.execute('ADD("Peacebloom","herb",60,40); RUN(3)')
 check("blocked client: nothing is probed", lua.eval("PROBES") == 0 and lua.eval("COUNT()") == 0)
 ox, oy = lua.eval('(function() local x, y = worldToPx(WORLD[1].east, WORLD[1].north) return x end)()'), lua.eval('(function() local x, y = worldToPx(WORLD[1].east, WORLD[1].north) return y end)()')
 lua.execute(f'CURSOR_AT({ox + 2}, {oy - 1}); GAMEHOVER("Peacebloom"); RUN(0.2)')
-check("hovering a dot gives it an icon with its picture", lua.eval("NAMES()") == "Peacebloom" and lua.eval('FIND("Peacebloom").art.texture') == 100000 + 2447)
+check("hovering a dot remembers it", lua.eval("NAMES()") == "Peacebloom")
+lua.execute('SWAP(false,true); RUN(0.1)')
+check("and it shows as a yellow dot after swapping to minerals", lua.eval('DRAWN("Peacebloom") ~= nil') is True)
+lua.execute('SWAP(true,false); RUN(0.1)')
 check("the icon sits where you hovered", lua.eval('ERR("Peacebloom")') < 3)
 lua.execute('GAMEHOVER("Peacebloom"); RUN(0.2)')
 check("hovering again doesn't add a second icon", lua.eval("#DufforthTweaksHelperDB.nodes.pins") == 1)
@@ -424,7 +448,7 @@ check("icon there before stopping", lua.eval("COUNT()") >= 1)
 nk(lua, "off")
 lua.execute("CASTS = {}; P = PROBES; RUN(20)")
 check("/nk off stops swaps and scans", lua.eval("#CASTS") == 0 and lua.eval("PROBES") == lua.eval("P"))
-check("/nk off hides icons", lua.eval("COUNT()") == 0)
+check("/nk off hides dots (they stay remembered)", lua.eval("DRAWNNAMES()") == "" and lua.eval("COUNT()") >= 1)
 nk(lua, "toggle"); lua.execute("RUN(3)")
 check("/nk toggle brings it all back", lua.eval("COUNT()") >= 1 and lua.eval("#CASTS") >= 1)
 lua.execute("RESTING = true; CHAT = {}"); nk(lua, "status")
@@ -436,25 +460,18 @@ lua = fresh()
 lua.execute('ADD("Copper Vein","ore",60,40); ADD("Tin Vein","ore",-60,40); ADD("Iron Deposit","ore",-60,-40); ADD("Peacebloom","herb",60,-40); ADD("Silverleaf","herb",30,-70)')
 lua.execute("SWAP(true,true); RUN(3)")
 check("all five types found", lua.eval("COUNT()") == 5, lua.eval("NAMES()"))
-pics = {n: lua.eval('FIND("%s").art.texture' % n) for n in ["Copper Vein", "Tin Vein", "Iron Deposit", "Peacebloom", "Silverleaf"]}
-check("every type has its own picture", len(set(pics.values())) == 5, pics)
-check("the picture is the item the node gives", pics["Copper Vein"] == 100000 + 2770 and pics["Peacebloom"] == 100000 + 2447, pics["Copper Vein"])
-check("names hidden by default", lua.eval('FIND("Copper Vein").label.visible') is False)
+check("nothing is drawn while both trackings are on (the game shows them)", lua.eval("DRAWNNAMES()") == "")
+lua.execute("SWAP(false,true); RUN(0.1)")
+check("finding minerals: herbs stay as yellow dots, ores are the game's", lua.eval("DRAWNNAMES()") == "Peacebloom,Silverleaf", lua.eval("DRAWNNAMES()"))
+lua.execute("SWAP(true,false); RUN(0.1)")
+check("finding herbs: ores stay as yellow dots", lua.eval("DRAWNNAMES()") == "Copper Vein,Iron Deposit,Tin Vein", lua.eval("DRAWNNAMES()"))
+check("every dot is the same plain yellow", all(lua.eval('DRAWN("%s").art.b' % n) == 0 for n in ["Copper Vein", "Tin Vein", "Iron Deposit"]))
+check("no names beside dots", lua.eval('DRAWN("Copper Vein").label.visible') is False)
 lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("names"); lua.execute("RUN(0.1)")
-check("/nk names shows the type name", lua.eval('FIND("Copper Vein").label.visible') is True and lua.eval('FIND("Copper Vein").label.text') == "Copper Vein")
-lua.globals().SlashCmdList.DUFFORTHTWEAKSHELPERNODES("names"); lua.execute("RUN(0.1)")
-check("/nk names hides it again", lua.eval('FIND("Copper Vein").label.visible') is False)
+check("even after the old /nk names", lua.eval('DRAWN("Copper Vein").label.visible') is False)
 lua = fresh()
-lua.execute('NO_ITEM_ICONS = true; ADD("Copper Vein","ore",60,40); SWAP(false,true); RUN(3)')
-check("falls back to the ore picture if the game has no item icon", lua.eval('FIND("Copper Vein").art.texture') == "Interface\\Icons\\Spell_Nature_Earthquake")
-lua.execute('NO_ITEM_ICONS = false; RUN(0.1)')
-check("item picture appears once available", lua.eval('FIND("Copper Vein").art.texture') == 100000 + 2770)
-lua = fresh()
-lua.execute('ADD("Chunk of Amber","ore",60,40); SWAP(false,true); RUN(3)')
-check("node without an item uses the ore picture", lua.eval('FIND("Chunk of Amber").art.texture') == "Interface\\Icons\\Spell_Nature_Earthquake")
-lua = fresh()
-lua.execute('DufforthTweaksHelperDB = {nodes={pins={{name="Tin Vein",kind="ore",mapID=1415,east=2510,north=-2490,seenAt=NOW,misses=0}}}}; FIRE("PLAYER_LOGIN"); SWAP(true,false); RUN(0.1)')
-check("icons saved before this update get the new picture", lua.eval('FIND("Tin Vein").art.texture') == 100000 + 2771, lua.eval('FIND("Tin Vein") and FIND("Tin Vein").art.texture'))
+lua.execute('DufforthTweaksHelperDB = {nodes={size=10, pins={{name="Tin Vein",kind="ore",mapID=1415,east=2510,north=-2490,seenAt=NOW,misses=0}}}}; FIRE("PLAYER_LOGIN"); SWAP(true,false); RUN(0.1)')
+check("dots saved before this update show, at the new 8 px size", lua.eval('DRAWN("Tin Vein") ~= nil') is True and lua.eval("DufforthTweaksHelperDB.nodes.size") == 8)
 
 # 9. Hover: can you gather it?
 COLORS = {"orange": 1.0, "yellow": 1.0, "green": 0.25, "gray": 0.5, "red": 1.0}
@@ -465,7 +482,7 @@ def hover_at(lua, name, skill, mod=0):
 
 RGB = {"orange": (1, 0.5, 0.25), "yellow": (1, 1, 0), "green": (0.25, 0.75, 0.25), "gray": (0.5, 0.5, 0.5), "red": (1, 0.13, 0.13)}
 lua = fresh()
-lua.execute('ADD("Earthroot","herb",60,40); ADD("Peacebloom","herb",-60,40); ADD("Tin Vein","ore",-60,-40); SWAP(true,true); RUN(3)')
+lua.execute('ADD("Earthroot","herb",60,40); ADD("Peacebloom","herb",-60,40); ADD("Tin Vein","ore",-60,-40); SWAP(true,true); RUN(3); SWAP(false,false); RUN(0.1)')
 for name, skill, want in [
     ("Earthroot", 15, "orange"), ("Earthroot", 39, "orange"), ("Earthroot", 40, "yellow"), ("Earthroot", 64, "yellow"),
     ("Earthroot", 65, "green"), ("Earthroot", 114, "green"), ("Earthroot", 115, "gray"), ("Earthroot", 300, "gray"),
@@ -501,7 +518,7 @@ check("hovering a dot with no icon shows it too", "Tin Vein: Cannot gather: you 
 lua.execute("TIP = { lines = {} }; GAMEHOOK(GameTooltip, { lines = { { leftText = 'SomeFriend' } } })")
 check("other minimap tooltips are left alone", lua.eval("#TIP.lines") == 0 and lua.eval("TIP.shown") is None)
 lua = fresh()
-lua.execute('ADD("Starbloom","herb",60,40); SlashCmdList.DUFFORTHTWEAKSHELPERNODES("add herb Starbloom"); RUN(3); HOVER("Starbloom")')
+lua.execute('ADD("Starbloom","herb",60,40); SlashCmdList.DUFFORTHTWEAKSHELPERNODES("add herb Starbloom"); RUN(3); SWAP(false,false); RUN(0.1); HOVER("Starbloom")')
 check("nodes you added yourself still have a tooltip", lua.eval("TIP.title") == "Starbloom" and lua.eval("#TIP.lines") == 1, lua.eval("TIPTEXT()"))
 
 # 10. Gathered markers
@@ -510,14 +527,12 @@ lua.execute('ADD("Peacebloom","herb",5,3); ADD("Silverleaf","herb",60,40); RUN(3
 lua.execute('REMOVE("Peacebloom"); FIRE("LOOT_CLOSED"); RUN(0.1)')
 check("gathering leaves a marker", lua.eval('MARK("Peacebloom") ~= nil') is True)
 check("the node's normal icon is gone", lua.eval('FIND("Peacebloom")') is None and lua.eval("NAMES()") == "Silverleaf")
-check("marker is gray and faded", lua.eval('MARK("Peacebloom").art.gray') is True and lua.eval('MARK("Peacebloom").alpha') == 0.6)
-check("marker keeps the item picture", lua.eval('MARK("Peacebloom").art.texture') == 100000 + 2447)
+check("marker is a gray, faded dot", lua.eval('MARK("Peacebloom").art.r') == 0.6 and lua.eval('MARK("Peacebloom").alpha') == 0.6)
 check("marker counts down from the respawn guess", lua.eval('MARK("Peacebloom").label.text') == "~10m" and lua.eval('MARK("Peacebloom").label.visible') is True)
 lua.execute("NOW = NOW + 12*60; RUN(0.1)")
 check("past the guess it says back?", lua.eval('MARK("Peacebloom").label.text') == "back?", lua.eval('MARK("Peacebloom").label.text'))
 lua.execute('local i = MARK("Peacebloom"); i.scripts.OnEnter(i)')
 check("hover says how long ago", lua.eval("TIP.title") == "Peacebloom" and "Gathered 12 min ago" in lua.eval("TIPTEXT()"), lua.eval("TIPTEXT()"))
-check("normal icons are not gray", lua.eval('FIND("Silverleaf").art.gray') is False)
 lua.execute('SWAP(false,true); RUN(5)')
 check("marker survives a tracking swap", lua.eval('MARK("Peacebloom") ~= nil') is True)
 lua.execute('SWAP(true,false); RUN(5)')
