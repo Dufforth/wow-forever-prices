@@ -150,6 +150,8 @@ local function BuildGather(page)
         function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 10, function(v) return v == 0 and "until gathered" or (v .. " min") end)
     y = Stepper(page, y, "Gathered markers last", "A gray marker shows where you gathered a node and how many minutes ago, so you can come back. The game doesn't tell addons respawn times; hovering the dot when it's back clears the marker. 0 turns markers off.",
         function() return Nodes().gatheredMinutes end, function(v) NodesCommand("gathered " .. v) end, 0, 240, 10, function(v) return v == 0 and "off" or (v .. " min") end)
+    y = Stepper(page, y, "Respawn guess", "Gathered markers count down to when the node is likely back, then say 'back?'. This guess is used until the addon has seen nodes come back: each time you hover a node whose marker is still there, it records how long it took.",
+        function() return Nodes().respawnMinutes end, function(v) NodesCommand("respawn " .. v) end, 1, 60, 1, function(v) return (v or 0) .. " min" end)
     Button(page, y, "Clear all icons", "Removes every herb and ore icon and gathered marker.", function() NodesCommand("clear") end)
     Button(page, y, "Status in chat", "Prints what the icon finder sees right now, to help when icons don't show. Same as /nk status.", function() NodesCommand("status") end, 184, 150)
 end

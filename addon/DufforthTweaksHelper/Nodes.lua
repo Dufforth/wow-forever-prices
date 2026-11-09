@@ -35,6 +35,8 @@ local DEFAULT_KEEP_MINUTES = 0 -- keep icons until you gather them (the user's c
 local OLD_DEFAULT_KEEP_MINUTES = 30
 local PROBING_BLOCKED_FROM_BUILD = 70862
 local HOVER_WEIGHT_CAP = 5 -- a remembered spot moves toward later hovers, up to 1/5 per hover
+local DEFAULT_RESPAWN_MINUTES = 10 -- a guess until you've seen nodes come back
+local RESPAWN_SAMPLES = 10 -- respawn times kept per node name
 local GATHER_SECONDS = 20 -- how long after a gathering cast the loot still counts as that node
 local DEFAULT_GATHERED_MINUTES = 60
 local GATHERED_GRACE = 10 -- seconds a gathered dot may linger before it counts as back
@@ -524,12 +526,57 @@ local function FindPin(name, east, north, reach, matched)
     return best
 end
 
+-- Respawn times you've seen, by node name, in seconds (the last few).
+local function RecordRespawn(name, seconds)
+    if seconds < 60 or seconds > 3 * 3600 then
+        return -- too quick to be a respawn, or the marker was simply old
+    end
+    db.respawn = db.respawn or {}
+    local list = db.respawn[name] or {}
+    list[#list + 1] = math.floor(seconds)
+    while #list > RESPAWN_SAMPLES do
+        table.remove(list, 1)
+    end
+    db.respawn[name] = list
+end
+
+local function Median(values)
+    if #values == 0 then
+        return nil
+    end
+    local sorted = {}
+    for i, v in ipairs(values) do sorted[i] = v end
+    table.sort(sorted)
+    local middle = math.floor((#sorted + 1) / 2)
+    return #sorted % 2 == 1 and sorted[middle] or (sorted[middle] + sorted[middle + 1]) / 2
+end
+
+-- Expected respawn in seconds, and where it comes from: "seen" (this node's own times),
+-- "kind" (other herbs or ores you've seen), or "guess" (the minutes you set).
+local function RespawnEstimate(name, kind)
+    local seen = (db.respawn or {})[name]
+    if seen and #seen > 0 then
+        return Median(seen), "seen", #seen
+    end
+    local same = {}
+    for other, list in pairs(db.respawn or {}) do
+        if KindOf(other) == kind then
+            for _, v in ipairs(list) do same[#same + 1] = v end
+        end
+    end
+    if #same > 0 then
+        return Median(same), "kind", #same
+    end
+    return (db.respawnMinutes or DEFAULT_RESPAWN_MINUTES) * 60, "guess", 0
+end
+
 local function ClearGatheredNear(name, east, north, reach, mapID, now)
     for index = #db.gathered, 1, -1 do
         local marker = db.gathered[index]
         if marker.mapID == mapID and marker.name == name and now - marker.gatheredAt >= GATHERED_GRACE then
             local dx, dy = marker.east - east, marker.north - north
             if dx * dx + dy * dy <= reach * reach then
+                RecordRespawn(name, now - marker.gatheredAt)
                 table.remove(db.gathered, index)
             end
         end
@@ -820,7 +867,14 @@ local function ShowMarkerTooltip(icon)
     GameTooltip:SetOwner(icon, "ANCHOR_LEFT")
     GameTooltip:SetText(marker.name, 0.7, 0.7, 0.7)
     GameTooltip:AddLine(minutes < 1 and "Gathered just now" or ("Gathered " .. minutes .. " min ago"), 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("The game doesn't share respawn times. When the dot is back, hover it to clear this.", 0.6, 0.6, 0.6, true)
+    local estimate, source, count = RespawnEstimate(marker.name, marker.kind)
+    local left = math.ceil((estimate - (time() - marker.gatheredAt)) / 60)
+    GameTooltip:AddLine(left > 0 and ("Likely back in about " .. left .. " min") or "Likely back by now", left > 0 and 1 or 0.4, left > 0 and 0.82 or 1, left > 0 and 0 or 0.4)
+    local why = source == "seen" and string.format("Estimate: %d min, from %d time%s you saw this node come back.", math.floor(estimate / 60 + 0.5), count, count == 1 and "" or "s")
+        or source == "kind" and string.format("Estimate: %d min, from %d respawn%s of other %s you saw.", math.floor(estimate / 60 + 0.5), count, count == 1 and "" or "s", marker.kind == "herb" and "herbs" or "ores")
+        or string.format("Estimate: %d min, a guess you can change (Gather tab). It learns each time you hover a node that came back.", math.floor(estimate / 60 + 0.5))
+    GameTooltip:AddLine(why, 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("The game doesn't share respawn times, and nodes can come back in a nearby spot.", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
@@ -953,12 +1007,18 @@ local function Draw()
                     icon:SetSize(size, size)
                     icon.art:SetTexture(PictureFor(marker))
                     icon.art:SetDesaturated(true)
-                    icon.label:SetText(math.floor((now - marker.gatheredAt) / 60) .. "m")
-                    icon.label:SetTextColor(0.8, 0.8, 0.8)
+                    local left = RespawnEstimate(marker.name, marker.kind) - (now - marker.gatheredAt)
+                    if left > 0 then
+                        icon.label:SetText("~" .. math.ceil(left / 60) .. "m")
+                        icon.label:SetTextColor(0.8, 0.8, 0.8)
+                    else
+                        icon.label:SetText("back?")
+                        icon.label:SetTextColor(0.4, 1, 0.4)
+                    end
                     icon.label:SetShown(true)
                     icon:ClearAllPoints()
                     icon:SetPoint("CENTER", Minimap, "CENTER", ox, oy)
-                    icon:SetAlpha(0.6)
+                    icon:SetAlpha(left > 0 and 0.6 or 0.9)
                     icon:Show()
                 end
             end
@@ -1217,6 +1277,9 @@ local function HandleSlash(input)
         ExpireOldPins()
         Print(db.gatheredMinutes > 0 and ("gathered markers stay for " .. db.gatheredMinutes .. " min.")
             or "gathered markers are off.")
+    elseif command == "respawn" and tonumber(rest) then
+        db.respawnMinutes = math.max(1, math.min(120, math.floor(tonumber(rest))))
+        Print("respawn guess is " .. db.respawnMinutes .. " min (used until you've seen nodes come back).")
     elseif command == "names" then
         db.labels = not db.labels
         Print("names beside icons " .. (db.labels and "ON" or "OFF") .. ".")
@@ -1248,6 +1311,7 @@ local function HandleSlash(input)
         Print("/nk size <6-20> - icon size (10 matches the yellow tracking dots)")
         Print("/nk names - show or hide names beside the icons")
         Print("/nk gathered <minutes> - how long gathered markers stay (0 = off)")
+        Print("/nk respawn <minutes> - respawn guess until the addon has learned real times")
         Print("/nk keep <minutes> - remove unseen icons after this long (0 = never)")
         Print("/nk clear - remove all icons")
         Print("/nk add herb|ore <name> - add a node missing from the list")
@@ -1276,6 +1340,8 @@ local function OnLogin()
     db.swapSeconds = db.swapSeconds or DEFAULT_SWAP_SECONDS
     db.gathered = db.gathered or {}
     db.gatheredMinutes = db.gatheredMinutes or DEFAULT_GATHERED_MINUTES
+    db.respawnMinutes = db.respawnMinutes or DEFAULT_RESPAWN_MINUTES
+    db.respawn = db.respawn or {}
     if db.enabled == nil then
         db.enabled = true
     end
