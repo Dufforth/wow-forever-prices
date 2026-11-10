@@ -36,6 +36,7 @@ window.FP_EARLY = (function () {
     <button role="tab" id="tabbtn-alerts" data-tab="alerts" aria-controls="results" type="button">Alerts <span id="alert-count" class="count" hidden></span></button>
     <button role="tab" id="tabbtn-profit" data-tab="profit" aria-controls="results" type="button">Profit</button>
     <button role="tab" id="tabbtn-deals" data-tab="deals" aria-controls="results" type="button">Disenchant</button>
+    <button role="tab" id="tabbtn-farming" data-tab="farming" aria-controls="results" type="button">Farming</button>
   </nav>
   <div class="bar-end">
     <span id="live" class="live" data-state="busy" role="status" data-hint="The page checks for new prices every minute and updates by itself."><span class="live-dot" aria-hidden="true"></span><span class="live-text">Loading…</span></span>
@@ -142,6 +143,18 @@ window.FP_EARLY = (function () {
         <details class="help">
           <summary>Help</summary>
           <p>Items worth more as enchanting materials than they cost, after the 5% auction cut on the materials. Values are expected averages from the Classic disenchant tables, by item level, so single results vary and a small profit can turn into a small loss. Materials with no auction price are left out, so high-level gear can be missing. Bind on pickup gear and items with random bonuses are left out. Select an item for its full material odds.</p>
+        </details>
+      </div>
+
+      <div id="tab-farming" class="filters" hidden>
+        <label class="inline"><input id="farm-quests" type="checkbox" checked> Needed by quests</label>
+        <label class="inline"><input id="farm-sells" type="checkbox" checked> Sells now</label>
+        <label class="inline" data-hint="Only monsters with at least 5 spawns, so you can kill one after another. Turn off to include lone bosses and rares."><input id="farm-many" type="checkbox" checked> Many spawns</label>
+        <label class="inline">Monsters up to level <input id="farm-level" type="number" min="1" max="63" step="1" placeholder="Any" aria-label="Highest monster level"></label>
+        <label class="inline"><input id="farm-dungeons" type="checkbox" checked> Dungeons</label>
+        <details class="help">
+          <summary>Help</summary>
+          <p>Items you can farm from monsters and sell on the auction house. Needed by quests keeps items that quests ask players to bring, which players buy. Sells now keeps items bought in the last 7 days. Many spawns keeps monsters with at least 5 spawns, so lone bosses and rares are left out. Per kill is the item's average worth from one kill of the best monster, after the 5% auction cut. Drop chances, monster levels, spawn places and quests come from the open <a href="https://github.com/cmangos/classic-db" rel="noopener">CMaNGOS Classic database</a>, so they are Classic estimates and Forever can differ. Zones use the game's own maps, and coordinates are near the middle of where the monster spawns. Drops that only appear while you're on a quest are left out.</p>
         </details>
       </div>
 

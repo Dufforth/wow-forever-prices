@@ -243,3 +243,33 @@ test("least sold: plenty listed, fewest bought first", () => {
   const rows = { 1: [0, 0, 50, 0, 0, 0, 0], 2: [0, 0, 9, 0, 0, 0, 0], 3: [0, 0, 80, 0, 0, 0, 30], 4: [0, 0, 2, 0, 0, 0, 0] };
   assert.deepEqual([...Calc.leastSold(rows, 3)], [1, 2, 3]);
 });
+
+test("farmRows values each kill of the best monster, after the auction cut", () => {
+  const farm = {
+    creatures: [["Wolf", 10, 11, "", "Elwynn Forest", 40.1, 50.2, 12, 0, 1], ["Ogre", 30, 31, "elite", "Deadmines", null, null, 5, 1, 2]],
+    quests: [["Bring hides", 12, 10]],
+    items: { 100: { d: [[0, 50, 0.5], [1, 90, 1.8]], n: 2, q: [[0, 8]], qn: 1 }, 200: { d: [[0, 10, 0.1]], n: 1 } },
+  };
+  const prices = { 100: [100, 200, 5, null, null, null, 30] };
+  const rows = Calc.farmRows(farm, prices);
+  const hide = rows.find((r) => r.id === 100);
+  assert.equal(hide.best.name, "Ogre");
+  assert.equal(Math.round(hide.perKill), Math.round(1.8 * 200 * 0.95));
+  assert.equal(hide.sold, 30);
+  assert.deepEqual(hide.quests, [{ title: "Bring hides", level: 12, count: 8 }]);
+  const low = Calc.farmRows(farm, prices, { maxLevel: 20 }).find((r) => r.id === 100);
+  assert.equal(low.best.name, "Wolf", "monsters above your level are left out");
+  assert.equal(Calc.farmRows(farm, prices, { dungeons: false }).find((r) => r.id === 100).best.name, "Wolf");
+  assert.equal(rows.find((r) => r.id === 200).perKill, null, "no price means no value yet");
+});
+
+test("farmRows puts monsters you can farm (5+ spawns) before lone bosses", () => {
+  const farm = { creatures: [["Boss", 60, 60, "boss", "Zone", 1, 1, 1, 0, 1], ["Imp", 50, 51, "", "Zone", 2, 2, 20, 0, 2]], quests: [],
+    items: { 5: { d: [[0, 90, 0.9], [1, 10, 0.1]], n: 2 } } };
+  assert.equal(Calc.farmRows(farm, { 5: [100, 100, 1, null, null, null, 3] })[0].best.name, "Imp");
+});
+
+test("farmRows can leave out monsters with few spawns", () => {
+  const farm = { creatures: [["Boss", 60, 60, "boss", "Zone", 1, 1, 1, 0, 1]], quests: [], items: { 5: { d: [[0, 90, 0.9]], n: 1 } } };
+  assert.equal(Calc.farmRows(farm, {}, { farmableOnly: true }).length, 0);
+});

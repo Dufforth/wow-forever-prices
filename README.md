@@ -19,7 +19,8 @@ Without them, the page still works using only the public source.
 ## Using the page
 
 - **Auction House** browses everything listed, like the game's auction house: categories on the left, level, rarity and slot filters.
-- **Prices**, **Favorites**, **Alerts**, **Profit** and **Disenchant** each keep their own category, search and filters.
+- **Prices**, **Favorites**, **Alerts**, **Profit**, **Disenchant** and **Farming** each keep their own category, search and filters.
+- **Farming** lists items worth farming from monsters that sell on the auction house: money per kill, drop chance, the best monster with its level, zone and map coordinates, sales in the last 7 days and the quests that ask for the item. Drop data comes from the open [CMaNGOS Classic database](https://github.com/cmangos/classic-db) and is built once by `catalog/build_farm.py` into `site/farm.json`; it's a Classic estimate.
 - **Disenchant** has two parts: *Buy and disenchant* (gear for sale worth more as materials) and *Craft and disenchant* (recipes whose disenchanted materials are worth more than the reagents, with how many crafts the listed reagents cover).
 - The page checks for new prices every minute and updates itself; changed rows light up briefly. The sun or moon button switches light and dark mode.
 
@@ -32,6 +33,7 @@ Without them, the page still works using only the public source.
 - **Disenchant values** are expected averages from the Classic tables, by item level, so check them in game.
 - **Items with random bonuses** are left out of prices, and bind on pickup items can't be sold on the auction.
 - **The vendor list** covers common trade-goods reagents only.
+- **Farming values** use Classic drop chances, so Forever can differ. Zones for spawns near zone borders are worked out from nearby quest monsters and can occasionally be wrong.
 
 ## The addon
 

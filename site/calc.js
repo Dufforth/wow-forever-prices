@@ -343,9 +343,45 @@
     return { all, shown: all.filter((c, i) => i === 0 || !hidden.has(columnId(c))) };
   }
 
+  // ---- Farming ----
+  // farm.json (catalog/build_farm.py): monsters that drop each tradable item, with Classic drop
+  // chances, and the quests that ask for it. A row's value per kill is what the best monster's
+  // drop of it is worth on average: expected amount per kill x market price after the cut.
+  function farmSource(farm, drop, net) {
+    const c = farm.creatures[drop[0]];
+    return {
+      name: c[0], minLevel: c[1], maxLevel: c[2], rank: c[3], zone: c[4], x: c[5], y: c[6], spawns: c[7],
+      dungeon: Boolean(c[8]), id: c[9], chance: drop[1], expected: drop[2], value: net == null ? null : drop[2] * net,
+    };
+  }
+
+  const FARM_MIN_SPAWNS = 5;
+
+  function farmRows(farm, prices, options = {}) {
+    const maxLevel = options.maxLevel || 0;
+    const rows = [];
+    for (const [id, entry] of Object.entries(farm.items)) {
+      const row = prices[id];
+      const price = row ? row[1] : null;
+      const net = price == null ? null : afterCut(price);
+      const sources = entry.d.map((d) => farmSource(farm, d, net))
+        .filter((s) => (!maxLevel || s.minLevel <= maxLevel) && (options.dungeons !== false || !s.dungeon)
+          && (!options.farmableOnly || s.spawns >= FARM_MIN_SPAWNS))
+        // A monster with many spawns can be farmed; a lone boss or rare can't, so it ranks after.
+        .sort((a, b) => (b.spawns >= FARM_MIN_SPAWNS) - (a.spawns >= FARM_MIN_SPAWNS) || b.expected - a.expected || b.spawns - a.spawns);
+      if (!sources.length) continue;
+      const quests = (entry.q || []).map(([q, count]) => ({ title: farm.quests[q][0], level: farm.quests[q][1], count }));
+      rows.push({
+        id: Number(id), price, net, supply: row ? row[2] : 0, sold: row ? row[6] || 0 : 0,
+        sources, best: sources[0], perKill: sources[0].value, quests, questCount: entry.qn || 0,
+      });
+    }
+    return rows;
+  }
+
   return {
     topBy, leastSold, sortBy, arrangeColumns, columnId, craftsAvailable,
     AUCTION_CUT, GOOD_RETURN, USUAL_BAND, rateReturn, ratePriceNow, afterCut, craftDisenchantRows, craftRows, disenchantDeals, disenchantOutcomes, disenchantSkill, disenchantValue, likelyMaterial,
-    indexRecipes, money, priceChange, significantChanges,
+    indexRecipes, money, priceChange, significantChanges, farmRows, FARM_MIN_SPAWNS,
   };
 });

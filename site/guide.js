@@ -40,6 +40,8 @@
       text: "Auction House lets you browse everything for sale, like in game. Prices, Favorites and Alerts track costs and big moves. Hover any number to learn more." },
     { targets: ["#tabbtn-profit", "#tabbtn-deals"], title: "Profit and Disenchant",
       text: "What's worth crafting, and which gear is worth more as enchanting materials. Green Good deal rows are the best chances." },
+    { targets: ["#tabbtn-farming"], title: "Farming",
+      text: "Items worth farming from monsters: money per kill, drop chance, where the monster is and which quests need the item. Drop data is a Classic estimate." },
     { targets: ["#columns-toggle"], title: "Columns and sorting",
       text: "Show, hide or reorder columns, and sort by more than one, like item level and then name. Click a column title to sort." },
     { targets: ["#addon-download"], title: "The addon",

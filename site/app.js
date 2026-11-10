@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  const { arrangeColumns, columnId, sortBy, topBy, leastSold, disenchantValue, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes } = Calc;
+  const { arrangeColumns, columnId, sortBy, topBy, leastSold, disenchantValue, money, priceChange, rateReturn, ratePriceNow, significantChanges, craftRows, craftDisenchantRows, disenchantDeals, disenchantOutcomes, farmRows } = Calc;
   const { groups, iconBackupUrl, iconUrl, isKnown, label: categoryLabel, matches, sourceLabel, sourceOf, typeLabel, PROFESSION_PREFIX } = Categories;
 
   // Plain explanations for column titles, shown on hover or keyboard focus.
@@ -47,7 +47,7 @@
   const FLASH_MS = 4000;
   const STALE_SECONDS = 12 * 3600;
   const SEARCH_DELAY_MS = 150;
-  const TABS = ["auction", "prices", "favorites", "alerts", "profit", "deals"];
+  const TABS = ["auction", "prices", "favorites", "alerts", "profit", "deals", "farming"];
   const MAX_SORTS = 3;
   const TEXT_KEYS = new Set(["name", "profession", "type", "source", "material"]);
   const SELL_BY = { "Sell on auction": "Auction", Disenchant: "Disenchant", "Sell to vendor": "Vendor" };
@@ -72,6 +72,7 @@
     sort: {
       auction: [{ key: "name", dir: 1 }], prices: [{ key: "name", dir: 1 }], favorites: [{ key: "name", dir: 1 }], profit: [{ key: "profit", dir: -1 }],
       alerts: [{ key: "percent", dir: -1 }], "deals-buy": [{ key: "profit", dir: -1 }], "deals-craft": [{ key: "profit", dir: -1 }],
+      farming: [{ key: "perKill", dir: -1 }],
     },
     de: Object.assign({ mode: "buy", skill: "", supply: "" }, store.get("de", {})),
     ah: Object.assign({ minLevel: "", maxLevel: "", quality: "", slot: "" }, store.get("ah", {})),
@@ -323,7 +324,8 @@
   function renderKey() {
     return JSON.stringify([viewKey(), state.house, state.ts, state.category, state.search, state.source, state.sort[viewKey()],
       [...state.favorites].join(","), Boolean(state.allItems), Boolean(state.gear), state.loading, $("price-basis").value, $("fav-basis").value,
-      $("price-listed").checked, $("profit-only").checked, $("profit-supply").value, state.alert, state.de, state.ah]);
+      $("price-listed").checked, $("profit-only").checked, $("profit-supply").value, state.alert, state.de, state.ah,
+      Boolean(state.farm), $("farm-quests").checked, $("farm-sells").checked, $("farm-level").value, $("farm-dungeons").checked, $("farm-many").checked]);
   }
 
   // Short column titles, so headers stay on one line. The full name shows on hover and in the Columns panel.
@@ -683,6 +685,67 @@
       { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => `${say.supply(r.supply || 0)} More listings means more sellers to compete with.`, p: 2, cell: (r) => number(r.supply || 0) },
     ], rows, (r) => `data-recipe="${r.recipe.s}"`,
     state.ts ? "No recipes match. Try another category, clear your search or turn off Profitable only." : "Waiting for price data.", "recipe", (r) => goodRow(rateReturn(r.profit, r.cost)));
+  }
+
+  // ---- Farming ----
+  // Monsters to farm for items that sell, from Classic drop data (site/farm.json). Values are
+  // estimates: Forever's drop chances may differ.
+  const RANK_WORDS = { elite: "elite", "rare elite": "rare elite", boss: "boss", rare: "rare" };
+  const levelText = (s) => (s.minLevel === s.maxLevel ? `${s.minLevel}` : `${s.minLevel}-${s.maxLevel}`);
+  const placeText = (s) => (s.dungeon ? `${s.zone} (dungeon)` : s.x == null ? s.zone : `${s.zone} ${s.x.toFixed(0)}, ${s.y.toFixed(0)}`);
+  const chanceText = (chance) => (chance >= 10 ? chance.toFixed(0) : chance >= 1 ? chance.toFixed(1) : chance.toFixed(2)) + "%";
+  const sourceLine = (s) => `${s.name} (level ${levelText(s)}${s.rank ? ", " + RANK_WORDS[s.rank] : ""}) in ${placeText(s)}: ${chanceText(s.chance)} per kill${s.value != null ? `, worth about ${money(s.value)} a kill` : ""}.`;
+
+  function renderFarming() {
+    if (!state.farm) {
+      $("table").innerHTML = `<tbody>${emptyRow(5, "Loading the drop list…")}</tbody>`;
+      $("result-count").textContent = "";
+      $("pager").hidden = true;
+      if (!state.farmLoading) {
+        state.farmLoading = true;
+        getJson("farm.json").then((farm) => { state.farm = farm; render(); }).catch(() => {
+          state.farmLoading = false;
+          $("table").innerHTML = `<tbody>${emptyRow(5, "The drop list could not load. Try refreshing.")}</tbody>`;
+        });
+      }
+      return;
+    }
+    const onlyQuests = $("farm-quests").checked;
+    const onlySells = $("farm-sells").checked;
+    const maxLevel = Number($("farm-level").value) || 0;
+    let rows = farmRows(state.farm, state.prices, { maxLevel, dungeons: $("farm-dungeons").checked, farmableOnly: $("farm-many").checked }).filter((r) => {
+      const item = itemOf(r.id);
+      if (!item.n || !passesFilters(r.id, item)) return false;
+      if (onlyQuests && !r.questCount) return false;
+      if (onlySells && !(r.sold > 0)) return false;
+      return r.perKill != null;
+    });
+    rows = sortRows(rows, state.sort.farming, {
+      name: (r) => itemOf(r.id).n, level: (r) => itemOf(r.id).il || null, perKill: (r) => r.perKill, chance: (r) => r.best.chance,
+      mob: (r) => r.best.minLevel, zone: (r) => r.best.zone, bought: (r) => r.sold, supply: (r) => r.supply, price: (r) => r.price, quests: (r) => r.questCount,
+    });
+    drawTable([
+      { key: "name", label: "Item", hint: HINTS["Item"], left: true, cell: (r) => itemCell(r.id) },
+      levelColumn((r) => itemOf(r.id)),
+      { key: "perKill", label: "Per kill", hint: "What each kill of the best monster brings from this item on average: drop chance × amount × market price after the 5% auction cut. From Classic drop data, so treat it as an estimate.",
+        say: (r) => `Each ${r.best.name} drops ${r.best.expected.toFixed(2)} on average, and one sells for about ${money(r.net)} after the cut, so a kill is worth about ${money(r.perKill)}. Classic estimate.`, cell: (r) => coins(r.perKill) },
+      { key: "chance", label: "Drop chance", hint: "How often the best monster drops it, from Classic data. Forever may differ.",
+        say: (r) => `${r.best.name} drops it about ${chanceText(r.best.chance)} of the time (Classic data).`, p: 1, cell: (r) => chanceText(r.best.chance) },
+      { key: "mob", label: "Best monster", hint: "The monster whose kills bring the most of this item, with its level. Monsters with at least 5 spawns come first, since a lone boss or rare can't be farmed; those show 'few spawns'. Hover a cell for the other monsters that drop it.", left: true,
+        say: (r) => [`${r.sources.length === 1 ? "Only monster" : "Best monsters"} for it:`, ...r.sources.slice(0, 4).map(sourceLine)].join(" ")
+          + (state.farm.items[r.id].n > r.sources.length ? ` ${state.farm.items[r.id].n - r.sources.length} more drop it less often.` : ""),
+        cell: (r) => `${esc(r.best.name)} <span class="muted">${levelText(r.best)}</span>${r.best.rank ? ` <span class="badge">${RANK_WORDS[r.best.rank]}</span>` : ""}${r.best.spawns < Calc.FARM_MIN_SPAWNS ? ' <span class="badge">few spawns</span>' : ""}` },
+      { key: "zone", label: "Where", hint: "The zone where most of the best monster spawn, with map coordinates near their middle, and how many spawn there.", left: true, p: 1,
+        say: (r) => `${r.best.spawns} ${r.best.name} spawn in ${r.best.zone}${r.best.dungeon ? ", a dungeon" : r.best.x != null ? `, around ${r.best.x.toFixed(0)}, ${r.best.y.toFixed(0)} on the zone map` : ""}.`,
+        cell: (r) => esc(placeText(r.best)) },
+      { key: "bought", label: "Bought, 7 days (est.)", hint: HINTS["Bought, 7 days (est.)"], say: (r) => `About ${number(r.sold)} bought in the last 7 days: how fast you can sell what you farm.`, p: 1, cell: (r) => number(r.sold) },
+      { key: "supply", label: "For sale", hint: HINTS["For sale"], say: (r) => `${say.supply(r.supply)} More listings means more sellers to compete with.`, p: 2, cell: (r) => number(r.supply) },
+      { key: "price", label: "Market", hint: HINTS["Market"], say: (r) => say.market(state.prices[r.id]), p: 2, cell: (r) => coins(r.price) },
+      { key: "quests", label: "Quests", hint: "How many quests ask players to bring this item, so players buy it. Hover a cell for their names.",
+        say: (r) => (r.questCount ? `Quests that need it: ${r.quests.map((q) => `${q.title} (level ${q.level}, needs ${q.count})`).join(", ")}${r.questCount > r.quests.length ? ` and ${r.questCount - r.quests.length} more` : ""}.` : "No quest asks for it."),
+        p: 1, cell: (r) => (r.questCount ? `<span class="badge">${r.questCount} quest${r.questCount === 1 ? "" : "s"}</span>` : "–") },
+    ], rows, (r) => `data-item="${r.id}"`,
+    state.ts ? "Nothing to farm with these filters. Raise the monster level, turn off Needed by quests, Sells now or Many spawns, or clear the search." : "Waiting for price data.", "item");
   }
 
   // ---- Disenchant deals ----
@@ -1195,6 +1258,7 @@ common.level,
       ? `Buy the reagents, craft, disenchant and sell the materials. ${badge("good")} returns at least 20% more than you spend · ${badge("fair")} a small profit. Profit is per craft, after the 5% cut.`
         + (state.bestCrafts && state.bestCrafts.length ? ` <b>Best now:</b> ${state.bestCrafts.map((r) => `${esc(r.item.n)} (${money(r.profit)})`).join(", ")}.` : "")
       : `Gear for sale that's worth more as enchanting materials than it costs. ${badge("good")} returns at least 20% more than you spend · ${badge("fair")} a small expected profit. Results vary item by item.`),
+    farming: () => "Monsters worth farming for items that sell, best first by money per kill. Drop chances and places come from Classic data, so they're estimates. Hover a monster for the others that drop it, or a quest count for the quests.",
   };
 
   function renderSubTabs() {
@@ -1233,7 +1297,7 @@ common.level,
     $("results").setAttribute("aria-labelledby", "tabbtn-" + state.tab);
     $("legend").innerHTML = LEGENDS[state.tab]();
     $("table").parentElement.setAttribute("aria-busy", state.loading ? "true" : "false");
-    $("source-filter").hidden = state.tab === "profit"; // Every recipe is crafted.
+    $("source-filter").hidden = state.tab === "profit" || state.tab === "farming"; // Every recipe is crafted; every farm item drops.
     hideTip();
     updateAlertBadge();
     updateFavoriteBadge();
@@ -1245,7 +1309,7 @@ common.level,
       drawTable(...cached.args);
     } else {
       state.drawKey = key;
-      ({ auction: renderAuction, prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals })[state.tab]();
+      ({ auction: renderAuction, prices: renderPrices, favorites: renderFavorites, alerts: renderAlerts, profit: renderProfit, deals: renderDeals, farming: renderFarming })[state.tab]();
       state.drawKey = null;
     }
     writeHash();
@@ -1555,6 +1619,11 @@ common.level,
 
     $("house").addEventListener("change", (event) => loadHouse(event.target.value).then(notifyChanges));
     ["price-basis", "fav-basis", "price-listed", "profit-only", "profit-supply"].forEach((id) => $(id).addEventListener("input", resetAndRender));
+    ["farm-quests", "farm-sells", "farm-many", "farm-level", "farm-dungeons"].forEach((id) => {
+      const saved = store.get(id, null);
+      if (saved != null) { if ($(id).type === "checkbox") $(id).checked = saved; else $(id).value = saved; }
+      $(id).addEventListener("input", () => { store.set(id, $(id).type === "checkbox" ? $(id).checked : $(id).value); resetAndRender(); });
+    });
     [["ah-min", "minLevel"], ["ah-max", "maxLevel"], ["ah-quality", "quality"], ["ah-slot", "slot"]].forEach(([id, key]) => {
       const input = $(id);
       input.value = state.ah[key];
