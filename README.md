@@ -37,7 +37,7 @@ Without them, the page still works using only the public source.
 
 ## The addon
 
-The **Addon** button in the page's top bar downloads Dufforth Tweaks Helper, a gathering, disenchanting and crafting helper (tabs: Gather, Disenchant, Crafting). Its source is in `addon/DufforthTweaksHelper`, and every deploy builds the download from it, bundling Blizzard's latest prices for enchanting materials and disenchantable gear (`tools/build_addon_prices.py`), because addons can't reach the internet.
+The **Addon** button in the page's top bar downloads Dufforth Tweaks Helper, a gathering, disenchanting, crafting and warrior helper (tabs: Gather, Disenchant, Crafting, Warrior). The Warrior tab keeps a one-button `DTH Warrior` macro up to date between fights and shows an icon of what the next press casts; it never casts anything by itself. It also logs your last 40 fights (casts with rage, target health and enemy count, errors, who hit you, result) in its SavedVariables file, to tune the macro from real fights. Its source is in `addon/DufforthTweaksHelper`, and every deploy builds the download from it, bundling Blizzard's latest prices for enchanting materials and disenchantable gear (`tools/build_addon_prices.py`), because addons can't reach the internet.
 
 - **Herbs and ores:** when you track the other kind, shows a picture on every spot where you gathered that herb or ore before (no hovering needed) and on each dot you hovered, swaps tracking on a timer, and colors tooltips by your gathering skill (`/nk`).
 - **Disenchant tooltips:** weapon and armor tooltips show the materials, chances, prices and average value of disenchanting them.
@@ -62,6 +62,8 @@ python tests/addon/nodes_sim.py
 python tests/addon/de_sim.py
 python tests/addon/menu_sim.py
 python tests/addon/crafting_sim.py
+python tests/addon/warrior_sim.py
+python tests/addon/warrior_fight_sim.py -v
 ```
 
 ## Notes

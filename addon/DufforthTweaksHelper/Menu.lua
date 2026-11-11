@@ -1,11 +1,11 @@
--- One window with a tab per feature (Gather, Disenchant, Crafting), opened from the
+-- One window with a tab per feature (Gather, Disenchant, Crafting, Warrior), opened from the
 -- minimap button, /dufforth, or the game's Options > AddOns. Changes go through the same
 -- commands as the slash commands, so the window and the commands always agree.
 
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
 local ICON = "Interface\\Icons\\INV_Misc_QuestionMark" -- a question mark: help
 local ROW = 26
-local TABS = { "Gather", "Disenchant", "Crafting" }
+local TABS = { "Gather", "Disenchant", "Crafting", "Warrior" }
 local WIDTH, HEIGHT = 440, 560
 
 local function DB()
@@ -177,6 +177,50 @@ local function BuildDisenchant(page)
     refreshers[#refreshers + 1] = function() clear:SetText("Clear keep list (" .. KeepCount() .. ")") end
 end
 
+local function BuildWarrior(page)
+    local warrior = DufforthTweaksHelperWarrior
+    local y = -4
+    y = Header(page, y, "One button for your warrior")
+    local function Text(height, font)
+        local text = page:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", 12, y); text:SetWidth(WIDTH - 50); text:SetJustifyH("LEFT")
+        y = y - height
+        return text
+    end
+    if not warrior or not warrior.state then
+        Text(60):SetText("|cffff5555The warrior part of the addon didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon.")
+        return
+    end
+    Text(70):SetText("|cffffd100How to use it:|r 1. Click |cffffd100Put it on my cursor|r. 2. Drop it on your action bar. 3. Press only that key in fights while you move.\nIt's the |cffffd100DTH Warrior|r macro (Esc > Macros > Character Specific Macros). After every fight the addon rewrites it for the spells you know, your stances and your Battle Shout.")
+    local status = Text(28)
+    refreshers[#refreshers + 1] = function() status:SetText(warrior.state.status or "") end
+    local preview = Text(160, "GameFontDisableSmall")
+    refreshers[#refreshers + 1] = function()
+        if not warrior.state.lines and not (InCombatLockdown and InCombatLockdown()) then warrior.SafeUpdate() end
+        local lines = warrior.state.lines
+        preview:SetText(lines and ("The macro. The game tries one global-cooldown spell per press, so each stance has one line that steps through its spells. Victory Rush, Execute and Shield Bash go on their own keys; the icon flashes red when to press them:\n" .. table.concat(lines, "\n")) or "")
+    end
+    local function Rebuild() warrior.state.body = nil; warrior.SafeUpdate() end
+    y = Check(page, y, "Keep the DTH Warrior macro up to date", "Rewrites the macro after each fight, when you learn a spell or get a new stance, and when Battle Shout is about to run out. Turn it off to edit the macro yourself.",
+        function() return warrior.Options().enabled end, function(on) warrior.Options().enabled = on; if on then Rebuild() end end)
+    y = Check(page, y, "Charge into fights", "Starts with Charge in Battle Stance (out of combat) or Intercept in Berserker Stance when the target is far enough away. Up close the button goes straight to the next ability.",
+        function() return warrior.Options().charge end, function(on) warrior.Options().charge = on; Rebuild() end)
+    y = Check(page, y, "Show the next spell on the button", "The game's own macro icon shows the first spell that matches, not the one the press will cast. This puts the picture of the spell your next press will cast on the DTH Warrior button itself, in every stance.",
+        function() return warrior.Options().buttonIcon end, function(on) warrior.Options().buttonIcon = on; warrior.RefreshButtons() end)
+    y = Check(page, y, "Show the next-ability icon", "While you have an enemy targeted or are in a fight, an icon shows what your button will cast next, how many enemies are on you and when Battle Shout is gone.",
+        function() return warrior.Options().hint end, function(on) warrior.Options().hint = on end)
+    y = Check(page, y, "Log my fights", "Saves your last 40 fights: each cast with your rage, the target's health and how many enemies were on you, what the icon showed, error messages, who hit you and for how much, and whether you won. The game writes it to your SavedVariables file on /reload or logout, so the macro can be improved from real fights.",
+        function() return warrior.Options().log end, function(on) warrior.Options().log = on end)
+    Button(page, y, "Put it on my cursor", "Builds the DTH Warrior macro and picks it up so you can drop it on your action bar. Only out of combat.", function() warrior.PickUp() end)
+    local move = Button(page, y, "Move the icon", "Shows the icon so you can drag it where you like. Click again to lock it.", function()
+        warrior.SetHintUnlocked(not warrior.HintUnlocked())
+    end, 184, 150)
+    refreshers[#refreshers + 1] = function() move:SetText(warrior.HintUnlocked() and "Lock the icon" or "Move the icon") end
+    Button(page, y - 28, "Build it now", "Rewrites the macro right away. Only out of combat.", Rebuild)
+    local clear = Button(page, y - 28, "Clear fight log", "Deletes every saved fight.", function() warrior.ClearLog() end, 184, 150)
+    refreshers[#refreshers + 1] = function() clear:SetText("Clear fight log (" .. warrior.FightCount() .. ")") end
+end
+
 local function Build()
     menu = CreateFrame("Frame", "DufforthTweaksHelperMenu", UIParent, "BasicFrameTemplateWithInset")
     menu:SetSize(WIDTH, HEIGHT)
@@ -195,8 +239,8 @@ local function Build()
 
     for i, name in ipairs(TABS) do
         local tab = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
-        tab:SetSize(132, 24)
-        tab:SetPoint("TOPLEFT", 12 + (i - 1) * 138, -28)
+        tab:SetSize(100, 24)
+        tab:SetPoint("TOPLEFT", 12 + (i - 1) * 104, -28)
         tab:SetText(name)
         tab:SetScript("OnClick", function() ShowTab(name) end)
         tabButtons[name] = tab
@@ -204,6 +248,7 @@ local function Build()
     BuildGather(Page("Gather"))
     BuildDisenchant(Page("Disenchant"))
     DufforthTweaksHelperCrafting.BuildPanel(Page("Crafting"), WIDTH - 16)
+    BuildWarrior(Page("Warrior"))
 
     -- Footer, on every tab.
     local box = CreateFrame("CheckButton", nil, menu, "UICheckButtonTemplate")
@@ -223,7 +268,7 @@ local function Build()
     ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Gather")
 end
 
-local TAB_NAMES = { gather = "Gather", disenchant = "Disenchant", crafting = "Crafting" }
+local TAB_NAMES = { gather = "Gather", disenchant = "Disenchant", crafting = "Crafting", warrior = "Warrior" }
 local function ToggleMenu(tab)
     if not menu then Build() end
     if tab and TAB_NAMES[tab] then
@@ -256,7 +301,7 @@ local function State(on) return on and "|cff40ff40on|r" or "|cff999999off|r" end
 local function ButtonTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("Dufforth Tweaks Helper")
-    GameTooltip:AddLine("Gathering, disenchanting and crafting help", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Gathering, disenchanting, crafting and warrior help", 0.7, 0.7, 0.7)
     GameTooltip:AddDoubleLine("Herb and ore icons", State(Nodes().enabled), 1, 1, 1)
     GameTooltip:AddDoubleLine("Tracking swap", State(Nodes().swapEnabled), 1, 1, 1)
     GameTooltip:AddDoubleLine("Disenchant advice", State(DB().showDisenchant ~= false), 1, 1, 1)
@@ -300,7 +345,7 @@ local function RegisterOptions()
     panel.name = "Dufforth Tweaks Helper"
     local text = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     text:SetPoint("TOPLEFT", 16, -16)
-    text:SetText("Everything is in the Dufforth Tweaks Helper window: Gather, Disenchant and Crafting tabs.")
+    text:SetText("Everything is in the Dufforth Tweaks Helper window: Gather, Disenchant, Crafting and Warrior tabs.")
     local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     open:SetSize(160, 24); open:SetPoint("TOPLEFT", 16, -40); open:SetText("Open the window")
     open:SetScript("OnClick", function() if not menu or not menu:IsShown() then ToggleMenu() end end)

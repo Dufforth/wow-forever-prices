@@ -68,7 +68,7 @@ SlashCmdList.DUFFORTHTWEAKSHELPER = function(input)
     local command, option = string.match(string.lower(input or ""), "^%s*(%S*)%s*(%S*)")
     if command == "" or command == "menu" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle() end
-    elseif command == "gather" or command == "crafting" then
+    elseif command == "gather" or command == "crafting" or command == "warrior" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle(command) end
     elseif command == "de" then
         DufforthTweaksHelperDE.Toggle(option)
@@ -76,7 +76,7 @@ SlashCmdList.DUFFORTHTWEAKSHELPER = function(input)
         DufforthTweaksHelperAutoDE.Toggle()
     else
         Print("/dufforth - open the window (also the minimap button). /dth works too.")
-        Print("/dufforth gather, /dufforth crafting - open it on that tab")
+        Print("/dufforth gather, /dufforth crafting, /dufforth warrior - open it on that tab")
         Print("/dufforth de - show or hide disenchant advice in item tooltips")
         Print("/dufforth disenchant - open the list that disenchants BoE gear, one click per item")
         Print("/nk - herb and ore commands; /nk help lists them")

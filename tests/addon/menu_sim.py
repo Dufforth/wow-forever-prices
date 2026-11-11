@@ -99,7 +99,7 @@ DufforthTweaksHelperDB = { nodes = { enabled = true, labels = false, swapEnabled
 lua = L.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(MOCK)
 lua.execute("GetRealmName = function() return 'Realm 4' end; UnitFactionGroup = function() return 'Horde' end")
-for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Crafting.lua", "Menu.lua"):
+for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Crafting.lua", "Warrior.lua", "Menu.lua"):
     lua.execute(source(name))
 g = lua.globals()
 fails = []
@@ -180,12 +180,16 @@ check("minimap button exists and shows", mini is not None and mini.shown)
 mini.scripts.OnClick(mini, "LeftButton")
 menu = g.DufforthTweaksHelperMenu
 check("left-click opens the menu", menu is not None and menu.shown)
-tab_names = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Gather", "Disenchant", "Crafting")]
-check("the window has Gather, Disenchant and Crafting tabs", tab_names == ["Gather", "Disenchant", "Crafting"])
+tab_names = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Gather", "Disenchant", "Crafting", "Warrior")]
+check("the window has Gather, Disenchant, Crafting and Warrior tabs", tab_names == ["Gather", "Disenchant", "Crafting", "Warrior"])
 g.DufforthTweaksHelperMenu_Toggle("crafting")
 check("/dufforth crafting opens the Crafting tab", g.DufforthTweaksHelperDB.menuTab == "Crafting" and menu.shown)
 g.DufforthTweaksHelperMenu_Toggle("gather")
 check("/dufforth gather opens the Gather tab", g.DufforthTweaksHelperDB.menuTab == "Gather")
+g.DufforthTweaksHelperMenu_Toggle("warrior")
+check("/dufforth warrior opens the Warrior tab", g.DufforthTweaksHelperDB.menuTab == "Warrior")
+check("the Warrior tab explains how to use it", any(isinstance(f.text, str) and "How to use it" in f.text for f in g.ALL.values()))
+g.DufforthTweaksHelperMenu_Toggle("gather")
 check("the minimap button is a question mark (help)", 'local ICON = "Interface' in source("Menu.lua") and 'INV_Misc_QuestionMark" -- a question mark' in source("Menu.lua"))
 
 
