@@ -20,12 +20,20 @@ MATERIALS = [10940, 10938, 10939, 10998, 11082, 11134, 11135, 11174, 11175, 1620
 
 
 def wanted_ids():
-    """Enchanting materials, disenchantable gear, and every crafting material and product the
-    Crafting tab needs (build_addon_crafts.py lists them)."""
+    """Enchanting materials, disenchantable gear, every crafting material and product the
+    Crafting tab needs (build_addon_crafts.py), and the Leveling tab's materials, products and
+    recipe items (build_addon_leveling.py), and the class tab's consumables (build_addon_consumables.py)."""
     import build_addon_crafts
     gear = json.loads((ROOT / "site" / "gear.json").read_text(encoding="utf-8"))
-    reagents, products = build_addon_crafts.reagent_ids(build_addon_crafts.load_catalog())
-    return sorted(set(MATERIALS) | {int(key) for key in gear} | set(reagents) | set(products))
+    import build_addon_leveling
+    catalog = build_addon_crafts.load_catalog()
+    reagents, products = build_addon_crafts.reagent_ids(catalog)
+    leveling = build_addon_leveling.leveling_ids(catalog)
+    import build_addon_consumables
+    consumables = build_addon_consumables.consumable_ids()
+    import build_addon_zones
+    zone_items = build_addon_zones.zone_item_ids()
+    return sorted(set(MATERIALS) | {int(key) for key in gear} | set(reagents) | set(products) | leveling | consumables | zone_items)
 
 
 def prices_for(items, ids):

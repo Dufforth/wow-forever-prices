@@ -37,7 +37,8 @@ local MAX_ICONS = 60
 local DEFAULT_SIZE = 12 -- small, but big enough to tell the pictures apart
 local OLD_DEFAULT_SIZES = { [8] = true, [10] = true, [14] = true }
 local MIN_SIZE, MAX_SIZE = 6, 20
-local DEFAULT_KEEP_MINUTES = 0 -- keep icons until you gather them (the user's choice)
+-- A hovered node is only known to be up for a while: forget it after 5 min unseen (the user's choice, 4.13.1).
+local DEFAULT_KEEP_MINUTES = 5
 local OLD_DEFAULT_KEEP_MINUTES = 30
 local PROBING_BLOCKED_FROM_BUILD = 70862
 local HOVER_WEIGHT_CAP = 5 -- a remembered spot moves toward later hovers, up to 1/5 per hover
@@ -1357,15 +1358,17 @@ local function OnLogin()
         db.size = DEFAULT_SIZE
     end
     db.size = math.max(MIN_SIZE, math.min(MAX_SIZE, db.size))
-    if db.keepMinutes == nil or db.keepMinutes == OLD_DEFAULT_KEEP_MINUTES then
-        db.keepMinutes = DEFAULT_KEEP_MINUTES
+    if db.keepMinutes == nil or db.keepMinutes == OLD_DEFAULT_KEEP_MINUTES or not db.keepFrom4131 then
+        db.keepMinutes, db.keepFrom4131 = DEFAULT_KEEP_MINUTES, true
     end
     db.swapSeconds = db.swapSeconds or DEFAULT_SWAP_SECONDS
     -- Gathered markers and respawn guesses were removed (the user's choice).
     db.gathered, db.gatheredMinutes, db.respawnMinutes, db.respawn = nil, nil, nil, nil
     db.history = db.history or {}
-    if db.showHistory == nil then
-        db.showHistory = true
+    -- Spawn-spot icons are off (the user's choice, 4.13.0): they show where a node was, not one that
+    -- is up now. Your gathering history is still saved; /nk history on shows the spots again.
+    if not db.spotsOffFrom4130 then
+        db.showHistory, db.spotsOffFrom4130 = false, true
     end
     if db.enabled == nil then
         db.enabled = true

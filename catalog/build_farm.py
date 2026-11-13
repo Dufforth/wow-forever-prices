@@ -218,8 +218,13 @@ def zone_finder(assignments, ui_maps, map_names, labelled=()):
             score[name] += 1.0 / (d2 ** 0.5 + 20)
         return score.most_common(1)[0][0]
 
-    def find(map_id, x, y, level=None):
+    def find(map_id, x, y, level=None, prefer_city=False):
         inside = [z for z in zones if z[0] == map_id and z[1] <= x <= z[3] and z[2] <= y <= z[4]]
+        cities = [z for z in inside if z[6] in CITIES]
+        if prefer_city and cities:
+            _, min_x, min_y, max_x, max_y, _, name = min(cities, key=lambda z: z[5])
+            return name, round((max_y - y) / (max_y - min_y) * 100, 1), round((max_x - x) / (max_x - min_x) * 100, 1), False
+        # Monsters: a city map's edges overlap the zone around it, where they really are.
         outside_cities = [z for z in inside if z[6] not in CITIES] or inside
         if level and len(outside_cities) > 1:
             fitting = [z for z in outside_cities if z[6] not in usual or abs(usual[z[6]] - level) <= LEVEL_GAP]

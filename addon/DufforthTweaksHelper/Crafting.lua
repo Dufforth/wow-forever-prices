@@ -136,14 +136,31 @@ function Crafting.ScanOpenProfession()
             profession = name
         end
     end
+    -- Enchanting uses the older Craft window on Classic clients.
+    if found == 0 and GetNumCrafts and (GetCraftRecipeLink or GetCraftItemLink) then
+        for i = 1, GetNumCrafts() do
+            local _, _, kind = GetCraftInfo(i)
+            if kind ~= "header" then
+                local spell = SpellFromLink((GetCraftRecipeLink and GetCraftRecipeLink(i)) or GetCraftItemLink(i))
+                if spell then known.spells[spell] = true; found = found + 1 end
+            end
+        end
+        if found > 0 and GetCraftDisplaySkillLine then profession = GetCraftDisplaySkillLine() end
+    end
+    if (not profession or profession == "UNKNOWN") and DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.OpenProfessionName then
+        profession = DufforthTweaksHelperLeveling.OpenProfessionName() -- Forever doesn't always name the window
+    end
     if profession and found > 0 then known.scanned[profession] = true end
     if Crafting.Refresh then Crafting.Refresh() end
     return found
 end
 
 local watcher = CreateFrame("Frame")
-watcher:RegisterEvent("TRADE_SKILL_SHOW")
-watcher:RegisterEvent("TRADE_SKILL_UPDATE")
+-- An event this game version doesn't have is an error when registered (Forever has no
+-- CRAFT_* events), and it would stop this file before the tab is defined. Try each one.
+for _, event in ipairs({ "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE", "CRAFT_SHOW", "CRAFT_UPDATE" }) do
+    pcall(watcher.RegisterEvent, watcher, event)
+end
 watcher:SetScript("OnEvent", function()
     if C_Timer then C_Timer.After(0.2, Crafting.ScanOpenProfession) else Crafting.ScanOpenProfession() end
 end)
@@ -286,12 +303,10 @@ function Crafting.BuildPanel(parent, width)
     }
     panel.count = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.count:SetPoint("TOPLEFT", 8, -60)
-    panel.up = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    panel.up:SetSize(26, 18); panel.up:SetPoint("TOPRIGHT", -32, -58); panel.up:SetText("▲")
-    panel.up:SetScript("OnClick", function() offset = math.max(0, offset - VISIBLE_ROWS); Draw() end)
-    panel.down = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    panel.down:SetSize(26, 18); panel.down:SetPoint("LEFT", panel.up, "RIGHT", 2, 0); panel.down:SetText("▼")
-    panel.down:SetScript("OnClick", function() offset = math.min(offset + VISIBLE_ROWS, math.max(0, #rows - VISIBLE_ROWS)); Draw() end)
+    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() offset = math.max(0, offset - VISIBLE_ROWS); Draw() end)
+    panel.up:SetPoint("TOPRIGHT", -30, -56)
+    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() offset = math.min(offset + VISIBLE_ROWS, math.max(0, #rows - VISIBLE_ROWS)); Draw() end)
+    panel.down:SetPoint("LEFT", panel.up, "RIGHT", 4, 0)
     panel.empty = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     panel.empty:SetPoint("TOPLEFT", 12, -100); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
 

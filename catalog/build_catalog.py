@@ -126,7 +126,10 @@ def recipe_origin(spell, skill_row, recipe_item, items, sources):
         if word and word not in words:
             words.append(word)
     if not words:
-        words = ["item"] if recipe_item else ["trainer"] if spell_info else ["unknown"]
+        # Wowhead listing a recipe without a source doesn't make it a trainer recipe: most of these
+        # are quest, reputation or event rewards (Orcish War Leggings, Gurubashi Mojo Madness).
+        # Recipes at skill 1 come with the profession from its trainer.
+        words = ["item"] if recipe_item else ["trainer"] if spell_info and skill <= 1 else ["unknown"]
     return skill, words
 
 

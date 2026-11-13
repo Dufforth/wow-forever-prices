@@ -122,3 +122,7 @@ class RecipeOriginTests(unittest.TestCase):
         self.assertEqual((trainer["sk"], trainer["o"]), (50, ["trainer"]))
         unknown = build_catalog.build(tables(), "1.0", {}, {})[0]["recipes"][0]
         self.assertEqual((unknown["sk"], unknown["o"]), (0, ["unknown"]))
+        listed = build_catalog.build(tables(), "1.0", {}, {}, {"spells": {"9": [100, [], 0]}, "items": {}})[0]["recipes"][0]
+        self.assertEqual(listed["o"], ["unknown"], "listed on Wowhead without a source is not a trainer recipe")
+        starter = build_catalog.build(tables(), "1.0", {}, {}, {"spells": {"9": [1, [], 0]}, "items": {}})[0]["recipes"][0]
+        self.assertEqual(starter["o"], ["trainer"], "skill-1 recipes come with the profession")

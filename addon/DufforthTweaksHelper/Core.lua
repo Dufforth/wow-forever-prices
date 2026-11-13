@@ -9,6 +9,20 @@ local function Print(message)
 end
 DufforthTweaksHelper.Print = Print
 
+-- A scroll arrow drawn with the game's own textures: the game's fonts have no ▲ or ▼, so text
+-- arrows show as empty squares. direction: "up" or "down".
+function DufforthTweaksHelper.ArrowButton(parent, direction, onClick)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(22, 22)
+    local base = "Interface\\Buttons\\UI-ScrollBar-Scroll" .. (direction == "up" and "Up" or "Down") .. "Button-"
+    button:SetNormalTexture(base .. "Up")
+    button:SetPushedTexture(base .. "Down")
+    button:SetDisabledTexture(base .. "Disabled")
+    button:SetHighlightTexture(base .. "Highlight", "ADD")
+    if onClick then button:SetScript("OnClick", onClick) end
+    return button
+end
+
 -- "forever.pvp.horde.us", the market name the Forever Prices page and the bundled prices use.
 function DufforthTweaksHelper.MarketName()
     local realm = string.lower(GetRealmName() or "")
@@ -64,19 +78,32 @@ end
 
 SLASH_DUFFORTHTWEAKSHELPER1 = "/dufforth"
 SLASH_DUFFORTHTWEAKSHELPER2 = "/dth"
+local RunCommand
+-- Any error prints in chat instead of leaving the command stuck in the chat box.
 SlashCmdList.DUFFORTHTWEAKSHELPER = function(input)
+    local ok, err = pcall(RunCommand, input)
+    if not ok then
+        Print("|cffff5555that command hit an error. Please send this text:|r " .. tostring(err))
+    end
+end
+
+RunCommand = function(input)
     local command, option = string.match(string.lower(input or ""), "^%s*(%S*)%s*(%S*)")
     if command == "" or command == "menu" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle() end
-    elseif command == "gather" or command == "crafting" or command == "warrior" then
+    elseif command == "gather" or command == "crafting" or command == "leveling" or command == "warrior"
+        or command == "class" or command == "consumables" or command == "zone" or command == "gear" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle(command) end
+    elseif command == "shopping" then
+        if DufforthTweaksHelperLeveling then DufforthTweaksHelperLeveling.ShowShopping() end
     elseif command == "de" then
         DufforthTweaksHelperDE.Toggle(option)
     elseif command == "disenchant" then
         DufforthTweaksHelperAutoDE.Toggle()
     else
         Print("/dufforth - open the window (also the minimap button). /dth works too.")
-        Print("/dufforth gather, /dufforth crafting, /dufforth warrior - open it on that tab")
+        Print("/dufforth gather, /dufforth crafting, /dufforth leveling, /dufforth zone, /dufforth class (consumables), /dufforth gear, /dufforth warrior - open it on that tab")
+        Print("/dufforth shopping - open the Leveling tab's shopping list")
         Print("/dufforth de - show or hide disenchant advice in item tooltips")
         Print("/dufforth disenchant - open the list that disenchants BoE gear, one click per item")
         Print("/nk - herb and ore commands; /nk help lists them")

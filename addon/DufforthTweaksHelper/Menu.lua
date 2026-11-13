@@ -5,8 +5,9 @@
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
 local ICON = "Interface\\Icons\\INV_Misc_QuestionMark" -- a question mark: help
 local ROW = 26
-local TABS = { "Gather", "Disenchant", "Crafting", "Warrior" }
-local WIDTH, HEIGHT = 440, 560
+-- The last tab is your class (named after it): consumables for everyone, the macro for warriors.
+local TABS = { "Gather", "Disenchant", "Crafting", "Leveling", "Zone", "Class" }
+local WIDTH, HEIGHT = 500, 560
 
 local function DB()
     DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
@@ -23,6 +24,9 @@ local function RefreshMenu()
     for _, refresh in ipairs(refreshers) do refresh() end
     if DufforthTweaksHelperAutoDE and DufforthTweaksHelperAutoDE.Refresh then DufforthTweaksHelperAutoDE.Refresh() end
     if DufforthTweaksHelperCrafting and DufforthTweaksHelperCrafting.Refresh then DufforthTweaksHelperCrafting.Refresh() end
+    if DufforthTweaksHelperConsumables and DufforthTweaksHelperConsumables.Refresh then DufforthTweaksHelperConsumables.Refresh() end
+    if DufforthTweaksHelperZone and DufforthTweaksHelperZone.Refresh then DufforthTweaksHelperZone.Refresh() end
+    if DufforthTweaksHelperGear and DufforthTweaksHelperGear.Refresh then pcall(DufforthTweaksHelperGear.Refresh) end
 end
 
 local function ShowTip(owner, text)
@@ -99,8 +103,8 @@ end
 -- ---- Tabs ----
 local function ShowTab(name)
     for _, tab in ipairs(TABS) do
-        pages[tab]:SetShown(tab == name)
-        tabButtons[tab]:SetEnabled(tab ~= name) -- the open tab looks pressed
+        if pages[tab] then pages[tab]:SetShown(tab == name) end
+        if tabButtons[tab] then tabButtons[tab]:SetEnabled(tab ~= name) end -- the open tab looks pressed
     end
     DB().menuTab = name
     RefreshMenu()
@@ -120,8 +124,8 @@ local function GatherStatus()
     if not status then return "" end
     if not status.enabled then return "Herb and ore icons are off." end
     if status.blocked or not status.api then
-        return string.format("When you track the other kind, pictures show every spot where you gathered that herb or ore before (|cffffd100spawn spots: %d|r), and each dot you hovered (|cffffd100%d|r). Since the 7 November game patch, addons can't read the minimap by themselves.",
-            status.spots or 0, status.icons)
+        return string.format("When you track the other kind, pictures show each dot you hovered (|cffffd100%d|r)%s. Since the 7 November game patch, addons can't read the minimap by themselves.",
+            status.icons, status.showHistory and string.format(" and every spot where you gathered before (|cffffd100spawn spots: %d|r)", status.spots or 0) or "")
     end
     if not status.tracking then return "|cffffd100Turn on Find Herbs or Find Minerals so icons can be found.|r" end
     local text = string.format("Tracking %s. Icons saved: %d. Dots seen in the last check: %d.", status.tracking, status.icons, status.lastDots)
@@ -136,18 +140,18 @@ local function BuildGather(page)
     status:SetPoint("TOPLEFT", 12, y); status:SetWidth(WIDTH - 50); status:SetJustifyH("LEFT")
     refreshers[#refreshers + 1] = function() status:SetText(GatherStatus()) end
     y = y - 58
-    y = Check(page, y, "Keep herb and ore icons after swapping tracking", "Remembers each herb and ore dot you hover on the minimap. After you swap tracking, it shows a small picture of that node there (Peacebloom, Copper Ore, and so on), so herbs stay visible while you find minerals and the other way round, until you gather it. While a tracking is on, the game shows its own dots and the addon adds nothing on top. Hover a picture to see its name. Same as /nk on and /nk off.",
+    y = Check(page, y, "Keep herb and ore icons after swapping tracking", "Remembers each herb and ore dot you hover on the minimap. After you swap tracking, it shows a small picture of that node there (Peacebloom, Copper Ore, and so on), so herbs stay visible while you find minerals and the other way round, for 5 minutes after you last hovered it (see below). While a tracking is on, the game shows its own dots and the addon adds nothing on top. Hover a picture to see its name. Same as /nk on and /nk off.",
         function() return Nodes().enabled end, function(on) NodesCommand(on and "on" or "off") end)
     y = Check(page, y, "Swap tracking automatically", "Switches between Find Herbs and Find Minerals on a timer. Needs both Herbalism and Mining. Pauses in combat, in cities and inns, in instances, while dead, on flight paths and while stealthed.",
         function() return Nodes().swapEnabled end, function(on) NodesCommand(on and "swap on" or "swap off") end)
-    y = Check(page, y, "Show spawn spots from my gathering history", "Every herb and ore you gather is saved where you stood. When you track the other kind, a slightly faded picture shows each of those spots, with no hovering needed. The node may not be there right now; a spot you just gathered hides for 10 minutes. Same as /nk history on and off.",
+    y = Check(page, y, "Show spawn spots from my gathering history", "Every herb and ore you gather is saved where you stood. When you track the other kind, a slightly faded picture shows each of those spots, with no hovering needed. The node may not be there right now, so this is off by default; a spot you just gathered hides for 10 minutes. Same as /nk history on and off.",
         function() return Nodes().showHistory end, function(on) NodesCommand(on and "history on" or "history off") end)
     y = Stepper(page, y, "Swap every", "Seconds between tracking swaps.",
         function() return Nodes().swapSeconds end, function(v) NodesCommand("swap " .. v) end, 2, 60, 1, function(v) return (v or 0) .. " sec" end)
     y = Stepper(page, y, "Icon size", "Size of the node pictures shown for the kind you are not tracking.",
         function() return Nodes().size end, function(v) NodesCommand("size " .. v) end, 6, 20, 1)
-    y = Stepper(page, y, "Forget unseen dots after", "Dots are removed after this long without being hovered again. 'until gathered' keeps them until you gather the node.",
-        function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 10, function(v) return v == 0 and "until gathered" or (v .. " min") end)
+    y = Stepper(page, y, "Forget unseen dots after", "Dots are removed after this long without being hovered again, since someone else may have taken the node. 'until gathered' keeps them until you gather it.",
+        function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 5, function(v) return v == 0 and "until gathered" or (v .. " min") end)
     Button(page, y, "Clear hovered nodes", "Removes the nodes you hovered. Your gathering history stays.", function() NodesCommand("clear") end)
     Button(page, y - 30, "Clear gathering history", "Removes every saved spawn spot. Same as /nk history clear.", function() NodesCommand("history clear") end)
     Button(page, y, "Status in chat", "Prints what the icon finder sees right now, to help when icons don't show. Same as /nk status.", function() NodesCommand("status") end, 184, 150)
@@ -209,7 +213,7 @@ local function BuildWarrior(page)
         function() return warrior.Options().buttonIcon end, function(on) warrior.Options().buttonIcon = on; warrior.RefreshButtons() end)
     y = Check(page, y, "Show the next-ability icon", "While you have an enemy targeted or are in a fight, an icon shows what your button will cast next, how many enemies are on you and when Battle Shout is gone.",
         function() return warrior.Options().hint end, function(on) warrior.Options().hint = on end)
-    y = Check(page, y, "Log my fights", "Saves your last 40 fights: each cast with your rage, the target's health and how many enemies were on you, what the icon showed, error messages, who hit you and for how much, and whether you won. The game writes it to your SavedVariables file on /reload or logout, so the macro can be improved from real fights.",
+    y = Check(page, y, "Log my fights", "Saves your last 300 fights: each cast with your rage, the target's health and how many enemies were on you, what the icon showed, error messages, who hit you and for how much, and whether you won. The game writes it to your SavedVariables file on /reload or logout, so the macro can be improved from real fights.",
         function() return warrior.Options().log end, function(on) warrior.Options().log = on end)
     Button(page, y, "Put it on my cursor", "Builds the DTH Warrior macro and picks it up so you can drop it on your action bar. Only out of combat.", function() warrior.PickUp() end)
     local move = Button(page, y, "Move the icon", "Shows the icon so you can drag it where you like. Click again to lock it.", function()
@@ -219,6 +223,63 @@ local function BuildWarrior(page)
     Button(page, y - 28, "Build it now", "Rewrites the macro right away. Only out of combat.", Rebuild)
     local clear = Button(page, y - 28, "Clear fight log", "Deletes every saved fight.", function() warrior.ClearLog() end, 184, 150)
     refreshers[#refreshers + 1] = function() clear:SetText("Clear fight log (" .. warrior.FightCount() .. ")") end
+end
+
+-- Your class's tab: consumables for every class; warriors also get the macro, with a switch between them.
+local classViews = {}
+local function ShowClassView(view)
+    for key, frame in pairs(classViews) do frame:SetShown(key == view) end
+    DB().classView = view
+    RefreshMenu()
+end
+
+-- Views of the class tab, in button order. Every view gets small buttons (top right) to the others.
+local CLASS_VIEWS = {
+    { key = "macro", label = "Macro", tip = "The one-button DTH Warrior macro.", warriorOnly = true },
+    { key = "consumables", label = "Consumables", tip = "Food, elixirs and potions worth buying for your class, with AH prices." },
+    { key = "gear", label = "Gear", tip = "Upgrades for what you wear, from the auction house and from quests you can do now." },
+}
+
+local function RestartNote(frame, what)
+    local note = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    note:SetPoint("TOPLEFT", 12, -30); note:SetWidth(WIDTH - 40); note:SetJustifyH("LEFT")
+    note:SetText("|cffffd100Restart the game to see " .. what .. ".|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
+end
+
+local function BuildClass(page)
+    local token -- "x and f()" would keep only f's first value
+    if UnitClass then token = select(2, UnitClass("player")) end
+    local views = {}
+    for _, v in ipairs(CLASS_VIEWS) do
+        if not v.warriorOnly or token == "WARRIOR" then
+            local frame = CreateFrame("Frame", nil, page)
+            frame:SetAllPoints(page)
+            classViews[v.key] = frame
+            views[#views + 1] = v
+            if v.key == "macro" then BuildWarrior(frame)
+            elseif v.key == "consumables" then
+                if DufforthTweaksHelperConsumables then DufforthTweaksHelperConsumables.BuildPanel(frame, WIDTH - 16) else RestartNote(frame, "consumables") end
+            elseif v.key == "gear" then
+                if DufforthTweaksHelperGear then DufforthTweaksHelperGear.BuildPanel(frame, WIDTH - 16) else RestartNote(frame, "gear advice") end
+            end
+        end
+    end
+    -- Buttons to the other views, right-aligned on the title line.
+    for _, v in ipairs(views) do
+        local x = WIDTH - 16
+        for i = #views, 1, -1 do
+            local other = views[i]
+            if other.key ~= v.key then
+                local width = other.key == "consumables" and 96 or 64
+                x = x - width - 4
+                local b = Button(classViews[v.key], -2, other.label, other.tip, function() ShowClassView(other.key) end, x, width)
+                b:SetHeight(20)
+            end
+        end
+    end
+    local wanted = DB().classView
+    if not classViews[wanted] then wanted = token == "WARRIOR" and "macro" or "consumables" end
+    ShowClassView(wanted)
 end
 
 local function Build()
@@ -239,16 +300,48 @@ local function Build()
 
     for i, name in ipairs(TABS) do
         local tab = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
-        tab:SetSize(100, 24)
-        tab:SetPoint("TOPLEFT", 12 + (i - 1) * 104, -28)
-        tab:SetText(name)
+        local tabWidth = math.floor((WIDTH - 24) / #TABS) - 4
+        tab:SetSize(tabWidth, 24)
+        tab:SetPoint("TOPLEFT", 12 + (i - 1) * (tabWidth + 4), -28)
+        tab:SetText(name == "Class" and ((UnitClass and UnitClass("player")) or "Class") or name)
         tab:SetScript("OnClick", function() ShowTab(name) end)
         tabButtons[name] = tab
     end
-    BuildGather(Page("Gather"))
-    BuildDisenchant(Page("Disenchant"))
-    DufforthTweaksHelperCrafting.BuildPanel(Page("Crafting"), WIDTH - 16)
-    BuildWarrior(Page("Warrior"))
+    -- Each tab is built on its own: one that fails shows its error, and the others still work.
+    local function Note(page, text)
+        local note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        note:SetPoint("TOPLEFT", 12, -12); note:SetWidth(WIDTH - 40); note:SetJustifyH("LEFT")
+        note:SetText(text)
+    end
+    local builders = {
+        Gather = function(page) BuildGather(page) end,
+        Disenchant = function(page) BuildDisenchant(page) end,
+        Crafting = function(page) DufforthTweaksHelperCrafting.BuildPanel(page, WIDTH - 16) end,
+        Leveling = function(page)
+            -- New files only load after a full game restart, not a /reload: say so instead of failing.
+            if not DufforthTweaksHelperLeveling then
+                Note(page, "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
+                return
+            end
+            DufforthTweaksHelperLeveling.BuildPanel(page, WIDTH - 16)
+        end,
+        Zone = function(page)
+            if not DufforthTweaksHelperZone then
+                Note(page, "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
+                return
+            end
+            DufforthTweaksHelperZone.BuildPanel(page, WIDTH - 16)
+        end,
+        Class = function(page) BuildClass(page) end,
+    }
+    for _, name in ipairs(TABS) do
+        local page = Page(name)
+        local ok, err = pcall(builders[name], page)
+        if not ok then
+            Note(page, "|cffff5555This tab hit an error while opening. Please send this text:|r\n" .. tostring(err))
+            -- The error shows on the tab itself; no chat message (the user can't follow chat).
+        end
+    end
 
     -- Footer, on every tab.
     local box = CreateFrame("CheckButton", nil, menu, "UICheckButtonTemplate")
@@ -265,13 +358,17 @@ local function Build()
     box:SetScript("OnEnter", function(self) ShowTip(self, "Left-click opens this window, right-click opens the disenchant list, drag moves it. If hidden, type /dufforth.") end)
     box:SetScript("OnLeave", function() GameTooltip:Hide() end)
     refreshers[#refreshers + 1] = function() box:SetChecked(not (DB().minimap or {}).hide) end
+    if DB().menuTab == "Warrior" then DB().menuTab = "Class" end -- the Warrior tab became your class's tab
     ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Gather")
 end
 
-local TAB_NAMES = { gather = "Gather", disenchant = "Disenchant", crafting = "Crafting", warrior = "Warrior" }
+local TAB_NAMES = { gather = "Gather", disenchant = "Disenchant", crafting = "Crafting", leveling = "Leveling", zone = "Zone",
+    warrior = "Class", class = "Class", consumables = "Class", gear = "Class" }
 local function ToggleMenu(tab)
     if not menu then Build() end
     if tab and TAB_NAMES[tab] then
+        if tab == "warrior" and classViews.macro then ShowClassView("macro")
+        elseif (tab == "consumables" or tab == "gear") and classViews[tab] then ShowClassView(tab) end
         ShowTab(TAB_NAMES[tab])
         menu:Show()
         return
@@ -301,7 +398,7 @@ local function State(on) return on and "|cff40ff40on|r" or "|cff999999off|r" end
 local function ButtonTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("Dufforth Tweaks Helper")
-    GameTooltip:AddLine("Gathering, disenchanting, crafting and warrior help", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Gathering, disenchanting, crafting, leveling and class help", 0.7, 0.7, 0.7)
     GameTooltip:AddDoubleLine("Herb and ore icons", State(Nodes().enabled), 1, 1, 1)
     GameTooltip:AddDoubleLine("Tracking swap", State(Nodes().swapEnabled), 1, 1, 1)
     GameTooltip:AddDoubleLine("Disenchant advice", State(DB().showDisenchant ~= false), 1, 1, 1)
@@ -345,7 +442,7 @@ local function RegisterOptions()
     panel.name = "Dufforth Tweaks Helper"
     local text = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     text:SetPoint("TOPLEFT", 16, -16)
-    text:SetText("Everything is in the Dufforth Tweaks Helper window: Gather, Disenchant, Crafting and Warrior tabs.")
+    text:SetText("Everything is in the Dufforth Tweaks Helper window: Gather, Disenchant, Crafting, Leveling, Zone and a tab for your class (consumables, and the macro for warriors).")
     local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     open:SetSize(160, 24); open:SetPoint("TOPLEFT", 16, -40); open:SetText("Open the window")
     open:SetScript("OnClick", function() if not menu or not menu:IsShown() then ToggleMenu() end end)

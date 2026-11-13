@@ -205,6 +205,7 @@ end
 DufforthTweaksHelperDE = {
     Outcomes = Outcomes, SkillNeeded = SkillNeeded, Price = Price, ExpectedValue = ExpectedValue, Advice = Advice,
     TooltipLines = TooltipLines, ValueFor = ValueFor, EnchantingSkill = EnchantingSkill, Money = Money, MaterialName = MaterialName,
+    AUCTION_CUT = AUCTION_CUT,
 }
 
 -- ---- Tooltip ----

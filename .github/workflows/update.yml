@@ -70,8 +70,13 @@ jobs:
           python tests/addon/de_sim.py > /dev/null
           python tests/addon/menu_sim.py > /dev/null
           python tests/addon/crafting_sim.py > /dev/null
+          python tests/addon/leveling_sim.py > /dev/null
+          python tests/addon/full_load_sim.py > /dev/null
           python tests/addon/warrior_sim.py > /dev/null
           python tests/addon/warrior_fight_sim.py > /dev/null
+          python tests/addon/consumables_sim.py > /dev/null
+          python tests/addon/zone_sim.py > /dev/null
+          python tests/addon/gear_sim.py > /dev/null
 
       - name: Get saved prices
         env:
@@ -111,6 +116,10 @@ jobs:
           # Version tags so browsers load the new scripts and styles after each deploy.
           sed -i -E "s/(href|src)=\"([a-z]+\.(js|css))\"/\1=\"\2?v=${GITHUB_SHA::7}\"/" _site/index.html
           python tools/build_addon_crafts.py addon/DufforthTweaksHelper/Crafts.lua
+          python tools/build_addon_leveling.py addon/DufforthTweaksHelper/LevelingData.lua
+          python tools/build_addon_consumables.py addon/DufforthTweaksHelper/ConsumablesData.lua
+          python tools/build_addon_zones.py addon/DufforthTweaksHelper/ZoneData.lua
+          python tools/build_addon_gear.py addon/DufforthTweaksHelper/GearData.lua
           python tools/build_addon_prices.py state addon/DufforthTweaksHelper/Prices.lua || true
           python tools/build_addon_zip.py _site/downloads
           cp -r state/. _site/data/ || true

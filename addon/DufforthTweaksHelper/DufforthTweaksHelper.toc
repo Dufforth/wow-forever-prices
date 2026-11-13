@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Dufforth Tweaks Helper
-## Notes: Gathering, disenchanting and crafting help. Keeps herb and ore icons on the minimap, swaps tracking, says in item tooltips whether to disenchant, sell on the auction house or sell to a vendor, disenchants BoE gear one click at a time, recommends gear worth crafting to disenchant, and keeps a one-button warrior macro up to date.
-## Version: 4.7.0
+## Notes: Gathering, disenchanting and crafting help. Keeps herb and ore icons on the minimap, swaps tracking, says in item tooltips whether to disenchant, sell on the auction house or sell to a vendor, disenchants BoE gear one click at a time, recommends gear worth crafting to disenchant, plans the cheapest way to level a profession, keeps a one-button warrior macro up to date, recommends consumables and gear upgrades for your class, and says what's worth doing in your zone.
+## Version: 4.18.4
 ## IconTexture: Interface\Icons\INV_Misc_QuestionMark
 ## SavedVariables: DufforthTweaksHelperDB
 
@@ -12,5 +12,13 @@ Crafts.lua
 Disenchant.lua
 AutoDisenchant.lua
 Crafting.lua
+LevelingData.lua
+Leveling.lua
 Warrior.lua
+ConsumablesData.lua
+Consumables.lua
+ZoneData.lua
+Zone.lua
+GearData.lua
+Gear.lua
 Menu.lua

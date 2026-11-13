@@ -129,11 +129,58 @@ local function Rows()
     return rows
 end
 
-DufforthTweaksHelperAutoDE = { Classify = Classify, Options = Options, Rows = Rows, IsSelected = IsSelected, DEFAULTS = DEFAULTS, QUALITY_NAMES = QUALITY_NAMES, choice = choice }
+-- ---- Totals for everything ticked: materials and time ----
+-- Each disenchant: the 3 s cast plus looting and your next click. Learned from your own pace.
+local SECONDS_PER_DE = 4.5
+
+local function SecondsPerDE()
+    local learned = Options().secondsPerDE
+    return (type(learned) == "number" and learned >= 3 and learned <= 15) and learned or SECONDS_PER_DE
+end
+
+-- { count, value, unpriced, seconds, mats = { {id, amount, each, value}, ... } (most valuable first) }.
+-- Amounts are averages: chance x the middle of each material's range.
+local function Summary(rows, isSelected, secondsEach, market, shipped)
+    local DE = DufforthTweaksHelperDE
+    local s, byId = { count = 0, value = 0, unpriced = 0, mats = {} }, {}
+    for _, row in ipairs(rows) do
+        if isSelected(row) then
+            s.count = s.count + 1
+            if row.item.value then s.value = s.value + row.item.value else s.unpriced = s.unpriced + 1 end
+            for _, o in ipairs(DE.Outcomes(row.item) or {}) do
+                if o.chance > 0 then
+                    local m = byId[o.id]
+                    if not m then
+                        m = { id = o.id, amount = 0 }
+                        byId[o.id] = m
+                        s.mats[#s.mats + 1] = m
+                    end
+                    m.amount = m.amount + o.chance * (o.min + o.max) / 2
+                end
+            end
+        end
+    end
+    for _, m in ipairs(s.mats) do
+        local price = DE.Price(m.id, market, shipped)
+        m.each = price and price * (1 - (DE.AUCTION_CUT or 0.05)) or nil
+        m.value = m.each and m.each * m.amount or nil
+    end
+    table.sort(s.mats, function(a, b) return (a.value or -1) > (b.value or -1) end)
+    s.seconds = s.count * secondsEach
+    return s
+end
+
+local function Duration(seconds)
+    if DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.Duration then return DufforthTweaksHelperLeveling.Duration(seconds) end
+    return math.floor(seconds + 0.5) .. "s"
+end
+
+DufforthTweaksHelperAutoDE = { Summary = Summary, SecondsPerDE = SecondsPerDE, Classify = Classify, Options = Options, Rows = Rows, IsSelected = IsSelected, DEFAULTS = DEFAULTS, QUALITY_NAMES = QUALITY_NAMES, choice = choice }
 
 -- ---- Window ----
 local frame, castButton, rowFrames = nil, nil, {}
 local rows, offset = {}, 0
+local summary -- the totals shown on the status line and in its hover
 
 local function SpellName()
     if C_Spell and C_Spell.GetSpellInfo then
@@ -174,19 +221,21 @@ local function Refresh()
     end
     rows = Rows()
     offset = math.max(0, math.min(offset, #rows - VISIBLE_ROWS))
-    local next, count, total = nil, 0, 0
+    local next = nil
     for _, row in ipairs(rows) do
-        if IsSelected(row) then
-            count = count + 1
-            total = total + (row.item.value or 0)
-            next = next or row
-        end
+        if IsSelected(row) then next = next or row end
     end
+    local market = DufforthTweaksHelper and DufforthTweaksHelper.MarketName and DufforthTweaksHelper.MarketName() or ""
+    summary = Summary(rows, IsSelected, SecondsPerDE(), market, DufforthTweaksHelperPrices)
+    local count = summary.count
     DrawRows()
     if #rows == 0 then
         frame.status:SetText("Nothing in your bags can be disenchanted.")
+    elseif count == 0 then
+        frame.status:SetText(string.format("0 of %d ticked.", #rows))
     else
-        frame.status:SetText(string.format("%d of %d ticked · about %s", count, #rows, DufforthTweaksHelperDE.Money(total)))
+        frame.status:SetText(string.format("%d of %d ticked: about %s of materials, about %s. Hover for details.", count, #rows,
+            DufforthTweaksHelperDE.Money(summary.value), Duration(summary.seconds)))
     end
     if next then
         castButton:SetAttribute("type", "spell")
@@ -278,15 +327,22 @@ local function Build()
     all:SetPoint("TOPLEFT", 12, -30)
     local none = SmallButton("Untick all", 80, function() SetAll(false) end)
     none:SetPoint("LEFT", all, "RIGHT", 4, 0)
-    frame.scrollUp = SmallButton("▲", 26, function() offset = math.max(0, offset - VISIBLE_ROWS); DrawRows() end)
-    frame.scrollUp:SetPoint("TOPRIGHT", -42, -30)
-    frame.scrollDown = SmallButton("▼", 26, function() offset = math.min(offset + VISIBLE_ROWS, math.max(0, #rows - VISIBLE_ROWS)); DrawRows() end)
-    frame.scrollDown:SetPoint("LEFT", frame.scrollUp, "RIGHT", 2, 0)
+    frame.scrollUp = DufforthTweaksHelper.ArrowButton(frame, "up", function() offset = math.max(0, offset - VISIBLE_ROWS); DrawRows() end)
+    frame.scrollUp:SetPoint("TOPRIGHT", -40, -29)
+    frame.scrollDown = DufforthTweaksHelper.ArrowButton(frame, "down", function() offset = math.min(offset + VISIBLE_ROWS, math.max(0, #rows - VISIBLE_ROWS)); DrawRows() end)
+    frame.scrollDown:SetPoint("LEFT", frame.scrollUp, "RIGHT", 4, 0)
 
     for i = 1, VISIBLE_ROWS do rowFrames[i] = BuildRow(i) end
 
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.status:SetPoint("BOTTOMLEFT", 14, 66)
+    frame.status:SetPoint("BOTTOMLEFT", 14, 66); frame.status:SetWidth(332); frame.status:SetJustifyH("LEFT")
+    if frame.status.SetWordWrap then frame.status:SetWordWrap(false) end
+    -- Hovering the totals: time, and each material you can expect with its value.
+    frame.statusHover = CreateFrame("Frame", nil, frame)
+    frame.statusHover:SetPoint("BOTTOMLEFT", 10, 60); frame.statusHover:SetSize(340, 20)
+    frame.statusHover:EnableMouse(true)
+    frame.statusHover:SetScript("OnEnter", function(self) DufforthTweaksHelperAutoDE.ShowSummary(self) end)
+    frame.statusHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
     local note = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     note:SetPoint("BOTTOMLEFT", 14, 40); note:SetWidth(332); note:SetJustifyH("LEFT")
     note:SetText("The game allows one disenchant per click: press the button (or its key, under Key Bindings > AddOns) after each cast.")
@@ -302,9 +358,10 @@ local function Build()
     frame:RegisterEvent("PLAYER_REGEN_DISABLED") -- the last moment the window may still be hidden
     frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-    frame:SetScript("OnEvent", function(_, event, unit)
+    frame:SetScript("OnEvent", function(_, event, unit, _, spell)
         if event == "PLAYER_REGEN_DISABLED" then frame:Hide(); return end
         if (event == "UNIT_SPELLCAST_SUCCEEDED" or event == "UNIT_SPELLCAST_INTERRUPTED") and unit ~= "player" then return end
+        if event == "UNIT_SPELLCAST_SUCCEEDED" and spell == DISENCHANT then DufforthTweaksHelperAutoDE.LearnPace(GetTime and GetTime() or 0) end
         if C_Timer then C_Timer.After(0.3, Refresh) else Refresh() end
     end)
 end
@@ -319,6 +376,38 @@ function DufforthTweaksHelperAutoDE.Toggle()
 end
 
 DufforthTweaksHelperAutoDE.Refresh = Refresh
+
+-- Your own pace: the time between two disenchants in a row (under 20 s), smoothed.
+local lastDE
+function DufforthTweaksHelperAutoDE.LearnPace(now)
+    if lastDE and now - lastDE > 0 and now - lastDE < 20 then
+        local o = Options()
+        o.secondsPerDE = 0.7 * SecondsPerDE() + 0.3 * (now - lastDE)
+    end
+    lastDE = now
+end
+
+function DufforthTweaksHelperAutoDE.ShowSummary(owner)
+    local s = summary
+    GameTooltip:SetOwner(owner, "ANCHOR_TOP")
+    if not s or s.count == 0 then
+        GameTooltip:SetText("Tick items to see the time and the materials you'd get.", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+        return
+    end
+    local DE = DufforthTweaksHelperDE
+    GameTooltip:AddLine(string.format("Disenchanting %d items", s.count), 1, 0.82, 0)
+    GameTooltip:AddDoubleLine("Time", "about " .. Duration(s.seconds), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddLine(string.format("%.1f s each: the cast, looting and your next click (learned from your pace).", SecondsPerDE()), 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Materials you can expect (averages)", 0.45, 0.8, 1)
+    for _, m in ipairs(s.mats) do
+        GameTooltip:AddDoubleLine(string.format("    %.1fx %s", m.amount, DE.MaterialName(m.id)), m.value and DE.Money(m.value) or "no price", 0.8, 0.8, 0.8, 1, 1, 1)
+    end
+    GameTooltip:AddDoubleLine("Total, after the 5% auction cut", DE.Money(s.value), 1, 0.82, 0, 1, 1, 1)
+    if s.unpriced > 0 then GameTooltip:AddLine(string.format("%d items have materials without a price and aren't in the total.", s.unpriced), 1, 0.5, 0.25, true) end
+    GameTooltip:AddLine("Each disenchant is random: real amounts vary.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+end
 DufforthTweaksHelperAutoDE.SetAll = SetAll
 
 BINDING_HEADER_DUFFORTHTWEAKSHELPER = "Dufforth Tweaks Helper"
