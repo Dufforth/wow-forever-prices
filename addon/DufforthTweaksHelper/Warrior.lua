@@ -16,7 +16,6 @@ local MACRO_LIMIT = 255
 local SHOUT = "Battle Shout"
 local SHOUT_KEEP_SECONDS = 45 -- leave Battle Shout out of the macro while it has this long left
 local VICTORIOUS = "Victorious" -- the buff a kill that gives XP or honor puts on you (Victory Rush)
-local VICTORY_MIN_SECONDS = 6
 W.MACRO_NAME, W.MACRO_LIMIT = MACRO_NAME, MACRO_LIMIT
 
 -- Stances by spell id; their number on the stance bar depends on which ones you know.
@@ -35,13 +34,17 @@ local BATTLE, DEFENSIVE, BERSERKER = 1, 2, 3
 -- So each stance gets exactly one global-cooldown line, and when a stance has several such spells
 -- they go in one /castsequence that steps to the next spell each time one is cast: Defensive
 -- Stance "Revenge, Sunder Armor, Heroic Strike" (Revenge waits for a block; Shield Block makes
--- blocks), Battle Stance Overpower. Rend and Battle Shout go first, once each. Victory Rush and
--- Execute can't share the button (they would take every press while they can't be cast), so the
--- icon tells you when to press them on their own key, like Shield Bash.
+-- blocks). Battle Stance: Execute once learned, else Overpower. Execute is refused until the
+-- target is under 20%, and while refused it takes the stance's one try, but that try was wasted
+-- anyway: in 22 real Battle Stance fights Overpower was refused 129 times and cast once (user:
+-- "Execute is not in the rotation", 2026-11-12). With Mortal Strike or Bloodthirst, Execute stays an
+-- own-key prompt on the icon, because there it would block the big attack. Rend and Battle Shout go
+-- first, once each. Victory Rush can't share the button outside the after-kill line, so the icon
+-- tells you when to press it on its own key, like Shield Bash.
 local LINES = {
     { { spell = "Charge" }, { spell = "Intercept" }, { spell = "Battle Shout" }, { spell = "Rend" },
       { spell = "Revenge" }, { spell = "Sunder Armor" }, { spell = "Shield Slam" }, { spell = "Shield Block" },
-      { spell = "Overpower" }, { spell = "Mortal Strike" }, { spell = "Bloodthirst" }, { spell = "Whirlwind" },
+      { spell = "Overpower" }, { spell = "Execute" }, { spell = "Bloodrage" }, { spell = "Mortal Strike" }, { spell = "Bloodthirst" }, { spell = "Whirlwind" },
       { spell = "Heroic Strike" }, { spell = "Cleave" } },
 }
 W.LINES = LINES
@@ -66,6 +69,8 @@ local function DB()
     o.debug.events = o.debug.events or {}
     o.debug.errors = o.debug.errors or {}
     o.fights = o.fights or {}
+    o.cooldowns = o.cooldowns or {} -- spell -> cooldown seconds, learned out of combat
+    o.gear = o.gear or {} -- distinct gear and stat sets; fights point at one (fight.gear)
     o.macros = o.macros or {}
     return o
 end
@@ -356,20 +361,17 @@ function W.BuildLines(known, numbers, options)
     end
 
     -- Global cooldown, once each.
-    -- Right after a kill that gives XP or honor (the Victorious buff, about 20 s): Victory Rush once,
-    -- on the next pull. Written only while the buff has time left and removed when it ends, so it
-    -- never sits first while it can't be cast (that would take the global-cooldown try every press).
-    if options.victorious and known["Victory Rush"] then out[#out + 1] = "/castsequence Victory Rush,nil" end
-    if options.shout and known[SHOUT] then out[#out + 1] = "/castsequence reset=120 " .. SHOUT .. ",nil" end
-    if known["Rend"] and (numbers[BATTLE] or numbers[DEFENSIVE]) then
-        local seconds = W.RendSeconds(options.level)
-        if berserkerKnown then
-            local forms = {}
-            for _, stance in ipairs({ BATTLE, DEFENSIVE }) do if numbers[stance] then forms[#forms + 1] = numbers[stance] end end
-            out[#out + 1] = string.format("/castsequence [form:%s] reset=%d Rend,nil", table.concat(forms, "/"), seconds)
-        else
-            out[#out + 1] = string.format("/castsequence reset=%d Rend,nil", seconds) -- every known stance allows Rend
-        end
+    -- Victory Rush is not in the button (2026-11-11, user: "remove vr from the rotation, this will be
+    -- casted on demand"); the icon still prompts it for its own key when it can be cast.
+    -- Battle Shout: written while the buff is missing or has under SHOUT_KEEP_SECONDS left, once per
+    -- fight. reset=combat, because reset=120 restarted its timer on every press and often never
+    -- re-armed between pulls (Battle Shout was up 86% of the last 30 fights).
+    if options.shout and known[SHOUT] then out[#out + 1] = "/castsequence reset=combat " .. SHOUT .. ",nil" end
+    -- Rend in Battle Stance only, once per pull (2026-11-11, user agreed): in Defensive it did 33
+    -- damage a cast (3.3 per rage point, Revenge 23) and took the global-cooldown try from Revenge.
+    -- reset=combat, because reset=N restarts its timer on every press and never re-armed it.
+    if known["Rend"] and numbers[BATTLE] then
+        out[#out + 1] = string.format("/castsequence [form:%d] reset=combat Rend,nil", numbers[BATTLE])
     end
 
     -- One global-cooldown line per stance.
@@ -384,14 +386,20 @@ function W.BuildLines(known, numbers, options)
     local defensive = {}
     if options.shield and known["Shield Slam"] then defensive[#defensive + 1] = "Shield Slam" end
     if options.shield and known["Revenge"] then defensive[#defensive + 1] = "Revenge" end -- needs blocks to come up
-    if known["Sunder Armor"] then defensive[#defensive + 1] = "Sunder Armor" end
+    -- Sunder Armor only in a group (threat), or when it's the only attack Defensive Stance has (no
+    -- shield). Solo it gave ~2 damage per rage point against Heroic Strike's 7.6 (user: "remove it",
+    -- 2026-11-11; tools/sunder_value.py).
+    local hasRevenge = defensive[#defensive] == "Revenge" or defensive[1] == "Shield Slam"
+    if known["Sunder Armor"] and (options.group or not hasRevenge) then defensive[#defensive + 1] = "Sunder Armor" end
     if #defensive > 0 and filler then defensive[#defensive + 1] = filler end
     Line(DEFENSIVE, defensive)
     local battleBig = BigAttack(known, BATTLE)
     if battleBig then Line(BATTLE, filler and { battleBig, filler } or { battleBig })
+    elseif known["Execute"] then Line(BATTLE, { "Execute" })
     elseif known["Overpower"] then Line(BATTLE, { "Overpower" }) end
     local berserkerBig = BigAttack(known, BERSERKER)
-    if berserkerBig then Line(BERSERKER, filler and { berserkerBig, filler } or { berserkerBig }) end
+    if berserkerBig then Line(BERSERKER, filler and { berserkerBig, filler } or { berserkerBig })
+    elseif known["Execute"] then Line(BERSERKER, { "Execute" }) end
 
     -- Off the global cooldown again.
     if options.shield and known["Shield Block"] and numbers[DEFENSIVE] then
@@ -399,13 +407,17 @@ function W.BuildLines(known, numbers, options)
     end
     -- Heroic Strike on every press where no sequence above already uses it (Battle Stance at low level).
     if filler and numbers[BATTLE] and not battleBig then out[#out + 1] = "/cast [form:" .. numbers[BATTLE] .. "] " .. filler end
+    -- Bloodrage: free rage, off the global cooldown, so it never takes another spell's try; on its
+    -- one-minute cooldown the game just skips it. "Not enough rage" was the most common error in
+    -- every stance (user asked for it, 2026-11-12). In combat only, so it isn't spent before a pull.
+    if known["Bloodrage"] then out[#out + 1] = "/cast [combat] Bloodrage" end
     return out
 end
 
 -- The macro text, at most 255 characters: if it's longer, the least important lines go first.
-local DROP_FIRST = { "Rend", "Charge", "Battle Shout" }
+local DROP_FIRST = { "Bloodrage", "Rend", "Charge", "Battle Shout" }
 -- With Victory Rush in (right after a kill), Charge goes first: you are usually close already.
-local DROP_FIRST_VICTORY = { "Charge", "Battle Shout", "Rend" }
+local DROP_FIRST_VICTORY = { "Bloodrage", "Charge", "Battle Shout", "Rend" }
 function W.Fit(lines)
     local kept = {}
     for i, line in ipairs(lines) do kept[i] = line end
@@ -441,16 +453,10 @@ function W.Update()
     local left = W.BuffLeft(SHOUT)
     local shout = not left or left < SHOUT_KEEP_SECONDS
     local chargeStances, chargeInCombat = W.LearnCharge(known, numbers)
-    -- At least 6 s left, so the buff is still there when the next pull's first presses come.
+    -- Victory Rush is cast on demand (its own key), never written into the button.
     local victoryLeft = W.BuffLeft(VICTORIOUS)
-    local victorious = victoryLeft ~= nil and victoryLeft >= VICTORY_MIN_SECONDS
     state.victoryLeft = victoryLeft
-    -- Take it out again when under 6 s are left (no event fires then), so a pull never starts with a
-    -- Victory Rush that runs out before it is cast.
-    if victorious and victoryLeft ~= math.huge and C_Timer and not W.victoryTimer then
-        W.victoryTimer = true
-        C_Timer.After(victoryLeft - VICTORY_MIN_SECONDS + 0.1, function() W.victoryTimer = nil; W.SafeUpdate() end)
-    end
+    local victorious = false
     local shield = W.HasShield()
     local group = (IsInGroup and IsInGroup()) or (GetNumGroupMembers and GetNumGroupMembers() > 0) or false
     local lines = W.BuildLines(known, numbers, { shout = shout, charge = options.charge, shield = shield, group = group,
@@ -528,13 +534,32 @@ end
 
 -- ---- What the button will do next (for the icon) ----
 
+-- Seconds until a spell's cooldown ends (0 = ready). The game hides cooldowns in combat, so the
+-- addon learns each spell's cooldown when it can read it (out of combat) and, in combat, counts
+-- from its last cast. Learned lengths are kept in DufforthTweaksHelperDB.warrior.cooldowns.
+W.lastCastAt = {}
+function W.CooldownLeft(name, now)
+    now = now or GetTime()
+    local start, duration = SpellCooldown(name)
+    start, duration = Plain(start), Plain(duration)
+    if start and duration then
+        if start > 0 and duration > 1.5 then -- 1.5 s is the global cooldown
+            local learned = DB().cooldowns
+            if not learned[name] or duration > learned[name] then learned[name] = duration end
+            return math.max(0, start + duration - now)
+        end
+        return 0
+    end
+    local at, length = W.lastCastAt[name], DB().cooldowns[name]
+    if at and length then return math.max(0, at + length - now) end
+    return 0
+end
+
 local function SpellReady(name)
     local usable, noMana = SpellUsable(name)
     usable, noMana = Plain(usable), Plain(noMana)
     if usable == false or noMana then return false end
-    local start, duration = SpellCooldown(name)
-    start, duration = Plain(start), Plain(duration) -- hidden in combat on this client
-    if start and start > 0 and duration and duration > 1.5 then return false end -- 1.5 s is the global cooldown
+    if W.CooldownLeft(name) > 0 then return false end
     if UnitExists("target") and not SpellInRange(name) then return false end
     return true
 end
@@ -549,22 +574,33 @@ function W.NextSpell(facts, ready)
     if facts.victoryInMacro and ok("Victory Rush") then return "Victory Rush" end -- once, after a kill
     if not facts.inCombat and facts.charge ~= false and ok("Charge") then return "Charge" end
     if facts.shoutInMacro and known[SHOUT] and not facts.shoutLeft and ok(SHOUT) then return SHOUT end
-    if (facts.stance == BATTLE or facts.stance == DEFENSIVE) and not facts.rendOnTarget and ok("Rend") then return "Rend" end
+    if facts.stance == BATTLE and not facts.rendOnTarget and ok("Rend") then return "Rend" end
     if facts.stance == DEFENSIVE then
         if facts.shield and ok("Shield Block") then return "Shield Block" end
         for _, name in ipairs({ "Shield Slam", "Revenge", "Sunder Armor" }) do
-            if (facts.shield or name == "Sunder Armor") and ok(name) then return name end
+            local sunderFits = name == "Sunder Armor" and (facts.inGroup or not facts.shield) -- same rule as the macro
+            if ((facts.shield and name ~= "Sunder Armor") or sunderFits) and ok(name) then return name end
         end
     elseif facts.stance == BATTLE then
         local big = BigAttack(known, BATTLE)
         if big and ok(big) then return big end
-        if ok("Overpower") then return "Overpower" end
+        if not big and known["Execute"] then
+            if ok("Execute") then return "Execute" end
+        elseif ok("Overpower") then return "Overpower" end
     elseif facts.stance == BERSERKER then
         local big = BigAttack(known, BERSERKER)
         if big and ok(big) then return big end
+        if not big and known["Execute"] and ok("Execute") then return "Execute" end
     end
     local filler = (facts.inGroup and known["Cleave"]) and "Cleave" or "Heroic Strike"
     if ok(filler) then return filler end
+end
+
+-- While the button holds the after-kill Victory Rush, pressing Victory Rush on its own key would
+-- break the rotation for the rest of that fight, so the icon says not to.
+local VICTORY_WARNING = "|cffffd100Victory Rush is on the button: don't use its key|r"
+function W.VictoryWarning(facts)
+    if facts.victoryInMacro and facts.known["Victory Rush"] then return VICTORY_WARNING end
 end
 
 -- Spells for their own key, shown on the icon when they can be cast: they can't share the button,
@@ -572,7 +608,196 @@ end
 function W.OwnKeyPrompt(facts, ready)
     -- When the macro already has it (a kill before this pull), the button casts it: no prompt.
     if facts.known["Victory Rush"] and not facts.victoryInMacro and ready("Victory Rush") then return "Victory Rush" end
-    if facts.known["Execute"] and (facts.stance == BATTLE or facts.stance == BERSERKER) and ready("Execute") then return "Execute" end
+    -- Execute: only when the button doesn't have it (with Mortal Strike, Bloodthirst or Whirlwind).
+    local big = facts.stance == BATTLE and BigAttack(facts.known, BATTLE) or facts.stance == BERSERKER and BigAttack(facts.known, BERSERKER)
+    if facts.known["Execute"] and big and ready("Execute") then return "Execute" end
+end
+
+-- ---- Following the button's castsequence (what the next press really does) ----
+-- The proven rule: per press the game tries only the first global-cooldown spell the macro's lines
+-- give (cast or rejected), while off-global-cooldown spells are tried on every press. A
+-- /castsequence line gives the spell at its current step, which lives inside the game, so this
+-- keeps its own copy of each step: a cast of the step's spell moves it on (Heroic Strike and Cleave
+-- when queued), "nil" stays until a reset, the end wraps to the start. reset=N starts over after N
+-- seconds without a press (every press counts, so pressing through a fight never resets it),
+-- reset=combat when a fight ends. A /reload starts every sequence over, in the game and here.
+local OFF_GCD = { ["Shield Block"] = true, ["Heroic Strike"] = true, ["Cleave"] = true, ["Charge"] = true,
+    ["Intercept"] = true, ["Bloodrage"] = true, ["Berserker Rage"] = true, ["Pummel"] = true,
+    ["Shield Bash"] = true, ["Recklessness"] = true, ["Shield Wall"] = true, ["Retaliation"] = true }
+W.OFF_GCD = OFF_GCD
+local ON_SWING = { ["Heroic Strike"] = true, ["Cleave"] = true } -- the step moves when they're queued
+W.sequences = {} -- sequence text -> { index = n, used = GetTime() of the last press }
+
+local function Trim(text) return (string.gsub(text or "", "^%s*(.-)%s*$", "%1")) end
+
+-- One condition list ("nocombat,form:1/2") against the facts; unknown conditions count as met.
+local function ConditionsMet(list, facts)
+    for word in string.gmatch(list, "[^,]+") do
+        word = Trim(word)
+        local no, name, value = string.match(word, "^(n?o?)(%a+):?(.*)$")
+        local met = true
+        if name == "combat" then
+            met = facts.inCombat and true or false
+        elseif name == "form" or name == "stance" then
+            met = false
+            if value == "" then met = (facts.stance or 0) > 0 end
+            for number in string.gmatch(value, "%d+") do
+                if tonumber(number) == facts.stance then met = true end
+            end
+        end
+        if no == "no" then met = not met end
+        if not met then return false end
+    end
+    return true
+end
+
+-- The text a /cast or /castsequence line acts on right now, or nil. Uses the game's own parser
+-- when there is one.
+function W.LineAction(args, facts)
+    if SecureCmdOptionParse then
+        local ok, action = pcall(SecureCmdOptionParse, args)
+        if ok then return action ~= nil and action ~= "" and action or nil end
+    end
+    for clause in string.gmatch(args .. ";", "([^;]*);") do
+        clause = Trim(clause)
+        local any, open = false, false
+        local rest = string.gsub(clause, "%[([^%]]*)%]", function(list)
+            open = true
+            if ConditionsMet(list, facts) then any = true end
+            return ""
+        end)
+        if not open or any then
+            rest = Trim(rest)
+            return rest ~= "" and rest or nil
+        end
+    end
+end
+
+local function SplitSequence(text)
+    local reset, list = string.match(text, "^reset=(%S+)%s+(.*)$")
+    if not reset then list = text end
+    local spells = {}
+    for name in string.gmatch(list, "[^,]+") do spells[#spells + 1] = Trim(name) end
+    return reset, spells
+end
+
+local function SequenceEntry(text, now)
+    local entry = W.sequences[text]
+    if not entry then entry = { index = 1 }; W.sequences[text] = entry end
+    local reset = SplitSequence(text)
+    local seconds = reset and tonumber(string.match(reset, "%d+"))
+    if seconds and entry.used and now - entry.used > seconds then entry.index = 1 end
+    return entry
+end
+
+-- The spell a sequence gives on the next press ("nil" gives nothing).
+function W.SequenceNext(text, now)
+    if QueryCastSequence then
+        local ok, name = pcall(QueryCastSequence, text)
+        if ok and type(name) == "string" and name ~= "" then W.queryWorks = true; return name ~= "nil" and name or nil end
+    end
+    local _, spells = SplitSequence(text)
+    local name = spells[SequenceEntry(text, now).index]
+    if name == "nil" then return nil end
+    return name
+end
+
+-- The macro's /cast and /castsequence lines: { kind = "cast"|"castsequence", args = "..." }.
+function W.ParseMacro(body)
+    local lines = {}
+    for line in string.gmatch((body or "") .. "\n", "([^\n]*)\n") do
+        local command, args = string.match(Trim(line), "^/(%a+)%s+(.+)$")
+        if command == "cast" or command == "castsequence" then lines[#lines + 1] = { kind = command, args = args } end
+    end
+    return lines
+end
+
+-- What the next press does. Returns the global-cooldown spell it tries (gcd) and the first ready
+-- off-global-cooldown spell it casts (off).
+function W.MacroNext(lines, facts, ready, now)
+    local gcd, off
+    for _, line in ipairs(lines) do
+        local action = W.LineAction(line.args, facts)
+        local spell = action
+        if action and line.kind == "castsequence" then spell = W.SequenceNext(action, now) end
+        if spell then
+            if OFF_GCD[spell] then
+                if not off and ready(spell) then off = spell end
+            elseif not gcd then
+                gcd = spell
+            end
+        end
+    end
+    return gcd, off
+end
+
+-- A press happened (any try): every sequence the macro reached is used now.
+function W.SequencePressed(lines, facts, now)
+    for _, line in ipairs(lines) do
+        if line.kind == "castsequence" then
+            local action = W.LineAction(line.args, facts)
+            if action then SequenceEntry(action, now).used = now end
+        end
+    end
+end
+
+-- A spell went off (kind "C") or was queued (kind "S", for Heroic Strike and Cleave): sequences
+-- waiting on it move to their next step.
+function W.SequenceCast(lines, facts, name, kind, now)
+    if not name then return end
+    if (ON_SWING[name] or false) ~= (kind == "S") then return end
+    for _, line in ipairs(lines) do
+        if line.kind == "castsequence" then
+            local action = W.LineAction(line.args, facts)
+            if action then
+                local entry = SequenceEntry(action, now)
+                local _, spells = SplitSequence(action)
+                if spells[entry.index] == name then
+                    entry.index = entry.index + 1
+                    if entry.index > #spells then entry.index = 1 end
+                end
+                entry.used = now
+            end
+        end
+    end
+end
+
+-- A fight ended: sequences with reset=combat start over.
+function W.SequenceCombatEnded()
+    for text, entry in pairs(W.sequences) do
+        local reset = SplitSequence(text)
+        if reset and string.find(reset, "combat", 1, true) then entry.index = 1 end
+    end
+end
+
+-- The icon's pick, and a note when the button's next spell can't be cast yet.
+-- Returns spell, ready (bool), note.
+local WHY_NOT_READY = {
+    ["Revenge"] = "needs a block, dodge or parry first",
+    ["Overpower"] = "needs the enemy to dodge first",
+    ["Victory Rush"] = "needs a kill first",
+    ["Execute"] = "needs the enemy under 20% health",
+}
+function W.ButtonPick(lines, facts, ready, now)
+    local gcd, off = W.MacroNext(lines, facts, ready, now)
+    if gcd and ready(gcd) then return gcd, true end
+    local why = gcd and (WHY_NOT_READY[gcd] or "not ready yet")
+    if off then
+        return off, true, gcd and string.format("|cffc0c0c0Then %s (%s)|r", gcd, why) or nil
+    end
+    if gcd then
+        return gcd, false, string.format("|cffc0c0c0%s %s: this press only auto-attacks|r", gcd, why)
+    end
+end
+
+function W.MacroLines()
+    local body
+    if GetMacroInfo and GetMacroIndexByName and (GetMacroIndexByName(MACRO_NAME) or 0) > 0 then
+        local ok, _, _, text = pcall(GetMacroInfo, MACRO_NAME)
+        if ok and type(text) == "string" then body = text end
+    end
+    if not body and W.state.lines then body = table.concat(W.state.lines, "\n") end
+    return W.ParseMacro(body)
 end
 
 -- Enemies that hit you or that you hit in the last few seconds, read from the game's combat log
@@ -744,15 +969,24 @@ function W.RefreshButtons()
         table.concat(facts, " "), #matched > 0 and table.concat(matched, " ") or "none")
 end
 
-local function ShowOnButtons(spell)
+local function ShowOnButtons(spell, ready)
     local texture = spell and SpellIcon(spell)
     for _, overlay in pairs(overlays) do
         overlay:SetShown(overlay.active and DB().buttonIcon and texture ~= nil or false)
         if overlay.active and texture then
-            overlay.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-            overlay.icon:SetDesaturated(not spell)
+            overlay.icon:SetTexture(texture)
+            overlay.icon:SetDesaturated(not ready)
         end
     end
+end
+
+-- The icon's pick: the button's real next step when the macro is known, else the best ready spell.
+-- Returns spell, ready, note.
+function W.Pick(facts)
+    local lines = W.MacroLines()
+    if #lines > 0 then return W.ButtonPick(lines, facts, SpellReady, GetTime()) end
+    local spell = W.NextSpell(facts, SpellReady)
+    return spell, spell ~= nil
 end
 
 -- Whether your target is casting or channeling. Values may be hidden in combat; a hidden value
@@ -780,17 +1014,62 @@ function W.Interrupt(facts, ready)
     end
 end
 
+-- A curse on you (or a "Bane"): its name, else nil. Shatter Curse is only suggested, never in the button.
+-- Forever blocks reading auras in combat ("Auras cannot be accessed when secret while tainted"), and
+-- an error here once froze the icon on Charge (2026-11-12). So the read is protected, hidden values
+-- are dropped, and once the game blocks it the check rests until the fight ends.
+local CLEANSE = "Shatter Curse"
+local curseBlocked = false
+
+local function ReadCurse()
+    for i = 1, 40 do
+        local name, kind
+        if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
+            if not aura then return nil end
+            name, kind = Plain(aura.name), Plain(aura.dispelName)
+        elseif UnitDebuff then
+            local n, _, _, k = UnitDebuff("player", i)
+            if not n then return nil end
+            name, kind = Plain(n), Plain(k)
+        else
+            return nil
+        end
+        if kind == "Curse" or (type(name) == "string" and string.find(name, "Bane", 1, true)) then return name end
+    end
+    return nil
+end
+
+function W.CurseOnYou()
+    local fighting = UnitAffectingCombat and UnitAffectingCombat("player")
+    if not fighting then curseBlocked = false end
+    if curseBlocked then return nil end
+    local ok, name = pcall(ReadCurse)
+    if not ok then
+        curseBlocked = true -- blocked in this fight: don't keep asking
+        return nil
+    end
+    return name
+end
+
+function W.CursePrompt(facts, ready, curse)
+    if curse and facts.known[CLEANSE] and ready(CLEANSE) then return CLEANSE end
+    return nil
+end
+
 local lastAlert = 0
 local function UpdateHint()
     if not hint then return end
     local options = DB()
     if not W.IsWarrior() then hint:Hide(); return end
     local facts = HintFacts()
-    local spell = W.NextSpell(facts, SpellReady)
+    local spell, ready, pickNote = W.Pick(facts)
     W.currentPick = spell
-    ShowOnButtons(spell)
+    ShowOnButtons(spell, ready)
     facts.casting = W.TargetCasting()
-    local interrupt = W.Interrupt(facts, SpellReady) or W.OwnKeyPrompt(facts, SpellReady)
+    local curse = W.CurseOnYou()
+    local cleanse = W.CursePrompt(facts, SpellReady, curse)
+    local interrupt = W.Interrupt(facts, SpellReady) or cleanse or W.OwnKeyPrompt(facts, SpellReady)
     W.currentInterrupt = interrupt
     if interrupt then
         if GetTime() - lastAlert > 3 and PlaySound and SOUNDKIT and SOUNDKIT.RAID_WARNING then
@@ -801,9 +1080,8 @@ local function UpdateHint()
         hint.icon:SetTexture(SpellIcon(interrupt) or "Interface\\Icons\\INV_Misc_QuestionMark")
         hint.icon:SetDesaturated(false)
         hint.spell:SetText("|cffff3030" .. interrupt .. "!|r")
-        hint.notes:SetText(facts.casting and W.Interrupt(facts, SpellReady)
-            and ("|cffff3030Enemy is casting: press " .. interrupt .. "|r")
-            or ("|cffff3030Press " .. interrupt .. " (its own key)|r"))
+        hint.notes:SetText(facts.casting and W.Interrupt(facts, SpellReady) and "|cffff3030Enemy casting|r"
+            or interrupt == cleanse and ("|cffc080ff" .. curse .. "|r") or "|cffff3030Own key|r")
         return
     end
     local hostile = UnitExists("target") and UnitCanAttack("player", "target") and not UnitIsDead("target")
@@ -813,16 +1091,22 @@ local function UpdateHint()
     hint:SetShown(show and true or false)
     if not show then return end
     local texture = spell and SpellIcon(spell)
+    if not texture and not hint.unlocked then hint:Hide(); return end -- nothing to show: no question mark, no placeholder text
     hint.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-    hint.icon:SetDesaturated(not spell)
+    hint.icon:SetDesaturated(not ready)
     local notes = {}
+    if pickNote then notes[#notes + 1] = pickNote end
     if victoryLeft and victoryLeft ~= math.huge then
-        notes[#notes + 1] = string.format("|cff40ff40Victory Rush: %d s. Your next press on an enemy casts it.|r", math.floor(victoryLeft))
+        notes[#notes + 1] = string.format("|cff40ff40Victory Rush %ds|r", math.floor(victoryLeft))
     end
+    -- Guard: a Victory Rush pressed on its own key now would leave the button's Victory Rush line
+    -- waiting all fight (the macro can't change in combat), and the rotation would stop.
+    local warning = W.VictoryWarning(facts)
+    if warning then notes[#notes + 1] = warning end
     local enemies = W.EnemyCount()
     if enemies >= 2 then notes[#notes + 1] = enemies .. " enemies" end
     if facts.known[SHOUT] and not facts.shoutLeft and facts.inCombat then notes[#notes + 1] = "|cffff8040No Battle Shout|r" end
-    hint.spell:SetText(spell or (hint.unlocked and "Drag to move" or "Wait"))
+    hint.spell:SetText(hint.unlocked and "Drag to move" or (ready and spell or ("|cff909090" .. spell .. "|r")))
     hint.notes:SetText(table.concat(notes, "\n"))
 end
 
@@ -844,9 +1128,11 @@ local function BuildHint()
     hint.icon:SetAllPoints()
     hint.spell = hint:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hint.spell:SetPoint("TOP", hint, "BOTTOM", 0, -2)
+    -- Notes go under the spell name (the user's choice), centered, short.
     hint.notes = hint:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint.notes:SetPoint("LEFT", hint, "RIGHT", 6, 0)
-    hint.notes:SetJustifyH("LEFT")
+    hint.notes:SetPoint("TOP", hint.spell, "BOTTOM", 0, -2)
+    hint.notes:SetWidth(200)
+    hint.notes:SetJustifyH("CENTER")
     hint:Hide()
     local elapsed = 0
     local ticker = CreateFrame("Frame")
@@ -874,7 +1160,7 @@ function W.HintUnlocked() return hint and hint.unlocked or false end
 -- Each fight is saved in DufforthTweaksHelperDB.warrior.fights (the game writes the file on
 -- /reload or logout), so the macro and the icon can be checked against real fights later.
 
-local FIGHTS_KEPT = 40
+local FIGHTS_KEPT = 300 -- about 1.7 KB each; tools/archive_warrior_fights.py copies them to a history file that keeps all
 local RAGE_CAP = 90 -- rage this high for a while means rage was wasted
 W.FIGHTS_KEPT = FIGHTS_KEPT
 local fight
@@ -899,6 +1185,92 @@ local function MacroId(body)
     return #macros
 end
 
+-- ---- Gear, weapon and stats (for gear and stat advice later) ----
+-- Read out of combat (values can be hidden in combat) whenever the macro is checked or gear
+-- changes, kept once per distinct set in DufforthTweaksHelperDB.warrior.gear, and each fight
+-- points at the set it was fought with (fight.gear).
+local function Read(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local results = { pcall(fn, ...) }
+    if not results[1] then return nil end
+    for i = 2, #results do results[i] = Plain(results[i]) end
+    return unpack(results, 2)
+end
+
+local SLOT_NAMES = { [1] = "head", [2] = "neck", [3] = "shoulder", [5] = "chest", [6] = "waist", [7] = "legs",
+    [8] = "feet", [9] = "wrist", [10] = "hands", [11] = "finger1", [12] = "finger2", [13] = "trinket1",
+    [14] = "trinket2", [15] = "back", [16] = "mainhand", [17] = "offhand", [18] = "ranged" }
+local STAT_NAMES = { "strength", "agility", "stamina", "intellect", "spirit" }
+
+function W.Snapshot()
+    local s = { level = Read(UnitLevel, "player") or 0, items = {}, stats = {} }
+    for slot, name in pairs(SLOT_NAMES) do
+        local link = Read(GetInventoryItemLink, "player", slot)
+        if type(link) == "string" then
+            local id, enchant = string.match(link, "item:(%d+):?(%d*)")
+            s.items[name] = { id = tonumber(id), enchant = tonumber(enchant) or 0, name = string.match(link, "%[(.-)%]") }
+        end
+    end
+    for i, name in ipairs(STAT_NAMES) do
+        local _, effective = Read(UnitStat, "player", i)
+        s.stats[name] = effective
+    end
+    local _, armor = Read(UnitArmor, "player")
+    s.stats.armor = armor
+    local base, plus, minus = Read(UnitAttackPower, "player")
+    s.stats.attackPower = base and (base + (plus or 0) + (minus or 0)) or nil
+    s.stats.crit = Read(GetCritChance)
+    s.stats.dodge = Read(GetDodgeChance)
+    s.stats.parry = Read(GetParryChance)
+    s.stats.block = Read(GetBlockChance)
+    s.stats.blockValue = Read(GetShieldBlock)
+    s.stats.health = Read(UnitHealthMax, "player")
+    local speed = Read(UnitAttackSpeed, "player")
+    local low, high = Read(UnitDamage, "player")
+    s.weapon = { speed = speed, low = low, high = high,
+        dps = (speed and low and high and speed > 0) and math.floor((low + high) / 2 / speed * 10 + 0.5) / 10 or nil }
+    return s
+end
+
+local function SnapshotKey(s)
+    local parts = { tostring(s.level) }
+    local names = {}
+    for name in pairs(s.items) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do parts[#parts + 1] = name .. "=" .. s.items[name].id .. ":" .. s.items[name].enchant end
+    return table.concat(parts, ",")
+end
+
+-- Buffs raise stats for a while, so a set keeps the lowest value seen for each stat (about the
+-- unbuffed value) and the highest seen as statsBuffed.
+local function MergeStats(saved, now)
+    saved.statsBuffed = saved.statsBuffed or {}
+    for name, value in pairs(now.stats) do
+        if type(value) == "number" then
+            if type(saved.stats[name]) ~= "number" or value < saved.stats[name] then saved.stats[name] = value end
+            if type(saved.statsBuffed[name]) ~= "number" or value > saved.statsBuffed[name] then saved.statsBuffed[name] = value end
+        end
+    end
+    if not saved.weapon.dps and now.weapon.dps then saved.weapon = now.weapon end
+end
+
+-- Saves the current set if it's new; W.gearId is the set the next fight uses.
+function W.TrackGear()
+    if Lockdown() or (UnitAffectingCombat and UnitAffectingCombat("player")) then return end
+    local s = W.Snapshot()
+    s.key = SnapshotKey(s)
+    local gear = DB().gear
+    for i, saved in ipairs(gear) do
+        if saved.key == s.key then MergeStats(saved, s); W.gearId = i; return i end
+    end
+    s.at = time and time() or 0
+    s.statsBuffed = {}
+    for name, value in pairs(s.stats) do s.statsBuffed[name] = value end
+    gear[#gear + 1] = s
+    W.gearId = #gear
+    return W.gearId
+end
+
 local function AddEnemy(unit)
     if not fight or not UnitExists(unit) or not UnitCanAttack("player", unit) then return end
     local key = tostring(Plain(UnitName(unit)) or "?") .. ":" .. tostring(Plain(UnitLevel(unit)) or 0)
@@ -913,11 +1285,13 @@ function W.FightStart()
     local body = W.state.body
     fight = {
         at = time and time() or 0, start = GetTime(),
+        character = DufforthTweaksHelper.CharacterKey and DufforthTweaksHelper.CharacterKey() or "?",
         zone = GetRealZoneText and GetRealZoneText() or "?", level = UnitLevel("player") or 0,
         group = (IsInGroup and IsInGroup()) or (GetNumGroupMembers and GetNumGroupMembers() > 0) or false,
         macro = body and MacroId(body) or 0, stance = W.CurrentStance(W.state.numbers or {}) or 0,
         rage = Rage(), casts = {}, errors = {}, enemies = {}, seen = {}, hitBy = {}, mostEnemies = 0,
         rageCapped = 0, shoutUp = 0, ticked = 0, result = "won", tries = {}, tried = {},
+        gear = W.gearId or 0, manual = {}, -- manual: spells cast that the macro doesn't have (own keys)
     }
     -- The pull: what was tried in the 6 seconds before combat started (Charge, first presses).
     for _, try in ipairs(W.preTries) do
@@ -942,6 +1316,146 @@ function W.FightEnd()
     local fights = DB().fights
     fights[#fights + 1] = f
     while #fights > FIGHTS_KEPT do table.remove(fights, 1) end
+    -- The combat log is closed on Forever; the game's own damage meter may still be readable once
+    -- the fight is over. Give it a moment to finish, then try.
+    if C_Timer then C_Timer.After(1.5, W.Guard("damage meter", function() W.AfterFight(f) end)) else W.AfterFight(f) end
+end
+
+-- ---- The game's damage meter (discovery) ----
+-- Forever closes COMBAT_LOG_EVENT_* to addons and hides health in combat, so per-spell damage can
+-- only come from the built-in damage meter (C_DamageMeter on this engine), if it lets addons read
+-- it. Its shape here isn't known yet, so this records what it offers (debug.damageMeter) and keeps
+-- whatever readable numbers a call returns on the fight (fight.damage). Secret values are dropped.
+local function Dump(value, depth, budget)
+    budget.left = budget.left - 1
+    if budget.left < 0 then return "..." end
+    value = Plain(value)
+    local kind = type(value)
+    if kind == "nil" then return "<hidden or nil>" end
+    if kind ~= "table" then return kind == "function" and "<function>" or value end
+    if depth <= 0 then return "<table>" end
+    local out = {}
+    for key, item in pairs(value) do
+        key = Plain(key)
+        if key ~= nil then out[tostring(key)] = Dump(item, depth - 1, budget) end
+    end
+    return out
+end
+W.DumpForLog = Dump
+
+function W.ProbeDamageMeter(fight)
+    local meter = C_DamageMeter
+    local debug = DB().debug
+    if type(meter) ~= "table" then
+        debug.damageMeter = { available = false }
+        return
+    end
+    local api = {}
+    for name, item in pairs(meter) do
+        if type(item) == "function" then api[#api + 1] = name end
+    end
+    table.sort(api)
+    local enums = {}
+    if Enum then
+        for name, values in pairs(Enum) do
+            if type(name) == "string" and string.find(name, "DamageMeter", 1, true) and type(values) == "table" then
+                enums[name] = Dump(values, 1, { left = 60 })
+            end
+        end
+    end
+    -- Only no-argument getters, and the session getters with every enum pair: reading, never changing.
+    local results, budget = {}, { left = 600 }
+    for _, name in ipairs(api) do
+        if string.find(name, "^Get") or string.find(name, "^Is") or string.find(name, "^Has") then
+            local ok, a, b = pcall(meter[name])
+            results[name .. "()"] = ok and { Dump(a, 4, budget), Dump(b, 2, budget) } or ("error: " .. tostring(a))
+        end
+    end
+    local sessionTypes = Enum and Enum.DamageMeterSessionType
+    local meterTypes = Enum and Enum.DamageMeterType
+    if type(sessionTypes) == "table" and type(meterTypes) == "table" then
+        for _, getter in ipairs({ "GetCombatSessionFromType", "GetCombatSessionSourceFromType" }) do
+            if type(meter[getter]) == "function" then
+                for sessionName, sessionValue in pairs(sessionTypes) do
+                    for meterName, meterValue in pairs(meterTypes) do
+                        if meterName == "DamageDone" or meterName == "Dps" then
+                            local ok, a = pcall(meter[getter], sessionValue, meterValue, UnitGUID and UnitGUID("player"))
+                            results[getter .. "(" .. tostring(sessionName) .. "," .. tostring(meterName) .. ")"] =
+                                ok and Dump(a, 5, budget) or ("error: " .. tostring(a))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    debug.damageMeter = { available = true, api = table.concat(api, ", "), enums = enums, results = results,
+        at = time and time() or 0 }
+end
+
+-- Proven on Forever (2026-11-11): right after a fight, C_DamageMeter's "Current" session is that
+-- fight, and GetCombatSessionSourceFromType(Current, DamageDone, <your GUID>).combatSpells lists
+-- { spellID, totalAmount, amountPerSecond } per spell. Saved on the fight as
+-- spellDamage = { ["Rend"] = 40, ["Auto Attack"] = 290, ... }, damageTotal and damageSeconds.
+function W.ReadFightDamage(fight)
+    local meter = C_DamageMeter
+    local sessions, types = Enum and Enum.DamageMeterSessionType, Enum and Enum.DamageMeterType
+    if type(meter) ~= "table" or type(sessions) ~= "table" or type(types) ~= "table" then return false end
+    if type(meter.GetCombatSessionSourceFromType) ~= "function" then return false end
+    local ok, source = pcall(meter.GetCombatSessionSourceFromType, sessions.Current, types.DamageDone,
+        UnitGUID and UnitGUID("player"))
+    if not ok or type(source) ~= "table" or type(source.combatSpells) ~= "table" then return false end
+    local spells = {}
+    for _, row in pairs(source.combatSpells) do
+        local id, amount = Plain(row.spellID), Plain(row.totalAmount)
+        if id and type(amount) == "number" then
+            local name = SpellName(id) or ("spell " .. tostring(id))
+            spells[name] = (spells[name] or 0) + amount
+        end
+    end
+    fight.spellDamage = spells
+    fight.damageTotal = Plain(source.totalAmount)
+    if type(meter.GetCombatSessionFromType) == "function" then
+        local okSession, session = pcall(meter.GetCombatSessionFromType, sessions.Current, types.DamageDone)
+        if okSession and type(session) == "table" then fight.damageSeconds = Plain(session.durationSeconds) end
+    end
+    W.ReadDamageTaken(fight, meter, sessions, types)
+    return true
+end
+
+-- Damage you took this fight (Enum.DamageMeterType.DamageTaken = 7 on Forever): rage from being hit
+-- is 2.5 x damage / c(level), most of a tank's rage. Saved as damageTaken and takenBy = { name = amount }
+-- (enemy or its spell, whichever the meter names). The meter's row shape for this type isn't known
+-- yet, so the first one each session is also kept raw in debug.damageTakenSample.
+function W.ReadDamageTaken(fight, meter, sessions, types)
+    if not types.DamageTaken then return false end
+    local ok, source = pcall(meter.GetCombatSessionSourceFromType, sessions.Current, types.DamageTaken,
+        UnitGUID and UnitGUID("player"))
+    if not ok or type(source) ~= "table" then return false end
+    if not W.takenSampled then
+        W.takenSampled = true
+        DB().debug.damageTakenSample = Dump(source, 4, { left = 120 })
+    end
+    fight.damageTaken = Plain(source.totalAmount)
+    local by = {}
+    for _, row in pairs(type(source.combatSpells) == "table" and source.combatSpells or {}) do
+        local amount = Plain(row.totalAmount)
+        if type(amount) == "number" then
+            local details = type(row.combatSpellDetails) == "table" and row.combatSpellDetails or {}
+            local name = Plain(row.creatureName) or Plain(details.unitName)
+            if name == "" then name = nil end
+            local id = Plain(row.spellID)
+            name = name or (id and (SpellName(id) or ("spell " .. tostring(id)))) or "?"
+            by[name] = (by[name] or 0) + amount
+        end
+    end
+    fight.takenBy = by
+    return true
+end
+
+function W.AfterFight(fight)
+    W.ReadFightDamage(fight)
+    -- The full meter dump runs once a session: it only checks the meter still looks the same.
+    if not W.meterProbed then W.meterProbed = true; W.ProbeDamageMeter() end
 end
 
 -- Every attempt: "seconds S name" sent to the server, "F name" failed, "Q name" failed quietly,
@@ -965,11 +1479,17 @@ function W.LogTry(kind, name)
 end
 
 function W.LogCast(spell)
+    if spell then W.lastCastAt[spell] = GetTime() end
     if spell == "Rend" and UnitGUID then
         local guid = Plain(UnitGUID("target"))
         if guid then W.rendAt[guid] = GetTime() end
     end
     if not fight or not spell then return end
+    -- Play style: spells pressed on their own keys (not in the button's macro).
+    local body = W.state.body
+    if fight.manual and body and not string.find(body, spell, 1, true) then
+        fight.manual[spell] = (fight.manual[spell] or 0) + 1
+    end
     -- "seconds spell r<rage> h<target health %> n<enemies> p:<what the icon showed>"
     fight.casts[#fight.casts + 1] = string.format("%.1f %s r%d h%d n%d p:%s", GetTime() - fight.start, spell,
         Rage(), TargetHealth(), W.EnemyCount(), W.lastPrediction or "-")
@@ -996,7 +1516,17 @@ function W.LogTick(seconds)
     if W.BuffLeft(SHOUT) then fight.shoutUp = fight.shoutUp + seconds end
     local enemies = W.EnemyCount()
     if enemies > fight.mostEnemies then fight.mostEnemies = enemies end
-    W.lastPrediction = W.NextSpell(HintFacts(), SpellReady)
+    W.lastPrediction = (W.Pick(HintFacts()))
+end
+
+-- Keeps the icon's copy of the castsequence steps in line with the game (see SequenceNext).
+function W.FollowTry(kind, name)
+    if not W.IsWarrior() then return end
+    local lines = W.MacroLines()
+    if #lines == 0 then return end
+    local facts, now = HintFacts(), GetTime()
+    if kind == "C" or kind == "S" then W.SequenceCast(lines, facts, name, kind, now) end
+    W.SequencePressed(lines, facts, now)
 end
 
 function W.FightCount() return #DB().fights end
@@ -1017,7 +1547,7 @@ logEvents:SetScript("OnEvent", W.Guard("fight log", function(_, event, a, b, c, 
         W.CombatLog(subevent, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags,
             subevent == "SWING_DAMAGE" and p12 or (string.find(subevent, "_DAMAGE$") and p15 or 0))
     elseif event == "PLAYER_REGEN_DISABLED" then W.FightStart()
-    elseif event == "PLAYER_REGEN_ENABLED" then W.FightEnd(); W.recent = {}
+    elseif event == "PLAYER_REGEN_ENABLED" then W.FightEnd(); W.recent = {}; W.SequenceCombatEnded()
     elseif event == "PLAYER_DEAD" then W.LogDied()
     elseif event == "PLAYER_TARGET_CHANGED" then AddEnemy("target")
     elseif event == "UI_ERROR_MESSAGE" then
@@ -1029,12 +1559,16 @@ logEvents:SetScript("OnEvent", W.Guard("fight log", function(_, event, a, b, c, 
         if not name and type(b) == "string" and not string.find(b, "-", 1, true) then name = b end -- old (unit, spellName)
         W.LogCast(name)
         W.LogTry("C", name)
+        W.FollowTry("C", name)
     elseif event == "UNIT_SPELLCAST_SENT" and a == "player" then
         local spellID = ...  -- (unit, target, castGUID, spellID): a, b, c are the first three
-        W.LogTry("S", spellID and SpellName(spellID) or tostring(c))
+        local name = spellID and SpellName(spellID) or tostring(c)
+        W.LogTry("S", name)
+        W.FollowTry("S", name)
     elseif (event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET" or event == "UNIT_SPELLCAST_INTERRUPTED") and a == "player" then
         local kind = event == "UNIT_SPELLCAST_FAILED" and "F" or (event == "UNIT_SPELLCAST_FAILED_QUIET" and "Q" or "I")
         W.LogTry(kind, c and SpellName(c) or "?") -- (unit, castGUID, spellID)
+        W.FollowTry(kind)
     end
 end))
 
@@ -1048,6 +1582,8 @@ Listen(events, { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED"
 events:SetScript("OnEvent", W.Guard("macro events", function(_, event, unit)
     if event ~= "UNIT_AURA" then CountEvent(event) end
     if event == "PLAYER_LOGIN" then
+        -- Errors start fresh each session, so the saved file shows only the current version's.
+        DB().debug.errors = {}
         if W.IsWarrior() then BuildHint() end
         return
     end
@@ -1065,5 +1601,8 @@ events:SetScript("OnEvent", W.Guard("macro events", function(_, event, unit)
         if W.lastAura and now - W.lastAura < 1 then return end -- buffs change often; once a second is plenty
         W.lastAura = now
     end
-    if event == "PLAYER_REGEN_ENABLED" or not Lockdown() then W.SafeUpdate(); W.RefreshButtons() end
+    if event == "PLAYER_REGEN_ENABLED" or not Lockdown() then
+        W.SafeUpdate(); W.RefreshButtons()
+        W.Guard("gear", W.TrackGear)()
+    end
 end))

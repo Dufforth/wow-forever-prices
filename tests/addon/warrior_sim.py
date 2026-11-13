@@ -124,7 +124,7 @@ def steps_text():
 # Level 1: Battle Stance, Heroic Strike, Battle Shout.
 setup(["Attack", "Battle Stance", "Heroic Strike", "Battle Shout"], [2457])
 check("level 1 macro is written", update() is True and g.CREATES == 1)
-check("level 1: attack, shout, Heroic Strike", macro() == "/startattack\n/castsequence reset=120 Battle Shout,nil\n/cast [form:1] Heroic Strike")
+check("level 1: attack, shout, Heroic Strike", macro() == "/startattack\n/castsequence reset=combat Battle Shout,nil\n/cast [form:1] Heroic Strike")
 
 # Level 12: Defensive Stance and some battle spells; Execute and Revenge not yet.
 setup(["Battle Stance", "Defensive Stance", "Heroic Strike", "Battle Shout", "Charge", "Rend", "Overpower", "Sunder Armor"], [2457, 71])
@@ -135,10 +135,18 @@ check("one global-cooldown line per stance: Overpower in Battle, Sunder then Her
       "/cast [form:1] Overpower" in lines and "/castsequence [form:2] Sunder Armor,Heroic Strike" in lines)
 check("no Intercept, Whirlwind or Execute before you learn them", not any(x in macro() for x in ("Intercept", "Whirlwind", "Execute", "Mortal")))
 check("an update to the existing macro edits it", g.EDITS == 1 and g.CREATES == 1)
-check("Rend once, before the stance lines", lines.index("/castsequence reset=12 Rend,nil") < lines.index("/castsequence [form:2] Sunder Armor,Heroic Strike"))
+check("Rend once per pull in Battle Stance, before the stance lines",
+      lines.index("/castsequence [form:1] reset=combat Rend,nil") < lines.index("/castsequence [form:2] Sunder Armor,Heroic Strike"))
 check("no hidden button: everything is in the one macro", "/click" not in macro())
 
 # Stance numbers follow the bar, not a fixed list: Berserker as the second stance.
+# Level 26 spellbook, read the way the game gives it: Execute replaces Overpower in Battle Stance.
+setup(["Battle Stance", "Defensive Stance", "Heroic Strike", "Battle Shout", "Charge", "Rend", "Overpower", "Sunder Armor",
+       "Revenge", "Shield Block", "Execute"], [2457, 71])
+update()
+check("level 26 spellbook: the macro has Execute for Battle Stance, not Overpower",
+      "/cast [form:1] Execute" in macro() and "Overpower" not in macro())
+check("level 26 macro fits 255 characters", len(macro()) <= 255)
 setup(["Battle Stance", "Berserker Stance", "Whirlwind", "Heroic Strike"], [2457, 2458])
 update()
 check("Berserker on slot 2 uses form:2", "/castsequence [form:2] Whirlwind,Heroic Strike" in macro())
@@ -152,8 +160,8 @@ g.IsEquippedItemType = lambda kind: kind == "Shields"
 update()
 body = macro()
 check("macro fits the 255-character limit", len(body) <= 255)
-check("Defensive Stance with a shield: Shield Slam, Revenge, Sunder, Heroic Strike in one sequence",
-      "/castsequence [form:2] Shield Slam,Revenge,Sunder Armor,Heroic Strike" in body)
+check("Defensive Stance with a shield, solo: Shield Slam, Revenge, Heroic Strike (no Sunder Armor solo)",
+      "/castsequence [form:2] Shield Slam,Revenge,Heroic Strike" in body)
 check("solo: Heroic Strike, no Cleave", "Heroic Strike" in body and "Cleave" not in body)
 check("Berserker Stance: Bloodthirst then Heroic Strike", "/castsequence [form:3] Bloodthirst,Heroic Strike" in body)
 check("level 60 macro still fits", len(body) <= 255)
@@ -210,6 +218,22 @@ def next_spell(ready, **facts):
     return W.NextSpell(lua.table_from(base), lambda name: name in ready)
 
 
+kc = lua.table_from({"Shatter Curse": True})
+check("Shatter Curse: suggested when a curse is on you", W.CursePrompt(lua.table_from({"known": kc}), lambda n: True, "Curse of Weakness") == "Shatter Curse")
+check("Shatter Curse: not without a curse", W.CursePrompt(lua.table_from({"known": kc}), lambda n: True, None) is None)
+check("Shatter Curse: not if you don't know it", W.CursePrompt(lua.table_from({"known": lua.table_from({})}), lambda n: True, "Bane") is None)
+check("Shatter Curse: never written into the button", "Shatter Curse" not in macro())
+# Forever blocks aura reads in combat: the check must not raise (it froze the icon on Charge).
+lua.execute("""
+SAVED_AURAS = C_UnitAuras
+C_UnitAuras = { GetAuraDataByIndex = function() error("Auras cannot be accessed when secret while tainted") end }
+""")
+check("curse check: a blocked aura read gives no curse and no error", W.CurseOnYou() is None)
+lua.execute("""
+C_UnitAuras = { GetAuraDataByIndex = function(unit, i) if i == 1 then return { name = "Curse of Weakness", dispelName = "Curse" } end end }
+""")
+check("curse check: reads a curse when the game allows it", W.CurseOnYou() == "Curse of Weakness")
+lua.execute("C_UnitAuras = SAVED_AURAS")
 check("Execute is a prompt for its own key, not the button's pick", W.OwnKeyPrompt(lua.table_from({"known": known, "stance": 1}), lambda n: n == "Execute") == "Execute"
       and next_spell({"Execute", "Heroic Strike"}) == "Heroic Strike")
 check("Battle Stance: Overpower after a dodge, before Heroic Strike", next_spell({"Overpower", "Heroic Strike"}, rendOnTarget=True) == "Overpower")
@@ -258,7 +282,7 @@ fights = g.DufforthTweaksHelperDB.warrior.fights
 f = fights[1]
 check("the fight is saved when it ends", W.FightCount() == 1 and f.seconds == 9 and f.zone == "Elwynn Forest" and f.level == 12)
 check("each cast has time, rage, target health, enemies and the icon's pick",
-      f.casts[1] == "1.5 Heroic Strike r40 h50 n0 p:-" and f.casts[2] == "1.5 Heroic Strike r40 h50 n3 p:Heroic Strike")
+      f.casts[1] == "1.5 Heroic Strike r40 h50 n0 p:-" and f.casts[2] == "1.5 Heroic Strike r40 h50 n3 p:Battle Shout")  # the button's real next step: its first line
 check("errors are counted", f.errors["Not enough rage"] == 2)
 check("damage taken per enemy", f.hitBy["Kobold"] == 12 and f.hitBy["Kobold Miner"] == 7 and f.hitBy["Guard"] is None)
 check("the most enemies at once is kept", f.mostEnemies == 3)
@@ -271,10 +295,10 @@ fire("PLAYER_REGEN_DISABLED"); g.NOW = 3001; fire("PLAYER_REGEN_ENABLED")
 check("a second-long fight with no casts isn't saved", W.FightCount() == 1)
 fire("PLAYER_REGEN_DISABLED"); fire("PLAYER_DEAD"); g.NOW = 3010; fire("PLAYER_REGEN_ENABLED")
 check("dying is recorded", fights[2].result == "died" and fights[1].result == "won")
-for i in range(45):
+for i in range(W.FIGHTS_KEPT + 5):
     g.NOW = 4000 + i * 20
     fire("PLAYER_REGEN_DISABLED"); g.NOW += 5; fire("PLAYER_REGEN_ENABLED")
-check("only the last 40 fights are kept", W.FightCount() == W.FIGHTS_KEPT)
+check("only the last FIGHTS_KEPT fights are kept", W.FightCount() == W.FIGHTS_KEPT)
 check("macro text isn't stored again for each fight", len(g.DufforthTweaksHelperDB.warrior.macros) == 1)
 W.Options().log = False
 fire("PLAYER_REGEN_DISABLED"); g.NOW += 10; fire("PLAYER_REGEN_ENABLED")
@@ -350,26 +374,40 @@ update()
 m = macro()
 check("Victory Rush is not in the macro (it would take every press while it can't be cast)", "Victory Rush" not in m)
 check("Shield Block in Defensive Stance when a shield is worn", "/cast [form:2] Shield Block" in m)
-check("Rend once per target in Battle and Defensive Stance", "/castsequence reset=12 Rend,nil" in m)
+check("shout missing with a shield: everything fits now (no Sunder Armor solo)", "Rend" in m and "Battle Shout" in m and len(m) <= 255)
+check("solo with a shield: no Sunder Armor", "Sunder Armor" not in m and "/castsequence [form:2] Revenge,Heroic Strike" in m)
+g.IsInGroup = lambda: True
+update()
+check("in a group: Sunder Armor is back (threat)", "Revenge,Sunder Armor,Cleave" in macro())
+g.IsInGroup = lambda: False
+update()
+g.BUFFS = lua.table_from([lua.table_from(["Battle Shout", 1e9])])
+update()
+check("Rend only in Battle Stance, once per pull", "/castsequence [form:1] reset=combat Rend,nil" in macro())
+g.BUFFS = lua.table_from([])
+update()
 g.BUFFS = lua.table_from([lua.table_from(["Victorious", 1e9])])
 update()
-lines_vr = macro().split(chr(10))
-check("after a kill: Victory Rush once, as the first global-cooldown line", "/castsequence Victory Rush,nil" in lines_vr
-      and lines_vr.index("/castsequence Victory Rush,nil") < min(i for i, l in enumerate(lines_vr) if "Rend" in l or "Revenge" in l or "Sunder" in l))
-check("after a kill the macro still fits", len(macro()) <= 255)
-g.BUFFS = lua.table_from([lua.table_from(["Victorious", g.NOW + 3])])
+check("after a kill: Victory Rush stays out of the button (cast on demand, own key)", "Victory Rush" not in macro())
+g.BUFFS = lua.table_from([])
+lua.execute("VR_CD_START = NOW - 2; GetSpellCooldown = function(n) if n == 'Victory Rush' then return VR_CD_START, 10 end return 0, 0 end")
+check("cooldown length is learned when it can be read", W.CooldownLeft("Victory Rush") == 8 and g.DufforthTweaksHelperDB.warrior.cooldowns["Victory Rush"] == 10)
+lua.execute("GetSpellCooldown = function() return 0, 0 end")
+# In combat the cooldown is hidden: counted from the last cast and the learned length.
+lua.execute("GetSpellCooldown = function() return 'SECRET', 'SECRET' end")
+W.LogCast("Victory Rush")
+check("hidden cooldown: counted from the last cast", W.CooldownLeft("Victory Rush") == 10)
+check("hidden cooldown: ready once the learned length has passed", W.CooldownLeft("Victory Rush", g.NOW + 11) == 0)
+lua.execute("GetSpellCooldown = function() return 0, 0 end")
+g.BUFFS = lua.table_from([])
 update()
-check("with under 6 s of the buff left it isn't added (it could run out mid-pull)", "Victory Rush" not in macro())
-g.BUFFS = lua.table_from([lua.table_from(["Victorious", g.NOW + 18])])
-g.TIMERS = lua.table_from([])
-W.victoryTimer = None
-update()
-vt = [t for t in g.TIMERS.values() if abs(t[1] - 12.1) < 1e-6]
-check("a timer takes Victory Rush out when 6 s are left", "Victory Rush" in macro() and len(vt) == 1)
-g.NOW = g.NOW + 12.1
-g.BUFFS = lua.table_from([lua.table_from(["Victorious", g.NOW + 5.9])])
-vt[0][2]()
-check("and it is gone after the timer", "Victory Rush" not in macro())
+kv = lua.table_from({"Victory Rush": True})
+check("guard: while the button holds Victory Rush, the icon says not to press it on its own key",
+      "don't use its key" in (W.VictoryWarning(lua.table_from({"known": kv, "victoryInMacro": True})) or ""))
+check("no warning when the button doesn't hold it", W.VictoryWarning(lua.table_from({"known": kv, "victoryInMacro": False})) is None)
+check("and then the red own-key prompt is the one that shows",
+      W.OwnKeyPrompt(lua.table_from({"known": kv, "victoryInMacro": True, "stance": 2}), lambda n: True) is None
+      and W.OwnKeyPrompt(lua.table_from({"known": kv, "victoryInMacro": False, "stance": 2}), lambda n: n == "Victory Rush") == "Victory Rush")
 g.BUFFS = lua.table_from([])
 g.BUFFS = lua.table_from([])
 check("Rend lasts longer with level", W.RendSeconds(5) == 9 and W.RendSeconds(25) == 15 and W.RendSeconds(60) == 21)
@@ -395,9 +433,9 @@ check("Battle Stance: Heroic Strike once Rend is on", pick({"Rend", "Heroic Stri
 check("Defensive Stance: Shield Block when ready, Revenge before Sunder", pick({"Revenge", "Shield Block", "Sunder Armor"}, stance=2, rendOnTarget=True) == "Shield Block"
       and pick({"Revenge", "Sunder Armor"}, stance=2, rendOnTarget=True) == "Revenge")
 check("Defensive Stance: Shield Block when Revenge isn't up and Rend is on", pick({"Shield Block", "Sunder Armor"}, stance=2, rendOnTarget=True) == "Shield Block")
-check("Defensive Stance without a shield: no Shield Block", pick({"Shield Block", "Rend", "Sunder Armor"}, stance=2, shield=False) == "Rend")
-check("Defensive Stance: Sunder before Heroic Strike", pick({"Sunder Armor", "Heroic Strike"}, stance=2, rendOnTarget=True) == "Sunder Armor")
-check("Defensive Stance: Sunder when nothing else is ready", pick({"Sunder Armor"}, stance=2, rendOnTarget=True) == "Sunder Armor")
+check("Defensive Stance without a shield: no Shield Block", pick({"Shield Block", "Rend", "Sunder Armor"}, stance=2, shield=False) == "Sunder Armor")  # no Rend in Defensive
+check("Defensive Stance solo with a shield: Heroic Strike, not Sunder", pick({"Sunder Armor", "Heroic Strike"}, stance=2, rendOnTarget=True) == "Heroic Strike")
+check("Defensive Stance in a group: Sunder before Heroic Strike", pick({"Sunder Armor", "Heroic Strike"}, stance=2, inGroup=True) == "Sunder Armor")
 check("Battle Stance never picks Defensive spells", pick({"Revenge", "Shield Block", "Sunder Armor", "Heroic Strike"}) == "Heroic Strike")
 
 # The next spell is drawn on the action button holding the macro.
@@ -500,6 +538,164 @@ check("tries are counted per spell", last.tried["Rend"]["S"] == 1 and last.tried
 lua.execute("GetActionInfo = function(slot) if slot == 5 then return 'macro', 1, nil end end; GetActionText = function(slot) return slot == 5 and 'DTH Warrior' or nil end")
 W.RefreshButtons()
 check("the action bar facts are saved for the log", "5=1" in g.DufforthTweaksHelperDB.warrior.debug.buttons)
+
+# ---- The game's damage meter (discovery) ----
+W.Options().log = True
+lua.execute("""
+Enum = Enum or {}
+Enum.DamageMeterSessionType = { Current = 1 }
+Enum.DamageMeterType = { DamageDone = 0, HealingDone = 2 }
+C_DamageMeter = {
+  GetAvailableCombatSessions = function() return { { sessionID = 7, name = 'Fight' } } end,
+  GetCombatSessionFromType = function(sessionType, meterType)
+    return { totalAmount = 1234, combatSources = { { name = 'Duff', totalAmount = 1234, secretThing = 'SECRET' } } }
+  end,
+  ResetAllCombatSessions = function() RESET_CALLED = true end,
+}
+issecretvalue = function(v) return v == 'SECRET' end
+""")
+W.ProbeDamageMeter(None)
+dm = g.DufforthTweaksHelperDB.warrior.debug.damageMeter
+check("damage meter: its functions are listed", dm.available is True and "GetCombatSessionFromType" in dm.api)
+check("damage meter: its enums are saved", dm.enums["DamageMeterType"]["DamageDone"] == 0)
+res = dm.results["GetCombatSessionFromType(Current,DamageDone)"]
+check("damage meter: readable numbers are kept", res["totalAmount"] == 1234 and res["combatSources"]["1"]["name"] == "Duff")
+check("damage meter: hidden values are dropped", res["combatSources"]["1"]["secretThing"] == "<hidden or nil>")
+check("damage meter: only getters are called (nothing is reset)", g.RESET_CALLED is None)
+check("damage meter: only DamageDone and Dps are asked", "GetCombatSessionFromType(Current,HealingDone)" not in list(dm.results.keys()))
+lua.execute("C_DamageMeter = nil")
+W.ProbeDamageMeter(None)
+check("no damage meter: saved as not available", g.DufforthTweaksHelperDB.warrior.debug.damageMeter.available is False)
+
+# ---- Per-spell damage from the meter (shape seen on Forever) ----
+lua.execute("""
+Enum.DamageMeterSessionType = { Overall = 0, Current = 1 }
+C_DamageMeter = {
+  GetCombatSessionSourceFromType = function(s, t, guid)
+    if s ~= 1 or t ~= 0 then return nil end
+    return { totalAmount = 330, combatSpells = { { spellID = 6603, totalAmount = 290 }, { spellID = 6547, totalAmount = 40 },
+      { spellID = 1, totalAmount = 'SECRET' } } }
+  end,
+  GetCombatSessionFromType = function(s, t) return { durationSeconds = 15 } end,
+}
+C_Spell = C_Spell or {}
+C_Spell.GetSpellInfo = function(id) local n = ({ [6603] = 'Auto Attack', [6547] = 'Rend' })[id]; return n and { name = n } end
+""")
+f = lua.table_from({})
+check("fight damage: read from the meter", W.ReadFightDamage(f) is True)
+check("fight damage: per spell by name", f.spellDamage["Rend"] == 40 and f.spellDamage["Auto Attack"] == 290)
+check("fight damage: hidden amounts are skipped", f.spellDamage["spell 1"] is None)
+check("fight damage: total and seconds", f.damageTotal == 330 and f.damageSeconds == 15)
+lua.execute("""
+Enum.DamageMeterType.DamageTaken = 7
+local done = C_DamageMeter.GetCombatSessionSourceFromType
+C_DamageMeter.GetCombatSessionSourceFromType = function(s, t, guid)
+  if t == 7 then
+    return { totalAmount = 500, combatSpells = { { spellID = 6603, totalAmount = 300, creatureName = 'Venture Co. Logger' },
+      { spellID = 6603, totalAmount = 150, creatureName = 'Venture Co. Logger' }, { spellID = 6547, totalAmount = 50, creatureName = '' } } }
+  end
+  return done(s, t, guid)
+end
+""")
+f = lua.table_from({})
+W.ReadFightDamage(f)
+check("damage taken: total saved", f.damageTaken == 500)
+check("damage taken: by enemy name, or spell name when there's none", f.takenBy["Venture Co. Logger"] == 450 and f.takenBy["Rend"] == 50)
+check("damage taken: the first row shape is kept raw for checking", g.DufforthTweaksHelperDB.warrior.debug.damageTakenSample.totalAmount == 500)
+check("damage done is still read the same", f.spellDamage["Rend"] == 40)
+lua.execute("C_DamageMeter = nil")
+check("fight damage: no meter, nothing saved", W.ReadFightDamage(lua.table_from({})) is False)
+
+# ---- The icon follows the button's castsequence (the real next press) ----
+MACRO = ("/startattack\n/cast [nocombat] Charge\n/castsequence reset=15 Rend,nil\n"
+         "/castsequence [form:2] Revenge,Sunder Armor,Heroic Strike\n/cast [form:1] Overpower\n"
+         "/cast [form:2] Shield Block\n/cast [form:1] Heroic Strike")
+lines = W.ParseMacro(MACRO)
+W.sequences = lua.table_from({})
+facts = lua.table_from({"inCombat": True, "stance": 2})
+
+
+def pick(ready, now):
+    out = W.ButtonPick(lines, facts, lambda n: n in ready, now)
+    out = out if isinstance(out, tuple) else (out,)
+    return (tuple(out) + (None, None, None))[:3]
+
+
+everything = {"Rend", "Revenge", "Sunder Armor", "Heroic Strike", "Shield Block", "Charge"}
+check("macro lines are read", len(list(lines.values())) == 6)
+check("first press: Rend (the first global-cooldown line)", pick(everything, 100)[0] == "Rend")
+W.SequenceCast(lines, facts, "Rend", "C", 100)
+check("after Rend: Revenge (Rend line is at nil)", pick(everything, 101)[0] == "Revenge")
+s, ok, note = pick(everything - {"Revenge"}, 101)
+check("Revenge not ready: shows Shield Block that this press casts, then says Revenge waits",
+      s == "Shield Block" and ok and "Revenge" in note and "block, dodge or parry" in note)
+s, ok, note = pick({"Rend", "Sunder Armor", "Heroic Strike"}, 101)
+check("Revenge not ready and nothing else: Revenge greyed, says the press only auto-attacks",
+      s == "Revenge" and not ok and "only auto-attacks" in note)
+W.SequenceCast(lines, facts, "Revenge", "C", 102)
+check("after Revenge: Sunder Armor", pick(everything, 103)[0] == "Sunder Armor")
+W.SequenceCast(lines, facts, "Sunder Armor", "C", 104)
+W.SequenceCast(lines, facts, "Heroic Strike", "C", 105)
+check("Heroic Strike moves the step when queued, not on the hit", pick(everything, 105)[0] == "Heroic Strike")
+W.SequenceCast(lines, facts, "Heroic Strike", "S", 105)
+check("after a queued Heroic Strike: back to Revenge", pick(everything, 106)[0] == "Revenge")
+W.SequencePressed(lines, facts, 118)
+check("pressing within 15 s keeps Rend at nil", pick(everything, 130)[0] == "Revenge")
+check("15 s without a press: Rend again", pick(everything, 134)[0] == "Rend")
+battle = lua.table_from({"inCombat": True, "stance": 1})
+gcd, off = W.MacroNext(lines, battle, lambda n: True, 200)
+check("Battle Stance: the Defensive line is skipped", gcd == "Rend" and off == "Heroic Strike")
+W.sequences = lua.table_from({})
+lua.execute('VR_LINES = nil')
+vr = W.ParseMacro("/castsequence reset=combat Victory Rush,nil\n/castsequence [form:2] Revenge,Sunder Armor")
+W.SequenceCast(vr, facts, "Victory Rush", "C", 300)
+check("Victory Rush once per fight", W.MacroNext(vr, facts, lambda n: True, 301)[0] == "Revenge")
+W.SequenceCombatEnded()
+check("reset=combat: Victory Rush again on the next pull", W.MacroNext(vr, facts, lambda n: True, 302)[0] == "Victory Rush")
+nocombat = lua.table_from({"inCombat": False, "stance": 2})
+check("[nocombat] Charge only out of combat", W.MacroNext(lines, nocombat, lambda n: True, 400)[1] == "Charge"
+      and W.MacroNext(lines, facts, lambda n: n == "Charge", 400)[1] is None)
+check("no 'Wait' text left in the icon", "\"Wait\"" not in source("Warrior.lua"))
+
+# ---- Gear, stats and play style ----
+lua.execute("""
+COMBAT = false; INCOMBAT = false
+GEAR = { [16] = "|cff1eff00|Hitem:1234:0:0|h[Sharp Axe]|h|r", [17] = "|cffffffff|Hitem:2129:41:0|h[Large Round Shield]|h|r" }
+GetInventoryItemLink = function(_, slot) return GEAR[slot] end
+STR = 60
+UnitStat = function(_, i) local v = ({ STR, 40, 55, 20, 25 })[i]; return v, v, 0, 0 end
+UnitArmor = function() return 900, 950 end
+UnitAttackPower = function() return 120, 10, 0 end
+GetCritChance = function() return 6.5 end
+GetDodgeChance = function() return 5.2 end
+UnitAttackSpeed = function() return 2.6 end
+UnitDamage = function() return 30, 50 end
+""")
+W.sequences = lua.table_from({})
+DBW = g.DufforthTweaksHelperDB.warrior
+DBW.gear = lua.table_from({})
+first = W.TrackGear()
+check("gear: a set is saved with items, weapon and stats", first == 1 and DBW.gear[1]["items"]["mainhand"].name == "Sharp Axe"
+      and DBW.gear[1]["items"]["offhand"].enchant == 41 and DBW.gear[1].stats.strength == 60 and DBW.gear[1].weapon.speed == 2.6)
+check("gear: weapon dps is worked out", DBW.gear[1].weapon.dps == 15.4)
+g.STR = 70  # a buff
+check("gear: same items is the same set", W.TrackGear() == 1 and len(list(DBW.gear.values())) == 1)
+check("gear: buffs don't raise the saved stats (lowest kept, highest as buffed)", DBW.gear[1].stats.strength == 60 and DBW.gear[1].statsBuffed.strength == 70)
+lua.execute('GEAR[16] = "|cff1eff00|Hitem:5555:0:0|h[Big Mace]|h|r"')
+check("gear: a new weapon is a new set", W.TrackGear() == 2)
+g.INCOMBAT = True
+check("gear: not read in combat", W.TrackGear() is None)
+g.INCOMBAT = False
+W.Options().log = True
+W.state.body = "/startattack\n/cast Revenge"
+fire("PLAYER_REGEN_DISABLED")
+W.LogCast("Revenge")
+W.LogCast("Shield Bash")
+W.LogCast("Shield Bash")
+fire("PLAYER_REGEN_ENABLED")
+last_fight = list(DBW.fights.values())[-1]
+check("fight points at its gear set", last_fight.gear == 2)
+check("play style: spells cast outside the button are counted", last_fight.manual["Shield Bash"] == 2 and last_fight.manual["Revenge"] is None)
 
 if fails:
     sys.exit(f"{len(fails)} failed")

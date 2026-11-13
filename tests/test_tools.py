@@ -142,3 +142,62 @@ class InstallTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+try:
+    import lupa  # noqa: F401
+    HAVE_LUPA = True
+except ImportError:  # CI runs these before installing lupa; the addon step covers it then
+    HAVE_LUPA = False
+
+
+@unittest.skipUnless(HAVE_LUPA, "needs lupa")
+class WarriorHistoryTests(unittest.TestCase):
+    SAVED = """DufforthTweaksHelperDB = { warrior = {
+      macros = { "/startattack\\n/cast Heroic Strike" },
+      fights = {
+        { at = 100, seconds = 12.5, zone = "The Barrens", character = "Duff-Realm", macro = 1, casts = { "1.0 Heroic Strike r0" } },
+        { at = 200, seconds = 8, zone = "The Barrens", character = "Duff-Realm", macro = 1, casts = {} },
+      } } }"""
+
+    def setUp(self):
+        import archive_warrior_fights
+        self.tool = archive_warrior_fights
+        self.folder = tempfile.TemporaryDirectory()
+        base = Path(self.folder.name)
+        self.game = base / "game"
+        saved = self.game / "WTF" / "Account" / "123#1" / "SavedVariables"
+        saved.mkdir(parents=True)
+        self.saved = saved / "DufforthTweaksHelper.lua"
+        self.saved.write_text(self.SAVED, encoding="utf-8")
+        self.history = base / "history" / "fights.jsonl"
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def records(self):
+        return [json.loads(line) for line in self.history.read_text(encoding="utf-8").splitlines()]
+
+    def test_copies_every_fight_with_its_macro_text(self):
+        self.assertEqual(self.tool.archive(str(self.game), self.history), (2, 2))
+        first = self.records()[0]
+        self.assertEqual(first["account"], "123#1")
+        self.assertEqual(first["macro"], "/startattack\n/cast Heroic Strike")
+        self.assertEqual(first["fight"]["casts"], ["1.0 Heroic Strike r0"])
+
+    def test_each_fight_carries_its_gear_set(self):
+        self.saved.write_text(self.SAVED.replace(
+            "macros = {", 'gear = { { key = "k1", level = 25, stats = { strength = 60 } } },\n      macros = {').replace(
+            "macro = 1, casts = {}", "macro = 1, gear = 1, casts = {}"), encoding="utf-8")
+        self.tool.archive(str(self.game), self.history)
+        records = self.records()
+        self.assertNotIn("gear", records[0])
+        self.assertEqual(records[1]["gear"]["stats"]["strength"], 60)
+
+    def test_running_again_adds_only_new_fights_and_keeps_old_ones(self):
+        self.tool.archive(str(self.game), self.history)
+        self.assertEqual(self.tool.archive(str(self.game), self.history), (0, 2))
+        # The game dropped the oldest fight and logged a new one: the old one stays in the history.
+        self.saved.write_text(self.SAVED.replace("at = 100", "at = 300"), encoding="utf-8")
+        self.assertEqual(self.tool.archive(str(self.game), self.history), (1, 3))
+        self.assertEqual(sorted(r["fight"]["at"] for r in self.records()), [100, 200, 300])

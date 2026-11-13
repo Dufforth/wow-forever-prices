@@ -27,8 +27,13 @@ def summarize(path):
         return
     debug = warrior.debug
     if debug is not None:
-        for key in ("build", "status", "rotationSpells", "missingEvents", "buttons"):
+        for key in ("build", "status", "rotationSpells", "missingEvents", "buttons", "damageTakenSample"):
             print(f"  {key}: {debug[key]}")
+        meter = debug.damageMeter
+        if meter is not None:
+            print(f"  damage meter: available {meter.available}; functions: {meter.api}")
+            for call, result in items(meter.results):
+                print(f"    {call}: {str(dict(result.items()) if hasattr(result, 'items') else result)[:300]}")
         events = sorted(items(debug.events), key=lambda kv: -kv[1])
         print("  events seen: " + ", ".join(f"{k} {v}" for k, v in events))
         for message, count in items(debug.errors):
@@ -59,6 +64,11 @@ def main():
     files = glob.glob(os.path.join(root, "WTF", "Account", "*", "SavedVariables", "DufforthTweaksHelper.lua"))
     if not files:
         sys.exit("no DufforthTweaksHelper.lua found")
+    # First keep every fight for good, so nothing is lost when the addon drops old ones.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import archive_warrior_fights
+    added, total = archive_warrior_fights.archive(root)
+    print(f"history: added {added} new fights, {total} kept in {archive_warrior_fights.DEFAULT_HISTORY}")
     for path in files:
         summarize(path)
 
