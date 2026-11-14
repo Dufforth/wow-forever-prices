@@ -101,4 +101,29 @@ n = int(lua.eval("#UP"))
 check("whole run: upgrades for empty slots and the chest", n > 0, n)
 check("whole run: no plate offered to a level 26 warrior (mail at most)", all(lua.eval(f"UP[{i}].candidate.inv") != 0 for i in range(1, n + 1)))
 check("whole run: quest rewards are among the picks", any(lua.eval(f"UP[{i}].candidate.source") == "quest" for i in range(1, n + 1)))
+
+# Spell damage by school (user, 2026-11-13: "a warlock does fire and shadow damage: don't recommend frost or nature
+# damage to him"). The school shows only in the tooltip text, so the advice reads those lines.
+def sp(lines, cls):
+    lua.execute("LINES = {" + ",".join(repr(l).replace("'", '"') for l in lines) + "}")
+    return lua.eval(f"G.SchoolSpellDamage(LINES, '{cls}')")
+FROST = ["Robe of the Moon", "Equip: Increases damage done by Frost spells and effects by up to 12."]
+check("schools: frost damage counts for a mage", sp(FROST, "MAGE") == 12, sp(FROST, "MAGE"))
+check("schools: frost damage counts nothing for a warlock", sp(FROST, "WARLOCK") == 0, sp(FROST, "WARLOCK"))
+check("schools: a suffix line (+9 Shadow Spell Damage) counts for a warlock", sp(["+9 Shadow Spell Damage"], "WARLOCK") == 9)
+check("schools: nature for a shaman and a druid, not a mage",
+      sp(["+5 Nature Spell Damage"], "SHAMAN") == 5 and sp(["+5 Nature Spell Damage"], "DRUID") == 5 and sp(["+5 Nature Spell Damage"], "MAGE") == 0)
+GENERIC = ["Equip: Increases damage and healing done by magical spells and effects by up to 7."]
+check("schools: damage for all spells counts for everyone who casts", sp(GENERIC, "WARLOCK") == 7 and sp(GENERIC, "MAGE") == 7)
+check("schools: generic and own school add up", sp(GENERIC + ["+4 Fire Spell Damage"], "WARLOCK") == 11)
+check("schools: an item with no spell damage line says so (nil: keep the game's stats)", sp(["+10 Stamina"], "MAGE") is None)
+lua.execute("""
+N = G.ApplySchools({ sp = 12, int = 5 }, { "Equip: Increases damage done by Frost spells and effects by up to 12." }, "WARLOCK")
+M = G.ApplySchools({ sp = 12, int = 5 }, { "Equip: Increases damage done by Frost spells and effects by up to 12." }, "MAGE")
+""")
+check("schools: a frost item's points for a warlock drop to its other stats", lua.eval("N.sp") == 0 and lua.eval("N.int") == 5)
+check("schools: and stay for a mage", lua.eval("M.sp") == 12)
+check("schools: the warlock scores it lower than the mage",
+      lua.eval("G.Score(N, 'WARLOCK')") < lua.eval("G.Score(M, 'MAGE')"))
+
 sys.exit(1 if failed else 0)

@@ -80,6 +80,53 @@ function Gear.Normalize(raw)
     return out
 end
 
+-- ---- Spell damage by school (user, 2026-11-13: a warlock casts fire and shadow, not frost or nature) ----
+-- The school shows only in the tooltip ("Increases damage done by Frost spells..." or "+9 Shadow Spell Damage"),
+-- so the advice reads those lines and counts only the schools your class casts.
+local SCHOOLS = {
+    MAGE = { Fire = true, Frost = true, Arcane = true }, WARLOCK = { Shadow = true, Fire = true },
+    PRIEST = { Shadow = true, Holy = true }, SHAMAN = { Nature = true, Fire = true, Frost = true },
+    DRUID = { Nature = true, Arcane = true }, PALADIN = { Holy = true },
+}
+Gear.SCHOOLS = SCHOOLS
+
+-- Spell damage that helps your class from an item's tooltip lines, or nil when it has none (then the
+-- game's stats are kept as they are).
+function Gear.SchoolSpellDamage(lines, class)
+    local mine, found, total = SCHOOLS[class] or {}, false, 0
+    for _, line in ipairs(lines or {}) do
+        local text = type(line) == "table" and line.leftText or line
+        if type(text) == "string" then
+            local school, amount = string.match(text, "Increases damage done by (%a+) spells and effects by up to (%d+)")
+            if not school then amount, school = string.match(text, "^%+(%d+) (%a+) Spell Damage") end
+            if school and SCHOOLS.MAGE[school] == nil and SCHOOLS.PRIEST[school] == nil and SCHOOLS.SHAMAN[school] == nil
+                and SCHOOLS.DRUID[school] == nil then school = nil end -- not a school name
+            local generic = string.match(text, "Increases damage and healing done by magical spells and effects by up to (%d+)")
+                or string.match(text, "^%+(%d+) Spell Damage and Healing") or string.match(text, "^%+(%d+) Damage and Healing Spells")
+            if generic then found, total = true, total + tonumber(generic)
+            elseif school and amount then
+                found = true
+                if mine[school] then total = total + tonumber(amount) end
+            end
+        end
+    end
+    if not found then return nil end
+    return total
+end
+
+-- The advice's stats with spell damage counted for your class's schools only.
+function Gear.ApplySchools(stats, lines, class)
+    local sp = Gear.SchoolSpellDamage(lines, class)
+    if sp ~= nil then stats.sp = sp end
+    return stats
+end
+
+local function TooltipLines(id)
+    if not (C_TooltipInfo and C_TooltipInfo.GetItemByID) then return nil end
+    local ok, data = pcall(C_TooltipInfo.GetItemByID, id)
+    return ok and data and data.lines or nil
+end
+
 -- Points for a class; ranged = the ranged slot (its damage counts through ranged attack power).
 function Gear.Score(stats, class, ranged)
     local weights = DufforthTweaksHelperConsumables and DufforthTweaksHelperConsumables.WEIGHTS or {}
@@ -183,7 +230,10 @@ local function Equipped(class)
             local id = GetInventoryItemID("player", slot)
             local stats = ItemStats(link)
             local info = id and ItemInfo(id) or {}
-            out[slot] = { score = stats and Gear.Score(Gear.Normalize(stats), class, slot == 18) or 0, name = info.name or "?", inv = info.inv, link = link, id = id }
+            local lines = C_TooltipInfo and C_TooltipInfo.GetInventoryItem and select(2, pcall(C_TooltipInfo.GetInventoryItem, "player", slot))
+            lines = type(lines) == "table" and lines.lines or (id and TooltipLines(id))
+            local norm = stats and Gear.ApplySchools(Gear.Normalize(stats), lines, class)
+            out[slot] = { score = norm and Gear.Score(norm, class, slot == 18) or 0, name = info.name or "?", inv = info.inv, link = link, id = id }
         end
     end
     return out
@@ -209,7 +259,8 @@ function Gear.Advice()
             Request(id); waiting = waiting + 1
             return
         end
-        local c = { id = id, inv = inv, source = source, score = Gear.Score(Gear.Normalize(stats), class, SLOTS[inv] and SLOTS[inv][1] == 18) }
+        local norm = Gear.ApplySchools(Gear.Normalize(stats), TooltipLines(id), class)
+        local c = { id = id, inv = inv, source = source, score = Gear.Score(norm, class, SLOTS[inv] and SLOTS[inv][1] == 18) }
         for k, v in pairs(extra or {}) do c[k] = v end
         candidates[#candidates + 1] = c
     end
@@ -354,7 +405,8 @@ local function ShowRow(line)
     else
         GameTooltip:AddLine("On the auction house for about " .. Money(c.price) .. ".", 1, 0.6, 0.2, true)
     end
-    GameTooltip:AddLine("Points: each stat times how much it helps your class, weapon damage per second x 14 attack power, and armor.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Points: each stat times how much it helps your class, weapon damage per second x 14 attack power, and armor. "
+        .. "Spell damage counts only for the schools your class casts.", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
