@@ -1,30 +1,40 @@
--- One window with a tab per feature (Gather, Disenchant, Crafting, Warrior), opened from the
+-- One window with a tab per feature (Disenchant, Leveling, Zone, your class), opened from the
 -- minimap button, /dufforth, or the game's Options > AddOns. Changes go through the same
 -- commands as the slash commands, so the window and the commands always agree.
 
 local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
-local ICON = "Interface\\Icons\\INV_Misc_QuestionMark" -- a question mark: help
+local ICON = "Interface\\AddOns\\DufforthTweaksHelper\\Media\\GuideIcon" -- the round guide icon (user, 2026-11-14)
 local ROW = 26
 -- The last tab is your class (named after it): consumables for everyone, the macro for warriors.
-local TABS = { "Gather", "Disenchant", "Crafting", "Leveling", "Zone", "Class" }
--- Tabs in one slim row on top: side tabs took too much room (user, 2026-11-13). 560 wide so six
--- names fit (at 500, "Disenchant" spilled out of its tab).
-local WIDTH, HEIGHT = 560, 560
-local PAGE_WIDTH = WIDTH - 16
-local MIN_HEIGHT, MAX_HEIGHT = 460, 1000
+-- Disenchant holds the craft-to-disenchant list too, and shows only with Enchanting (user, 2026-11-14).
+local TABS = { "Disenchant", "Leveling", "Zone", "Class" }
+-- A flat dark window like the leveling guide, with slim flat tabs, resizable both ways (user, 2026-11-14).
+local WIDTH, HEIGHT = 520, 520
+local MIN_W, MAX_W, MIN_H, MAX_H = 420, 900, 300, 1000
+local PAGE_WIDTH = WIDTH - 16 -- changes with the window's width; pages are rebuilt for it
+local WHITE = "Interface\\Buttons\\WHITE8x8"
 
 local function DB()
     DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
     return DufforthTweaksHelperDB
 end
-local function Nodes() return DB().nodes or {} end
-local function NodesCommand(text) if SlashCmdList.DUFFORTHTWEAKSHELPERNODES then SlashCmdList.DUFFORTHTWEAKSHELPERNODES(text) end end
 
 local menu
-local refreshers = {}
+local refreshers = {} -- the pages' controls (rebuilt with the pages)
+local chrome = {} -- the window's own buttons
 local pages, tabButtons = {}, {}
+local LayoutTabs
+
+-- The Disenchant tab only for a character with Enchanting (when professions can't be read, it stays).
+local function HasEnchanting()
+    local professions = DufforthTweaksHelper.Professions and DufforthTweaksHelper.Professions()
+    if professions == nil then return true end
+    return professions.Enchanting ~= nil
+end
 
 local function RefreshMenu()
+    if LayoutTabs then LayoutTabs() end
+    for _, refresh in ipairs(chrome) do refresh() end
     for _, refresh in ipairs(refreshers) do refresh() end
     if DufforthTweaksHelperAutoDE and DufforthTweaksHelperAutoDE.Refresh then DufforthTweaksHelperAutoDE.Refresh() end
     if DufforthTweaksHelperCrafting and DufforthTweaksHelperCrafting.Refresh then DufforthTweaksHelperCrafting.Refresh() end
@@ -41,6 +51,23 @@ local function ShowTip(owner, text)
 end
 
 -- ---- Controls ----
+-- A flat button like the leveling guide's.
+local function Flat(parent, text, width, height)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(width, height or 20)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints(); b.bg:SetColorTexture(0.18, 0.18, 0.2, 0.95)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints(); b.hl:SetColorTexture(1, 1, 1, 0.12)
+    b:SetNormalFontObject("GameFontHighlightSmall")
+    b:SetText(text)
+    return b
+end
+
+local function SetOn(b, on)
+    if on then b.bg:SetColorTexture(0.12, 0.45, 0.2, 0.95) else b.bg:SetColorTexture(0.18, 0.18, 0.2, 0.95) end
+end
+
 local function Header(parent, y, text)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", 8, y)
@@ -106,59 +133,49 @@ end
 
 -- ---- Tabs ----
 local function ShowTab(name)
+    if name == "Disenchant" and not HasEnchanting() then name = "Leveling" end
+    if not pages[name] then name = "Leveling" end
     for _, tab in ipairs(TABS) do
         if pages[tab] then pages[tab]:SetShown(tab == name) end
-        if tabButtons[tab] then tabButtons[tab]:SetEnabled(tab ~= name) end -- the open tab looks pressed
     end
     DB().menuTab = name
     RefreshMenu()
 end
 
+-- Tabs side by side as wide as their names; the open one is lighter with a gold line under it.
+LayoutTabs = function()
+    if not menu then return end
+    local open = DB().menuTab
+    if open == "Disenchant" and not HasEnchanting() then
+        open = "Leveling"; DB().menuTab = open
+        for _, tab in ipairs(TABS) do if pages[tab] then pages[tab]:SetShown(tab == open) end end
+    end
+    local x = 4
+    for _, name in ipairs(TABS) do
+        local b = tabButtons[name]
+        if b then
+            local shown = name ~= "Disenchant" or HasEnchanting()
+            b:SetShown(shown)
+            if shown then
+                local width = math.max(56, #(b:GetText() or name) * 7 + 18)
+                b:SetWidth(width)
+                b:ClearAllPoints(); b:SetPoint("TOPLEFT", menu, "TOPLEFT", x, -4)
+                x = x + width + 3
+                local on = name == open
+                b.bg:SetColorTexture(on and 0.3 or 0.16, on and 0.3 or 0.16, on and 0.33 or 0.18, 0.95)
+                b.mark:SetShown(on)
+            end
+        end
+    end
+end
+
 local function Page(name)
     local page = CreateFrame("Frame", nil, menu)
-    page:SetPoint("TOPLEFT", 8, -56)
-    page:SetPoint("BOTTOMRIGHT", -8, 34)
+    page:SetPoint("TOPLEFT", 8, -32)
+    page:SetPoint("BOTTOMRIGHT", -8, 28)
     page:Hide()
     pages[name] = page
     return page
-end
-
-local function GatherStatus()
-    local status = DufforthTweaksHelperNodes and DufforthTweaksHelperNodes.Status and DufforthTweaksHelperNodes.Status()
-    if not status then return "" end
-    if not status.enabled then return "Herb and ore icons are off." end
-    if status.blocked or not status.api then
-        return string.format("When you track the other kind, pictures show each dot you hovered (|cffffd100%d|r)%s. Since the 7 November game patch, addons can't read the minimap by themselves.",
-            status.icons, status.showHistory and string.format(" and every spot where you gathered before (|cffffd100spawn spots: %d|r)", status.spots or 0) or "")
-    end
-    if not status.tracking then return "|cffffd100Turn on Find Herbs or Find Minerals so icons can be found.|r" end
-    local text = string.format("Tracking %s. Icons saved: %d. Dots seen in the last check: %d.", status.tracking, status.icons, status.lastDots)
-    if status.lastError then text = text .. "\n|cffff5555Last error: " .. status.lastError .. "|r" end
-    return text
-end
-
-local function BuildGather(page)
-    local y = -4
-    y = Header(page, y, "Herb and ore icons on the minimap")
-    local status = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    status:SetPoint("TOPLEFT", 12, y); status:SetWidth(PAGE_WIDTH - 34); status:SetJustifyH("LEFT")
-    refreshers[#refreshers + 1] = function() status:SetText(GatherStatus()) end
-    y = y - 58
-    y = Check(page, y, "Keep herb and ore icons after swapping tracking", "Remembers each herb and ore dot you hover on the minimap. After you swap tracking, it shows a small picture of that node there (Peacebloom, Copper Ore, and so on), so herbs stay visible while you find minerals and the other way round, for 5 minutes after you last hovered it (see below). While a tracking is on, the game shows its own dots and the addon adds nothing on top. Hover a picture to see its name. Same as /nk on and /nk off.",
-        function() return Nodes().enabled end, function(on) NodesCommand(on and "on" or "off") end)
-    y = Check(page, y, "Swap tracking automatically", "Switches between Find Herbs and Find Minerals on a timer. Needs both Herbalism and Mining. Pauses in combat, in cities and inns, in instances, while dead, on flight paths and while stealthed.",
-        function() return Nodes().swapEnabled end, function(on) NodesCommand(on and "swap on" or "swap off") end)
-    y = Check(page, y, "Show spawn spots from my gathering history", "Every herb and ore you gather is saved where you stood. When you track the other kind, a slightly faded picture shows each of those spots, with no hovering needed. The node may not be there right now, so this is off by default; a spot you just gathered hides for 10 minutes. Same as /nk history on and off.",
-        function() return Nodes().showHistory end, function(on) NodesCommand(on and "history on" or "history off") end)
-    y = Stepper(page, y, "Swap every", "Seconds between tracking swaps.",
-        function() return Nodes().swapSeconds end, function(v) NodesCommand("swap " .. v) end, 2, 60, 1, function(v) return (v or 0) .. " sec" end)
-    y = Stepper(page, y, "Icon size", "Size of the node pictures shown for the kind you are not tracking.",
-        function() return Nodes().size end, function(v) NodesCommand("size " .. v) end, 6, 20, 1)
-    y = Stepper(page, y, "Forget unseen dots after", "Dots are removed after this long without being hovered again, since someone else may have taken the node. 'until gathered' keeps them until you gather it.",
-        function() return Nodes().keepMinutes end, function(v) NodesCommand("keep " .. v) end, 0, 240, 5, function(v) return v == 0 and "until gathered" or (v .. " min") end)
-    Button(page, y, "Clear hovered nodes", "Removes the nodes you hovered. Your gathering history stays.", function() NodesCommand("clear") end)
-    Button(page, y - 30, "Clear gathering history", "Removes every saved spawn spot. Same as /nk history clear.", function() NodesCommand("history clear") end)
-    Button(page, y, "Status in chat", "Prints what the icon finder sees right now, to help when icons don't show. Same as /nk status.", function() NodesCommand("status") end, 184, 150)
 end
 
 local function BuildDisenchant(page)
@@ -183,6 +200,42 @@ local function BuildDisenchant(page)
         DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. "keep list cleared.")
     end, 184, 150)
     refreshers[#refreshers + 1] = function() clear:SetText("Clear keep list (" .. KeepCount() .. ")") end
+end
+
+-- The Disenchant tab: its settings and the gear worth crafting to disenchant (the old Crafting tab).
+local deViews = {}
+local DE_VIEWS = {
+    { key = "settings", label = "Settings", width = 70, tip = "Disenchant advice in tooltips and the disenchant list." },
+    { key = "craft", label = "Craft to disenchant", width = 130, tip = "Gear worth crafting to disenchant, best profit first." },
+}
+local function ShowDisenchantView(view)
+    if not deViews[view] then view = "settings" end
+    for key, frame in pairs(deViews) do frame:SetShown(key == view) end
+    DB().deView = view
+    RefreshMenu()
+end
+
+local function BuildDisenchantTab(page)
+    local x = 0
+    local buttons = {}
+    for _, v in ipairs(DE_VIEWS) do
+        local b = Flat(page, v.label, v.width, 20)
+        b:SetPoint("TOPLEFT", x, 0)
+        b:SetScript("OnClick", function() ShowDisenchantView(v.key) end)
+        b:SetScript("OnEnter", function(self) ShowTip(self, v.tip) end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        buttons[v.key] = b
+        x = x + v.width + 3
+        local frame = CreateFrame("Frame", nil, page)
+        frame:SetPoint("TOPLEFT", 0, -26); frame:SetPoint("BOTTOMRIGHT", 0, 0)
+        deViews[v.key] = frame
+        if v.key == "settings" then BuildDisenchant(frame)
+        else DufforthTweaksHelperCrafting.BuildPanel(frame, PAGE_WIDTH) end
+    end
+    refreshers[#refreshers + 1] = function()
+        for key, b in pairs(buttons) do SetOn(b, DB().deView == key) end
+    end
+    ShowDisenchantView(DB().deView or "settings")
 end
 
 local function BuildWarrior(page)
@@ -286,58 +339,36 @@ local function BuildClass(page)
     ShowClassView(wanted)
 end
 
-local function Build()
-    menu = CreateFrame("Frame", "DufforthTweaksHelperMenu", UIParent, "BasicFrameTemplateWithInset")
-    menu:SetSize(WIDTH, math.max(MIN_HEIGHT, math.min(MAX_HEIGHT, DB().menuHeight or HEIGHT)))
-    menu:SetPoint("CENTER")
-    menu:SetMovable(true); menu:EnableMouse(true); menu:RegisterForDrag("LeftButton")
-    menu:SetScript("OnDragStart", menu.StartMoving)
-    menu:SetScript("OnDragStop", menu.StopMovingOrSizing)
-    menu:SetFrameStrata("DIALOG")
-    menu:SetClampedToScreen(true)
-    menu:Hide()
-    tinsert(UISpecialFrames, "DufforthTweaksHelperMenu") -- Escape closes it
-    local title = menu:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    title:SetPoint("TOP", 0, -5)
-    title:SetText("Dufforth Tweaks Helper")
-    menu:SetScript("OnShow", RefreshMenu)
+local function Clamp(v, low, high) return math.max(low, math.min(high, tonumber(v) or low)) end
 
-    for i, name in ipairs(TABS) do
-        local tab = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
-        local tabWidth = math.floor((WIDTH - 24) / #TABS) - 4
-        tab:SetSize(tabWidth, 24)
-        tab:SetPoint("TOPLEFT", 12 + (i - 1) * (tabWidth + 4), -28)
-        tab:SetText(name == "Class" and ((UnitClass and UnitClass("player")) or "Class") or name)
-        tab:SetScript("OnClick", function() ShowTab(name) end)
-        tabButtons[name] = tab
-    end
-    -- Each tab is built on its own: one that fails shows its error, and the others still work.
-    local function Note(page, text)
-        local note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        note:SetPoint("TOPLEFT", 12, -12); note:SetWidth(PAGE_WIDTH - 24); note:SetJustifyH("LEFT")
-        note:SetText(text)
-    end
-    local builders = {
-        Gather = function(page) BuildGather(page) end,
-        Disenchant = function(page) BuildDisenchant(page) end,
-        Crafting = function(page) DufforthTweaksHelperCrafting.BuildPanel(page, PAGE_WIDTH) end,
-        Leveling = function(page)
-            -- New files only load after a full game restart, not a /reload: say so instead of failing.
-            if not DufforthTweaksHelperLeveling then
-                Note(page, "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
-                return
-            end
-            DufforthTweaksHelperLeveling.BuildPanel(page, PAGE_WIDTH)
-        end,
-        Zone = function(page)
-            if not DufforthTweaksHelperZone then
-                Note(page, "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
-                return
-            end
-            DufforthTweaksHelperZone.BuildPanel(page, PAGE_WIDTH)
-        end,
-        Class = function(page) BuildClass(page) end,
-    }
+-- Each tab is built on its own: one that fails shows its error, and the others still work.
+local function Note(page, text)
+    local note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    note:SetPoint("TOPLEFT", 12, -12); note:SetWidth(PAGE_WIDTH - 24); note:SetJustifyH("LEFT")
+    note:SetText(text)
+end
+local RESTART = "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload."
+local builders = {
+    Disenchant = function(page) BuildDisenchantTab(page) end,
+    Leveling = function(page)
+        -- New files only load after a full game restart, not a /reload: say so instead of failing.
+        if not DufforthTweaksHelperLeveling then Note(page, RESTART); return end
+        DufforthTweaksHelperLeveling.BuildPanel(page, PAGE_WIDTH)
+    end,
+    Zone = function(page)
+        if not DufforthTweaksHelperZone then Note(page, RESTART); return end
+        DufforthTweaksHelperZone.BuildPanel(page, PAGE_WIDTH)
+    end,
+    Class = function(page) BuildClass(page) end,
+}
+
+-- (Re)builds every page for the current width: the panels lay out their rows from it.
+local function BuildPages()
+    for _, page in pairs(pages) do page:Hide() end
+    for k in pairs(pages) do pages[k] = nil end
+    for i = #refreshers, 1, -1 do refreshers[i] = nil end
+    for k in pairs(classViews) do classViews[k] = nil end
+    for k in pairs(deViews) do deViews[k] = nil end
     for _, name in ipairs(TABS) do
         local page = Page(name)
         local ok, err = pcall(builders[name], page)
@@ -346,39 +377,94 @@ local function Build()
             -- The error shows on the tab itself; no chat message (the user can't follow chat).
         end
     end
+end
 
-    -- Footer, on every tab.
-    local box = CreateFrame("CheckButton", nil, menu, "UICheckButtonTemplate")
-    box:SetSize(22, 22); box:SetPoint("BOTTOMLEFT", 12, 8)
-    local label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("LEFT", box, "RIGHT", 2, 0)
-    label:SetText("Show the minimap button")
-    box:SetScript("OnClick", function(self)
-        local on = self:GetChecked() and true or false
+-- A new size from the corner: remembered, and the pages are rebuilt when the width changed.
+local function ApplySize(w, h)
+    w, h = math.floor(Clamp(w, MIN_W, MAX_W) + 0.5), math.floor(Clamp(h, MIN_H, MAX_H) + 0.5)
+    menu:SetSize(w, h)
+    DB().menuSize = { w, h }
+    if w - 16 ~= PAGE_WIDTH then
+        PAGE_WIDTH = w - 16
+        BuildPages()
+    end
+    ShowTab(DB().menuTab or "Leveling")
+    if DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.Refresh then pcall(DufforthTweaksHelperLeveling.Refresh) end
+end
+
+local function Build()
+    menu = CreateFrame("Frame", "DufforthTweaksHelperMenu", UIParent, "BackdropTemplate")
+    local size = DB().menuSize or { WIDTH, DB().menuHeight or HEIGHT }
+    local w, h = math.floor(Clamp(size[1], MIN_W, MAX_W)), math.floor(Clamp(size[2], MIN_H, MAX_H))
+    menu:SetSize(w, h)
+    PAGE_WIDTH = w - 16
+    if menu.SetBackdrop then
+        menu:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+        menu:SetBackdropColor(0.05, 0.05, 0.06, 0.97); menu:SetBackdropBorderColor(0, 0, 0, 1)
+    end
+    menu:SetPoint("CENTER")
+    menu:SetMovable(true); menu:EnableMouse(true); menu:RegisterForDrag("LeftButton")
+    menu:SetScript("OnDragStart", menu.StartMoving)
+    menu:SetScript("OnDragStop", menu.StopMovingOrSizing)
+    menu:SetFrameStrata("DIALOG")
+    menu:SetClampedToScreen(true)
+    menu:Hide()
+    tinsert(UISpecialFrames, "DufforthTweaksHelperMenu") -- Escape closes it
+    menu:SetScript("OnShow", RefreshMenu)
+
+    -- Top strip: the tabs, and X to close.
+    local strip = menu:CreateTexture(nil, "BORDER")
+    strip:SetPoint("TOPLEFT", 1, -1); strip:SetPoint("TOPRIGHT", -1, -1); strip:SetHeight(26)
+    strip:SetColorTexture(0, 0, 0, 0.85)
+    local close = Flat(menu, "X", 20, 18)
+    close:SetPoint("TOPRIGHT", -4, -5)
+    close:SetScript("OnClick", function() menu:Hide() end)
+    close:SetScript("OnEnter", function(self) ShowTip(self, "Close (Esc). /dth opens it again.") end)
+    close:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    for _, name in ipairs(TABS) do
+        local tab = Flat(menu, name == "Class" and ((UnitClass and UnitClass("player")) or "Class") or name, 70, 20)
+        tab.isTab = true
+        tab.mark = tab:CreateTexture(nil, "ARTWORK")
+        tab.mark:SetPoint("BOTTOMLEFT"); tab.mark:SetPoint("BOTTOMRIGHT"); tab.mark:SetHeight(2)
+        tab.mark:SetColorTexture(1, 0.82, 0, 1)
+        tab:SetScript("OnClick", function() ShowTab(name) end)
+        tabButtons[name] = tab
+    end
+
+    BuildPages()
+
+    -- Bottom row, on every tab: the minimap button and Edit mode.
+    local mini = Flat(menu, "Minimap button", 100, 18)
+    mini:SetPoint("BOTTOMLEFT", 6, 6)
+    mini:SetScript("OnClick", function()
         DB().minimap = DB().minimap or {}
-        DB().minimap.hide = not on
-        if DufforthTweaksHelperMinimapButton then DufforthTweaksHelperMinimapButton:SetShown(on) end
+        DB().minimap.hide = not DB().minimap.hide
+        if DufforthTweaksHelperMinimapButton then DufforthTweaksHelperMinimapButton:SetShown(not DB().minimap.hide) end
+        RefreshMenu()
     end)
-    box:SetScript("OnEnter", function(self) ShowTip(self, "Left-click opens this window, right-click opens the disenchant list, drag moves it. If hidden, type /dufforth.") end)
-    box:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    refreshers[#refreshers + 1] = function() box:SetChecked(not (DB().minimap or {}).hide) end
+    mini:SetScript("OnEnter", function(self) ShowTip(self, "Shows or hides the minimap button (green: shown). Left-click on it opens this window, right-click the disenchant list, drag moves it. If hidden, type /dufforth.") end)
+    mini:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    chrome[#chrome + 1] = function() SetOn(mini, not (DB().minimap or {}).hide) end
     -- Edit mode: every on-screen piece shows with a green frame to drag, then lock them in one click.
-    local move = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
-    move:SetSize(110, 22); move:SetPoint("BOTTOMRIGHT", -26, 8)
+    local move = Flat(menu, "Move pieces", 90, 18)
+    move:SetPoint("LEFT", mini, "RIGHT", 4, 0)
     move:SetScript("OnClick", function()
         if not DufforthTweaksHelper.SetEditMode(not DufforthTweaksHelper.EditMode()) then
             ShowTip(move, "Not in combat: some pieces are locked by the game during fights.")
         end
         RefreshMenu()
     end)
-    move:SetScript("OnEnter", function(self) ShowTip(self, "Shows the warrior icon, the eat button and the spell notice with a green frame so you can drag them where you like. Click again to lock them. Same as /dth move.") end)
+    move:SetScript("OnEnter", function(self) ShowTip(self, "Shows the warrior icon, the eat button and the spell notice with a green frame so you can drag them where you like. Click again to lock them. /dth move does the same.") end)
     move:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    refreshers[#refreshers + 1] = function() move:SetText(DufforthTweaksHelper.EditMode() and "Lock pieces" or "Move pieces") end
+    chrome[#chrome + 1] = function()
+        local on = DufforthTweaksHelper.EditMode()
+        move:SetText(on and "Lock pieces" or "Move pieces"); SetOn(move, on)
+    end
 
-    -- Taller or shorter: drag the corner. Lists show as many rows as fit; the height is remembered.
+    -- Any size: drag the corner. Lists show as many rows as fit; the size is remembered.
     menu:SetResizable(true)
-    if menu.SetResizeBounds then menu:SetResizeBounds(WIDTH, MIN_HEIGHT, WIDTH, MAX_HEIGHT)
-    elseif menu.SetMinResize then menu:SetMinResize(WIDTH, MIN_HEIGHT); menu:SetMaxResize(WIDTH, MAX_HEIGHT) end
+    if menu.SetResizeBounds then menu:SetResizeBounds(MIN_W, MIN_H, MAX_W, MAX_H)
+    elseif menu.SetMinResize then menu:SetMinResize(MIN_W, MIN_H); menu:SetMaxResize(MAX_W, MAX_H) end
     local grip = CreateFrame("Button", nil, menu)
     grip:SetSize(16, 16); grip:SetPoint("BOTTOMRIGHT", -4, 4)
     grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
@@ -387,24 +473,26 @@ local function Build()
     grip:SetScript("OnMouseDown", function() menu:StartSizing("BOTTOMRIGHT") end)
     grip:SetScript("OnMouseUp", function()
         menu:StopMovingOrSizing()
-        DB().menuHeight = math.floor(menu:GetHeight() + 0.5)
-        RefreshMenu()
-        if DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.Refresh then pcall(DufforthTweaksHelperLeveling.Refresh) end
+        ApplySize(menu:GetWidth(), menu:GetHeight())
     end)
-    grip:SetScript("OnEnter", function(self) ShowTip(self, "Drag to make the window taller or shorter.") end)
+    grip:SetScript("OnEnter", function(self) ShowTip(self, "Drag to make the window bigger or smaller.") end)
     grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     if DB().menuTab == "Warrior" then DB().menuTab = "Class" end -- the Warrior tab became your class's tab
-    ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Gather")
+    if DB().menuTab == "Crafting" then DB().menuTab = "Disenchant"; DB().deView = "craft" end -- merged
+    if DB().menuTab == "Gather" then DB().menuTab = nil end -- removed
+    ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Leveling")
 end
 
-local TAB_NAMES = { gather = "Gather", disenchant = "Disenchant", crafting = "Crafting", leveling = "Leveling", zone = "Zone",
+local TAB_NAMES = { disenchant = "Disenchant", crafting = "Disenchant", leveling = "Leveling", zone = "Zone",
     warrior = "Class", class = "Class", consumables = "Class", gear = "Class" }
 local function ToggleMenu(tab)
     if not menu then Build() end
     if tab and TAB_NAMES[tab] then
         if tab == "warrior" and classViews.macro then ShowClassView("macro")
-        elseif (tab == "consumables" or tab == "gear") and classViews[tab] then ShowClassView(tab) end
+        elseif (tab == "consumables" or tab == "gear") and classViews[tab] then ShowClassView(tab)
+        elseif tab == "crafting" then ShowDisenchantView("craft")
+        elseif tab == "disenchant" then ShowDisenchantView("settings") end
         ShowTab(TAB_NAMES[tab])
         menu:Show()
         return
@@ -434,9 +522,7 @@ local function State(on) return on and "|cff40ff40on|r" or "|cff999999off|r" end
 local function ButtonTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("Dufforth Tweaks Helper")
-    GameTooltip:AddLine("Gathering, disenchanting, crafting, leveling and class help", 0.7, 0.7, 0.7)
-    GameTooltip:AddDoubleLine("Herb and ore icons", State(Nodes().enabled), 1, 1, 1)
-    GameTooltip:AddDoubleLine("Tracking swap", State(Nodes().swapEnabled), 1, 1, 1)
+    GameTooltip:AddLine("Disenchanting, crafting, leveling and class help", 0.7, 0.7, 0.7)
     GameTooltip:AddDoubleLine("Disenchant advice", State(DB().showDisenchant ~= false), 1, 1, 1)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Left-click: open the window   Right-click: disenchant list", 0.7, 0.7, 0.7)
@@ -457,12 +543,23 @@ local function BuildMinimapButton()
     background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetSize(17, 17); icon:SetPoint("TOPLEFT", 7, -6)
-    icon:SetTexture(ICON)
+    if icon:SetTexture(ICON) == false then icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark") end -- the icon file loads after a full game restart
+    -- While the guide is minimized, the current step's icon rides on the button (dynamic, like the guide's icon).
+    local badge = button:CreateTexture(nil, "OVERLAY", nil, 2)
+    badge:SetSize(12, 12); badge:SetPoint("BOTTOMRIGHT", -6, 7); badge:Hide()
+    if badge.SetMask then badge:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask") end -- round, like the button
+    DufforthTweaksHelperMinimap_SetBadge = function(texture)
+        badge:SetTexture(texture); badge:SetShown(texture ~= nil)
+    end
     local border = button:CreateTexture(nil, "OVERLAY")
     border:SetSize(53, 53); border:SetPoint("TOPLEFT")
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     button:SetScript("OnClick", function(_, mouse)
-        if mouse == "RightButton" then DufforthTweaksHelperAutoDE.Toggle() else ToggleMenu() end
+        if mouse == "RightButton" then DufforthTweaksHelperAutoDE.Toggle()
+        elseif DufforthTweaksHelperGuideUI and DufforthTweaksHelperGuideUI.Hidden and DufforthTweaksHelperDB
+            and DufforthTweaksHelperDB.guide and DufforthTweaksHelperDB.guide.collapsed then
+            DufforthTweaksHelperGuideUI.SetCollapsed(false) -- the guide is minimized: open it
+        else ToggleMenu() end
     end)
     button:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", OnDragUpdate) end)
     button:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
@@ -478,7 +575,7 @@ local function RegisterOptions()
     panel.name = "Dufforth Tweaks Helper"
     local text = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     text:SetPoint("TOPLEFT", 16, -16)
-    text:SetText("Everything is in the Dufforth Tweaks Helper window: Gather, Disenchant, Crafting, Leveling, Zone and a tab for your class (consumables, and the macro for warriors).")
+    text:SetText("Everything is in the Dufforth Tweaks Helper window: Disenchant (with Enchanting), Leveling, Zone and a tab for your class (consumables, and the macro for warriors).")
     local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     open:SetSize(160, 24); open:SetPoint("TOPLEFT", 16, -40); open:SetText("Open the window")
     open:SetScript("OnClick", function() if not menu or not menu:IsShown() then ToggleMenu() end end)
@@ -490,10 +587,16 @@ local function RegisterOptions()
 end
 
 DufforthTweaksHelperMenu_Toggle = ToggleMenu
+DufforthTweaksHelperMenu_ApplySize = function(w, h) if not menu then Build() end; ApplySize(w, h) end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function()
+pcall(loader.RegisterEvent, loader, "SKILL_LINES_CHANGED")
+loader:SetScript("OnEvent", function(_, event)
+    if event == "SKILL_LINES_CHANGED" then
+        if menu and menu:IsShown() then LayoutTabs() end
+        return
+    end
     BuildMinimapButton()
     RegisterOptions()
 end)

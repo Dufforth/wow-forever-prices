@@ -71,9 +71,13 @@ class TravelModel:
 
 class Eligibility:
     ABOVE, BELOW = 3, 6  # quest levels taken: up to 3 above you, down to 6 below (80%+ of their experience)
+    # From level 22, a wider window: quests up to 5 above and 8 below you. Scored on the 22-60 scorecard
+    # (2026-11-14): 76.8 h -> 71.9 h, 1-22 unchanged (the low-level window stays 3 above, 6 below).
+    ABOVE_HIGH, BELOW_HIGH, HIGH_FROM = 5, 8, 22
     MAX_SPREAD = 3000    # yards: objectives farther from the giver send you too far (big zones span about this)
 
     GROUP_SOLO = 3       # an elite (group) quest is soloable this many levels above it
+    dungeons = False     # the "with dungeons" route takes dungeon quests too
     STRETCH = 4          # with nothing else to do, quests this many levels above you before grinding
 
     def spread_ok(self, q):
@@ -88,10 +92,13 @@ class Eligibility:
             return False
         if q.classes or q.timed or (q.start_item and not q.start_drop) or q.start is None:
             return False  # class, timed and item-started quests are offered separately
-        if q.kind and not (q.kind == "group" and level >= q.level + self.GROUP_SOLO):
-            return False  # dungeons, raids, PvP: offered separately; elites once you outlevel them
-        above = self.STRETCH if stretch else self.ABOVE
-        if q.min_level > level or q.level > level + above or q.level < level - self.BELOW:
+        outside = q.kind == "dungeon" and q.goals and all(g.point and g.point[0] in (0, 1) and not g.instance for g in q.goals)
+        if q.kind and not outside and not (q.kind == "group" and level >= q.level + self.GROUP_SOLO) \
+                and not (q.kind == "dungeon" and self.dungeons):
+            return False  # dungeons (unless their objectives are outside, or the route takes dungeons), raids, PvP
+        above = self.STRETCH if stretch else (self.ABOVE_HIGH if level >= self.HIGH_FROM else self.ABOVE)
+        below = self.BELOW_HIGH if level >= self.HIGH_FROM else self.BELOW
+        if q.min_level > level or q.level > level + above or q.level < level - below:
             return False
         if q.prev > 0 and q.prev not in done:
             return False
@@ -144,6 +151,48 @@ class Character:
     time: float = 0.0
 
 
+class Shortcuts:
+    """Flights and the hearthstone (user, 2026-11-14: RestedXP's flights and hearthstones are why it runs a third
+    less). Flight paths are learned as the route passes flight masters; the hearthstone is set at a town with an
+    inn when the route arrives in a new zone, and used when it saves time (one hour cooldown).
+    flights / inns: [(name, world point)]."""
+    FLY_SPEED, FLY_OVERHEAD, FLY_DETOUR = 25.0, 20.0, 1.25  # yards/s; seconds to talk and take off; flight paths aren't straight
+    LEARN = 400          # yards: passing this close to a flight master, the route has its flight path
+    HEARTH_CAST, HEARTH_COOLDOWN = 10.0, 3600.0
+    INN_NEAR = 250       # yards: an inn this close to a hub is that town's
+    MIN_SAVING = 60      # seconds: a shortcut must save at least this much
+
+    def __init__(self, flights=(), inns=()):
+        self.flights, self.inns = list(flights), list(inns)
+        self.known, self.home, self.ready_at = set(), None, 0.0
+
+    def learn(self, pos):
+        for k, (_, p) in enumerate(self.flights):
+            if distance(p, pos) <= self.LEARN:
+                self.known.add(k)
+
+    def inn_near(self, point):
+        best = min(self.inns, key=lambda i: distance(i[1], point), default=None)
+        return best if best and distance(best[1], point) <= self.INN_NEAR else None
+
+    def best(self, a, b, walk, now):
+        """Cheapest way from a to b: ("walk", seconds) | ("fly", seconds, from, to) | ("hearth", seconds)."""
+        options = [("walk", walk)]
+        if len(self.known) >= 2 and a and b and a[0] == b[0]:
+            same = [self.flights[k] for k in self.known if self.flights[k][1][0] == a[0]]
+            if len(same) >= 2:
+                f1 = min(same, key=lambda f: distance(f[1], a))
+                f2 = min(same, key=lambda f: distance(f[1], b))
+                if f1 is not f2:
+                    t = (distance(a, f1[1]) + distance(f2[1], b)) / TravelModel.RUN \
+                        + distance(f1[1], f2[1]) * self.FLY_DETOUR / self.FLY_SPEED + self.FLY_OVERHEAD
+                    options.append(("fly", t, f1, f2))
+        if self.home and now >= self.ready_at and b and self.home[1][0] == b[0]:
+            options.append(("hearth", self.HEARTH_CAST + distance(self.home[1], b) / TravelModel.RUN))
+        pick = min(options, key=lambda o: o[1])
+        return pick if pick[0] == "walk" or pick[1] + self.MIN_SAVING < walk else options[0]
+
+
 class RoutePlanner:
     NEAR = 120        # yards: givers this close are the same quest hub (one town)
     TALK = 40         # yards: a turn-in this close is where you stand
@@ -156,8 +205,11 @@ class RoutePlanner:
     ZONE_CHANGE = 300 # seconds: what leaving your zone costs on top of walking (loading, flights, boats)
     STAY = 0.5        # stay in your zone while its best hub is worth at least half of the best elsewhere
     start_level = 1   # the route can be planned from any level
+    DUNGEON_RUN = 2400  # seconds: one dungeon run with a group (finding one, the run, back out)
 
-    def __init__(self, quests, where, eligibility, xp, travel, scorer, zone_plan=None):
+    def __init__(self, quests, where, eligibility, xp, travel, scorer, zone_plan=None, shortcuts=None, avoid=()):
+        self.shortcuts = shortcuts or Shortcuts()
+        self.avoid, self._avoid_cache = set(avoid), {}  # safe style: zones whose quests are left out
         self.quests = {q.id: q for q in quests}
         self.zone_plan = zone_plan or ZonePlan([])
         self.planned = True  # follow the zone plan; off for a moment when its zones have nothing left
@@ -174,16 +226,50 @@ class RoutePlanner:
         return self.eligibility.available(q, self.me.level, self.done, set(self.active), self.race_bit, self.groups, stretch)
 
     def _hub_ok(self, q, stretch):
-        """A quest the route may go to a new hub for: available, in a zone the plan allows now."""
-        return self._available(q, stretch) and (not self.planned or self.zone_plan.allows(self._zone(q.start), self.me.level))             and self._worth(q)
+        """A quest the route may go to a new hub for: available, in a zone the plan allows now, not in an avoided zone
+        (safe style)."""
+        return self._available(q, stretch) and (not self.planned or self.zone_plan.allows(self._zone(q.start), self.me.level)) \
+            and self._worth(q) and not self._avoided(q)
 
-    def _step(self, kind, qid, point, text, goal=0):
+    def _avoided(self, q):
+        if not self.avoid:
+            return False
+        if q.id not in self._avoid_cache:
+            self._avoid_cache[q.id] = any((self.where(p) or ("?",))[0] in self.avoid for p in [q.start, q.end] + [g.point for g in q.goals] if p)
+        return self._avoid_cache[q.id]
+
+    def _step(self, kind, qid, point, text, goal=0, dest=None):
         w = self.where(point) if point else None
-        self.steps.append(Step(kind, qid, w[0] if w else "?", w[1] if w else None, w[2] if w else None, self.me.level, text, goal))
+        d = self.where(dest) if dest else None
+        self.steps.append(Step(kind, qid, w[0] if w else "?", w[1] if w else None, w[2] if w else None, self.me.level, text, goal,
+                               [d[0], round(d[1], 1), round(d[2], 1)] if d else None))
 
     def _go(self, point):
-        self.me.time += self.travel.seconds(self.pos, point, self.me.level)
+        walk = self.travel.seconds(self.pos, point, self.me.level)
+        way = self.shortcuts.best(self.pos, point, walk, self.me.time) if walk > self.shortcuts.MIN_SAVING else ("walk", walk)
+        if way[0] == "fly":
+            _, seconds, f1, f2 = way
+            self._step("fly", 0, f1[1], f"Fly from {f1[0]} to {f2[0]}", dest=f2[1])
+            self.flights_taken += 1
+        elif way[0] == "hearth":
+            seconds = way[1]
+            self._step("hearth", 0, self.pos, "Use your Hearthstone", dest=self.shortcuts.home[1])
+            self.shortcuts.ready_at = self.me.time + Shortcuts.HEARTH_COOLDOWN
+            self.hearths_used += 1
+        else:
+            seconds = walk
+        self.me.time += seconds
         self.pos = point
+        self.shortcuts.learn(point)
+
+    def _settle_in(self, hub):
+        """Arriving at a hub in a new zone: set the hearthstone at its inn (you'll come back to turn in)."""
+        inn = self.shortcuts.inn_near(hub)
+        if not inn or (self.shortcuts.home and self._zone(self.shortcuts.home[1]) == self._zone(inn[1])):
+            return
+        self.shortcuts.home = inn
+        self._step("home", 0, inn[1], f"Set your Hearthstone at {inn[0]}")
+        self.me.time += 15
 
     def _gain(self, amount):
         self.me.level, self.me.xp = self.xp.add(self.me.level, self.me.xp, amount, self.max_level)
@@ -245,6 +331,9 @@ class RoutePlanner:
         self._step("do", qid, goal.point, f'{verb} for "{q.title}"', q.goals.index(goal) + 1)
         kills = goal.count if goal.kind in ("kill", "collect") and goal.mob_level else 0
         self.me.time += kills * self.KILL_SECONDS + 10
+        if goal.instance and goal.instance not in self.runs:
+            self.runs.add(goal.instance)  # one run of the dungeon does all its quests
+            self.me.time += self.DUNGEON_RUN
         if kills:
             self._gain(kills * self.xp.kill_xp(self.me.level, goal.mob_level))
         self.active[qid].remove(goal)
@@ -326,6 +415,9 @@ class RoutePlanner:
     def plan(self, start, race_bit, max_level=60):
         self.me, self.pos, self.race_bit, self.max_level = Character(level=self.start_level), start, race_bit, max_level
         self.done, self.active, self.steps = set(), {}, []
+        self.flights_taken = self.hearths_used = 0
+        self.runs = set()
+        self.shortcuts.learn(start)
         self.stretching = False
         self.off_plan = False
         guard = 0
@@ -344,8 +436,14 @@ class RoutePlanner:
                 self._do(qid, goal)
                 continue
             if nearest_end:
-                # Turn-ins elsewhere wait while this zone still has a hub: leave a zone once, not per quest.
-                local = self._best_hub(zone=self._zone(self.pos)) if self._zone(nearest_end) != self._zone(self.pos) else None
+                # Turn-ins elsewhere wait while this zone still has a hub: leave a zone once, not per quest. Not when
+                # the quest log is full (nothing more fits) or that hub is where you stand: that walked in circles
+                # (2026-11-14, the Tirisfal route with Forever's own quests stopped at level 10).
+                local = None
+                if self._zone(nearest_end) != self._zone(self.pos) and len(self.active) < self.MAX_ACTIVE:
+                    local = self._best_hub(zone=self._zone(self.pos))
+                    if local is not None and distance(local, self.pos) <= self.NEAR:
+                        local = None
                 self._go(local or nearest_end)
                 continue
             hub = None
@@ -369,4 +467,5 @@ class RoutePlanner:
             after = self.where(hub)
             if after and after[0] != before:
                 self._step("travel", 0, hub, f"Go to {after[0]}")
+            self._settle_in(hub)
         return self.steps, self.me

@@ -29,10 +29,17 @@ class LevelingDataTests(unittest.TestCase):
 
     def test_how_to_learn(self):
         rows = self.rows()
-        self.assertEqual(rows["Bolt"]["how"], "s")  # skill 1 trainer recipe with no trainer found: comes with the profession
+        self.assertEqual(rows["Bolt"]["how"], "t")  # skill 1 trainer recipe: not a starter unless Forever's data says so (2026-11-14)
         self.assertEqual(rows["Shirt"]["how"], "t")
         self.assertEqual(rows["Vest"]["how"], "v")
         self.assertEqual(rows["Mystery"]["how"], "?")
+
+    def test_forever_decides_what_comes_with_the_profession(self):
+        sources = dict(SOURCES, forever={"1": [1, 1, 20, 60], "2": [3, 1, 20, 90]})
+        rows = {r["name"]: r for r in build_addon_leveling.recipe_rows(CATALOG, sources)}
+        self.assertEqual(rows["Bolt"]["how"], "s")   # AcquireMethod 1: learned with the profession
+        self.assertEqual(rows["Shirt"]["how"], "?")  # AcquireMethod 3: not a recipe you learn in Forever
+        self.assertEqual(rows["Bolt"]["yellow"], 20)  # Forever's colours
 
     def test_rows_without_skill_or_profession_are_left_out(self):
         rows = self.rows()

@@ -65,11 +65,15 @@ def build(tables, wago, catalog, commit, classic=""):
     forever_spells = {r["s"] for r in recipes}
 
     # Gray skill and skill-ups per Forever recipe.
-    gray = {}
+    gray, forever = {}, {}
     for row in wago["SkillLineAbility"]:
         spell = int(num(row["Spell"]))
         if spell in forever_spells:
             gray[str(spell)] = int(num(row["TrivialSkillLineRankHigh"]))
+            # Forever's own values (user, 2026-11-14: Elixir of Minor Strength doesn't come with Alchemy in Forever):
+            # AcquireMethod 1 = learned with the profession, 3 = not a recipe you learn (on-use effects, removed).
+            forever[str(spell)] = [int(num(row["AcquireMethod"])), int(num(row["MinSkillLineRank"])),
+                                   int(num(row["TrivialSkillLineRankLow"])), int(num(row["TrivialSkillLineRankHigh"]))]
 
     spell_names = {int(r["ID"]): r["Name_lang"] for r in wago["ClassicSpellName"]}
     spell_names.update({int(r["ID"]): r["Name_lang"] for r in wago["SpellName"]})
@@ -171,6 +175,7 @@ def build(tables, wago, catalog, commit, classic=""):
         "columns": {"npc": ["name", "title", "side A/H/both", "zone", "x", "y"], "trainer": ["npc", "cost", "skill"],
                     "vendor": ["npc", "price", "limited supply"]},
         "gray": dict(sorted(gray.items(), key=lambda kv: int(kv[0]))),
+        "forever": dict(sorted(forever.items(), key=lambda kv: int(kv[0]))),  # [acquire method, learn skill, yellow, gray]
         "npcs": npcs,
         "trainers": trim(trainers),
         "vendors": trim(vendors),

@@ -48,7 +48,13 @@ local function object(kind, name)
   function o:Disable() self.enabled = false end
   function o:SetTexture(t) self.texture = t end
   function o:RegisterEvent(e) self.events[e] = true end
-  function o:GetWidth() return 140 end
+  function o:GetWidth() return rawget(self, "width") or 140 end
+  function o:GetHeight() return rawget(self, "height") end
+  function o:SetWidth(w) self.width = w end
+  function o:SetHeight(h) self.height = h end
+  function o:SetSize(w, h) self.width, self.height = w, h end
+  function o:SetResizeBounds(a, b, c, d) self.bounds = { a, b, c, d } end
+  function o:SetBackdrop(b) self.backdrop = b end
   function o:GetEffectiveScale() return 1 end
   function o:GetCenter() return 0, 0 end
   function o:SetPoint(...) self.point = { ... } end
@@ -98,16 +104,18 @@ DufforthTweaksHelperDB = { nodes = { enabled = true, labels = false, swapEnabled
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(MOCK)
+rawget_w = None
 lua.execute("GetRealmName = function() return 'Realm 4' end; UnitFactionGroup = function() return 'Horde' end")
 lua.execute("UnitClass = function() return 'Warrior', 'WARRIOR' end; UnitLevel = function() return 30 end")
 for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Crafting.lua", "Leveling.lua", "Warrior.lua", "ConsumablesData.lua", "Consumables.lua", "GearData.lua", "Gear.lua", "Menu.lua"):
     lua.execute(source(name))
 g = lua.globals()
+rawget_w = lua.eval("function(f) return rawget(f, 'width') end")
 fails = []
 
 
-def check(name, ok):
-    print(("ok   " if ok else "FAIL ") + name)
+def check(name, ok, detail=None):
+    print(("ok   " if ok else "FAIL ") + name + ("" if ok or detail is None else f"   [{detail}]"))
     if not ok:
         fails.append(name)
 
@@ -199,12 +207,22 @@ check("minimap button exists and shows", mini is not None and mini.shown)
 mini.scripts.OnClick(mini, "LeftButton")
 menu = g.DufforthTweaksHelperMenu
 check("left-click opens the menu", menu is not None and menu.shown)
-tab_names = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Gather", "Disenchant", "Crafting", "Warrior")]
-check("the window has Gather, Disenchant, Crafting and Warrior tabs", tab_names == ["Gather", "Disenchant", "Crafting", "Warrior"])
+def tabs():
+    return [f.text for f in g.ALL.values() if f.kind == "Button" and rawget_tab(f) and f.shown]
+rawget_tab = lua.eval("function(f) return rawget(f, 'isTab') end")
+check("redesign: flat dark window like the guide, not the game's dialog frame (user)",
+      menu.template == "BackdropTemplate" and menu.backdrop is not None)
+check("redesign: tabs Disenchant, Leveling, Zone and your class; no Gather or Crafting tab (user)",
+      tabs() == ["Disenchant", "Leveling", "Zone", "Warrior"], tabs())
+check("redesign: the window can be made narrower and shorter (user: cannot resize smaller)",
+      menu.bounds is not None and menu.bounds[1] <= 440 and menu.bounds[2] <= 320, menu.bounds and list(menu.bounds.values()))
 g.DufforthTweaksHelperMenu_Toggle("crafting")
-check("/dufforth crafting opens the Crafting tab", g.DufforthTweaksHelperDB.menuTab == "Crafting" and menu.shown)
-g.DufforthTweaksHelperMenu_Toggle("gather")
-check("/dufforth gather opens the Gather tab", g.DufforthTweaksHelperDB.menuTab == "Gather")
+check("/dufforth crafting opens the Disenchant tab on crafting (merged, user)",
+      g.DufforthTweaksHelperDB.menuTab == "Disenchant" and g.DufforthTweaksHelperDB.deView == "craft" and menu.shown)
+g.DufforthTweaksHelperMenu_Toggle("disenchant")
+check("/dufforth disenchant opens the Disenchant tab on its settings", g.DufforthTweaksHelperDB.deView == "settings")
+views = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Settings", "Craft to disenchant")]
+check("Disenchant tab: buttons for its two views", sorted(views) == ["Craft to disenchant", "Settings"], views)
 g.DufforthTweaksHelperMenu_Toggle("warrior")
 check("/dufforth warrior opens your class's tab on the macro", g.DufforthTweaksHelperDB.menuTab == "Class" and g.DufforthTweaksHelperDB.classView == "macro")
 check("the Warrior tab explains how to use it", any(isinstance(f.text, str) and "How to use it" in f.text for f in g.ALL.values()))
@@ -256,8 +274,15 @@ for f in g.ALL.values():
         child = f
         break
 check("sections: items under a title are indented with a guide line", child is not None)
-g.DufforthTweaksHelperMenu_Toggle("gather")
-check("the minimap button is a question mark (help)", 'local ICON = "Interface' in source("Menu.lua") and 'INV_Misc_QuestionMark" -- a question mark' in source("Menu.lua"))
+# No Enchanting: the Disenchant tab goes away (user: only show disenchant if the toon has enchanting).
+lua.execute("GetProfessionInfo = function() return 'Tailoring', nil, 100, 300, nil, nil, 197, 0 end")
+g.DufforthTweaksHelperMenu_Toggle("disenchant")
+check("no Enchanting: no Disenchant tab", "Disenchant" not in tabs(), tabs())
+check("no Enchanting: a Disenchant command opens Leveling instead", g.DufforthTweaksHelperDB.menuTab == "Leveling")
+lua.execute("GetProfessionInfo = function() return 'Enchanting', nil, 100, 300, nil, nil, 333, 0 end")
+g.DufforthTweaksHelperMenu_Toggle("leveling"); g.DufforthTweaksHelperMenu_Toggle("leveling")
+check("Enchanting learned: the tab comes back", "Disenchant" in tabs(), tabs())
+check("the minimap button is the round guide icon (user)", 'GuideIcon" -- the round guide icon' in source("Menu.lua"))
 
 
 # Find a checkbox by the label next to it: labels are font strings created right after their box.
@@ -271,17 +296,14 @@ def box_for(label_text):
     return None
 
 
-swap = box_for("Swap tracking automatically")
-swap.checked = True
-swap.scripts.OnClick(swap)
-check("ticking swap runs /nk swap on", list(g.NODES.values())[-1] == "swap on")
-check("no names option any more", box_for("Names beside icons") is None)
+check("Gather removed: no herb and ore options (user)", box_for("Swap tracking automatically") is None
+      and not any(isinstance(f.text, str) and "Herb and ore" in f.text for f in items))
+check("Gather removed: no Nodes.lua in the addon", not os.path.exists(os.path.join(ADDON, "Nodes.lua")))
 tips = box_for("Disenchant advice in item tooltips")
 tips.checked = False
 tips.scripts.OnClick(tips)
 check("unticking tooltips turns them off", g.DufforthTweaksHelperDB.showDisenchant is False)
-hide = box_for("Show the minimap button")
-hide.checked = False
+hide = [f for f in items if f.kind == "Button" and f.text == "Minimap button"][0]
 hide.scripts.OnClick(hide)
 check("the minimap button can be hidden", mini.shown is False and g.DufforthTweaksHelperDB.minimap.hide is True)
 check("/dufforth is registered", g.SlashCmdList.DUFFORTHTWEAKSHELPER is not None)
@@ -295,6 +317,11 @@ check("market name for a normal Horde realm", g.DufforthTweaksHelper.MarketName(
 mini.scripts.OnDragStart(mini)
 mini.scripts.OnUpdate(mini)
 check("dragging saves the button's angle", abs(g.DufforthTweaksHelperDB.minimap.angle - 90) < 1e-6)
+
+g.DufforthTweaksHelperMenu_ApplySize(440, 320)
+check("resize: the size is remembered", g.DufforthTweaksHelperDB.menuSize[1] == 440 and g.DufforthTweaksHelperDB.menuSize[2] == 320)
+check("resize: narrower pages are rebuilt for the new width",
+      any(f.kind == "FontString" and rawget_w(f) == 440 - 16 - 24 for f in g.ALL.values()))
 
 if fails:
     sys.exit(f"{len(fails)} failed")

@@ -28,9 +28,9 @@ def build(folder):
     current = version()
     versioned = folder / f"{ADDON.name}-{current}.zip"
     with zipfile.ZipFile(versioned, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(ADDON.iterdir()):
+        for path in sorted(ADDON.rglob("*")):  # subfolders too (Media: the guide icon)
             if path.is_file():
-                archive.write(path, f"{ADDON.name}/{path.name}")
+                archive.write(path, f"{ADDON.name}/{path.relative_to(ADDON).as_posix()}")
     shutil.copy(versioned, folder / f"{ADDON.name}.zip")
     (folder / "latest.json").write_text(json.dumps({"version": current, "file": versioned.name}), encoding="utf-8")
     return versioned

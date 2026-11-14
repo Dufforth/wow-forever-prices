@@ -5,7 +5,9 @@ Continents are world map IDs: 0 Eastern Kingdoms, 1 Kalimdor.
 """
 from build_farm import as_dicts, num
 
-FLIGHT_MASTER = 8  # creature_template NpcFlags bit (Classic)
+FLIGHT_MASTER = 8  # creature_template NpcFlags bits (Classic)
+INNKEEPER = 128
+REPAIR = 16384
 
 # Zeppelins and boats a Horde character takes between continents (Classic geography, both ways):
 # (kind, (name, zone, x, y, continent), (name, zone, x, y, continent)). Map coordinates of the docks.
@@ -16,21 +18,36 @@ TRANSPORTS = [
 ]
 
 
-def flight_masters(tables, side_of_faction, where):
-    """[[name, zone, x, y, continent]] for every flight master the Horde can use."""
+def flight_masters(tables, side_of_faction, where, flag=FLIGHT_MASTER):
+    """[[name, zone, x, y, continent]] for every flight master (or NPC with another service flag:
+    innkeepers, repairers) the Horde can use."""
     spawns = {}
     for r in as_dicts(tables["creature"]):
         spawns.setdefault(int(num(r["id"])), (int(num(r["map"])), num(r["position_x"]), num(r["position_y"])))
     out = []
     for r in as_dicts(tables["creature_template"]):
         entry = int(num(r["Entry"]))
-        if not int(num(r["NpcFlags"])) & FLIGHT_MASTER or side_of_faction(int(num(r["Faction"]))) != "H" or entry not in spawns:
+        if not int(num(r["NpcFlags"])) & flag or side_of_faction(int(num(r["Faction"]))) != "H" or entry not in spawns:
             continue
         point = spawns[entry]
         w = where(point)
         if w:
             out.append([r["Name"], w[0], round(w[1], 1), round(w[2], 1), point[0]])
     return sorted(out, key=lambda f: (f[1], f[0]))
+
+
+def service_points(tables, side_of_faction, flag):
+    """[(name, (map, x, y))] in world yards for Horde NPCs with a service flag (flight masters, innkeepers): for the
+    planner's flights and hearthstone."""
+    spawns = {}
+    for r in as_dicts(tables["creature"]):
+        spawns.setdefault(int(num(r["id"])), (int(num(r["map"])), num(r["position_x"]), num(r["position_y"])))
+    out = []
+    for r in as_dicts(tables["creature_template"]):
+        entry = int(num(r["Entry"]))
+        if int(num(r["NpcFlags"])) & flag and side_of_faction(int(num(r["Faction"]))) == "H" and entry in spawns                 and spawns[entry][0] in (0, 1):
+            out.append((r["Name"], spawns[entry]))
+    return sorted(out)
 
 
 FLIGHT_NEAR = 12  # map %: a route step this close to a flight master passes by it

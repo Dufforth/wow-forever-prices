@@ -56,7 +56,7 @@ for f in [l.strip() for l in toc if l.strip().endswith(".lua")]:
     except Exception as e:
         bad = True
         print("LOAD ERROR", f, str(e)[:300])
-for tab in ("leveling", "gather", "crafting", "warrior", "disenchant", "leveling"):
+for tab in ("leveling", "zone", "crafting", "warrior", "disenchant", "leveling"):
     try:
         lua.execute(f'DufforthTweaksHelperMenu_Toggle("{tab}")')
     except Exception as e:

@@ -40,12 +40,14 @@ class AddonZipTests(unittest.TestCase):
     def test_toc_has_the_new_name_and_saves_under_it(self):
         toc = (ROOT / f"addon/{NAME}/{NAME}.toc").read_text(encoding="utf-8")
         self.assertRegex(toc, r"(?m)^## Title: Dufforth Tweaks Helper\s*$")
-        self.assertIn("INV_Misc_QuestionMark", toc)
+        self.assertIn("Media\\GuideIcon", toc)  # the round guide icon (2026-11-14)
         self.assertRegex(toc, rf"(?m)^## SavedVariables: {NAME}DB\s*$")
         self.assertRegex(toc, r"(?m)^## Interface: \d+")
 
     def test_no_old_name_left_in_the_addon(self):
-        for path in (ROOT / f"addon/{NAME}").iterdir():
+        for path in (ROOT / f"addon/{NAME}").rglob("*"):
+            if not path.is_file() or path.suffix not in (".lua", ".toc", ".xml", ".md"):
+                continue
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("Gathering Tracker", text, path.name)
             self.assertNotIn("TentTimer", text, path.name)
@@ -239,8 +241,21 @@ class BuildAddonGuideTest(unittest.TestCase):
         g = lua.globals().DufforthTweaksHelperGuideData
         self.assertEqual(g.uiMaps["Durotar"], 1411)
         self.assertEqual(g.routes["Durotar"].steps[1][2], 1)
-        self.assertEqual(g.routes["Durotar"].steps[1][7], 'Accept "Cutting Teeth" from Gornek')
+        self.assertEqual(g.routes["Durotar"].steps[1][7], "")  # pick-up text dropped: the addon writes it from the quest (smaller file)
         self.assertEqual(g.routes["Durotar"].races[2], "Troll")
         self.assertEqual(g.quests[1][1], "Cutting Teeth")
         self.assertEqual(g.quests[1][12][1][2], "Mottled Boar")
         self.assertEqual(g.extras["class"][1], 2)
+
+
+class CheckTargetsTest(unittest.TestCase):
+    """tools/check.py runs only the tests for what changed (user, 2026-11-13: save tokens)."""
+
+    def test_changed_files_pick_their_tests(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        from check import targets
+        self.assertEqual(targets(["addon/DufforthTweaksHelper/GuideUI.lua"]), ["guide_sim"])
+        self.assertEqual(targets(["catalog/route_planner.py", "tests/addon/gear_sim.py"]), ["test_route_planner", "gear_sim"])
+        self.assertEqual(targets(["addon/DufforthTweaksHelper/Prices.lua"]), ["full_load_sim"], "unknown addon file: load everything")
+        self.assertEqual(targets(["README.md"]), [])
+

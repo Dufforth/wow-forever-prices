@@ -29,6 +29,7 @@ function GAME(t)
     done = function(id) return (t.done or {})[id] == true end, inLog = function(id) return (t.log or {})[id] == true end,
     complete = function(id) return (t.complete or {})[id] == true end, zone = function() return t.zone or "Durotar" end,
     logIds = function() local o = {} for id in pairs(t.log or {}) do o[#o + 1] = id end table.sort(o) return o end,
+    position = t.pos and function() return t.pos[1], t.pos[2], t.pos[3] end or nil,
   }
 end
 """)
@@ -105,6 +106,88 @@ model(lua, level=8, zone="The Barrens")
 check("starting at a higher level: low quests you never did are skipped", lua.eval("M:Current()") >= 11, lua.eval("M:Current()"))
 check("the grind step is done once you're past its level", lua.eval("M:Current()") == 12, lua.eval("M:Current()"))
 
+
+# ---- Top 6 (user, 2026-11-14): one step per place, tips, loops, checkpoints, errands, hearthstone ----
+model(lua, level=2, done={1})
+lua.execute("M2 = G.NewModel(DATA, 'Durotar', GAME({ level = 2, log = { [1] = true }, complete = { [1] = true } }), { skipped = {} })")
+check("one step per place: turn-in and the next pick-up at the same NPC share a block",
+      lua.eval("M2:Together(3, 4)") is True and lua.eval("M2:TalkTo(3)") == "Gornek")
+blk = lua.eval("M2:Blocks(1)[1]")
+check("one step per place: the first block holds both", [blk[k] for k in sorted(blk)] == [3, 4], [blk[k] for k in sorted(blk)])
+check("one step per place: different NPCs don't share", lua.eval("M2:Together(4, 8)") is False)
+lua.execute("""
+DATA.quests[1][12] = { { "kill", "Boar", 8, "Durotar", 45, 65, "", 0, { { 44, 64 }, { 50, 60 }, { 47, 70 } }, 3, 4, 0 } }
+DATA.quests[3][12] = { { "collect", "Raptor Head", 12, "The Barrens", 55, 35, "Raptor", 1, {}, 11, 12, 1 } }
+""")
+lua.execute("M3 = G.NewModel(DATA, 'Durotar', GAME({ level = 3 }), { skipped = {} })")
+check("tip: monster levels and the loop", lua.eval("G.Tip(M3, 2)") == "Level 3-4, circle the 3 spots on your map", lua.eval("G.Tip(M3, 2)"))
+check("tip: elite, kills, along the way", lua.eval("G.Tip(M3, 9)") ==
+      "Level 11-12, elite: bring friends, about 12 kills, they're all over the zone: kill them as you go", lua.eval("G.Tip(M3, 9)"))
+check("tip: in the step's description", lua.eval("G.Describe(M3, 2).tip") == lua.eval("G.Tip(M3, 2)"))
+check("loop: a kill area with spots gets the arrow", lua.eval("M3:Pinpoint(2)") is True and lua.eval("#M3:Loop(2)") == 3)
+check("loop: the arrow moves to the next spot when you reach one", lua.eval("G.NextLoopSpot(M3:Loop(2), 1, 44.5, 64.5)") == 2)
+check("loop: far from it, it stays", lua.eval("G.NextLoopSpot(M3:Loop(2), 2, 10, 10)") == 2)
+check("loop: after the last spot, back to the first", lua.eval("G.NextLoopSpot(M3:Loop(2), 3, 47, 70)") == 1)
+check("kills: 1000 xp at level 10 is 11 kills (95 each)", lua.eval("G.KillsFor(10, 1000)") == 11)
+lua.execute("M4 = G.NewModel(DATA, 'Durotar', GAME({ level = 3 }), { skipped = {} }); M4.game.xp = function() return 100, 1000 end")
+check("checkpoint: a part planned for 5+ while you're 3", lua.eval("M4:Checkpoint(10).level") == 4, lua.eval("M4:Checkpoint(10) and M4:Checkpoint(10).level"))
+check("checkpoint: none when you're on track", lua.eval("M4:Checkpoint(2)") is None)
+check("checkpoint: said in the description", "Planned for level 4+" in str(lua.eval("G.Describe(M4, 10).checkpoint")))
+E = """G.Errands({ zone = "The Barrens", level = 12, freeSlots = 1, durability = 0.9, homeZone = "Durotar", sectionZone = "The Barrens", sectionLeft = 20,
+  repair = { name = "Smith", zone = "The Barrens", x = 51, y = 30 }, inn = { name = "Innkeeper", zone = "The Barrens", x = 52, y = 29 },
+  train = { count = 2, cost = "1s", trainer = { name = "Trainer", zone = "The Barrens", x = 50, y = 30 } },
+  classQuest = { id = 20, title = "Training", giver = "Gar", zone = "Orgrimmar", x = 1, y = 1 }, skipped = SKIP or {} })"""
+kinds = lambda: [lua.eval(E)[k].kind for k in sorted(lua.eval(E))]
+check("errands: repair (bags full), train, hearthstone; a class quest elsewhere waits", kinds() == ["repair", "train", "home"], kinds())
+lua.execute('SKIP = { ["home:The Barrens"] = true }')
+check("errands: a skipped one stays hidden", kinds() == ["repair", "train"], kinds())
+lua.execute("SKIP = nil")
+check("errands: no hearthstone errand when it's already set here",
+      "home" not in [r.kind for r in lua.eval(E.replace('homeZone = "Durotar"', 'homeZone = "The Barrens"')).values()])
+lua.execute("""M5 = G.NewModel(DATA, 'Durotar', GAME({ level = 3, zone = "Durotar" }), { skipped = {} })
+DATA.travel = { continents = { Durotar = 1, ["The Barrens"] = 1 }, flights = {}, transports = {} }
+M5.game.hearth = function() return "The Barrens", true end""")
+check("hearthstone: a step in your home zone starts with it", "Hearthstone" in str(lua.eval("M5:Directions(8)[1].text")), lua.eval("M5:Directions(8)[1].text"))
+lua.execute('M5.game.hearth = function() return "The Barrens", false end')
+check("hearthstone: on cooldown, the usual way", "Hearthstone" not in str(lua.eval("(M5:Directions(8) or {{text=''}})[1].text")))
+lua.execute("DATA.travel = nil; DATA.quests[1][12] = {}; DATA.quests[3][12] = {}")
+F = """G.Errands({ zone = "The Barrens", level = 12, innHere = { name = "Innkeeper", zone = "The Barrens", x = 52, y = 29 },
+  food = { food = FOOD, drink = DRINK, mana = MANA } })"""
+fk = lambda: [lua.eval(F)[k].action for k in sorted(lua.eval(F))]
+lua.execute("FOOD, DRINK, MANA = 2, 0, false")
+check("food: low on food, buy some at the innkeeper", len(fk()) == 1 and "Buy food at" in fk()[0], fk())
+lua.execute("FOOD, DRINK, MANA = 10, 1, true")
+check("food: a mana user low on water buys water", len(fk()) == 1 and "Buy water" in fk()[0], fk())
+lua.execute("FOOD, DRINK, MANA = 10, 1, false")
+check("food: no mana, water doesn't matter", fk() == [])
+# Auto flight.
+N = lambda body: lua.eval("G.PickTaxiNode({" + body + "}, 'The Barrens')")
+check("taxi: the one reachable node in the zone", N('{index=1,name="Orgrimmar, Durotar",type="CURRENT"},{index=2,name="Crossroads, The Barrens",type="REACHABLE"}') == 2)
+check("taxi: several in the zone, the nearest to the flight master",
+      N('{index=1,name="Crossroads, The Barrens",type="REACHABLE",dist=900},{index=2,name="Camp Taurajo, The Barrens",type="REACHABLE",dist=100}') == 2)
+check("taxi: several and no distance, not sure: no flight", N('{index=1,name="A, The Barrens",type="REACHABLE"},{index=2,name="B, The Barrens",type="REACHABLE"}') is None)
+check("taxi: unreachable nodes are skipped", N('{index=1,name="Crossroads, The Barrens",type="UNREACHABLE"}') is None)
+lua.execute("""M6 = G.NewModel(DATA, 'Durotar', GAME({ level = 3, zone = "Durotar" }), { skipped = {} })
+DATA.travel = { flights = { { "Devrak", "The Barrens", 51, 30, 1 }, { "Far One", "The Barrens", 80, 80, 1 } } }""")
+check("taxi: flies to the flight master nearest the next step's place", lua.eval("M6:FlightTo(8)[1]") == "Devrak")
+check("taxi: none when the step is in your zone", lua.eval("M6:FlightTo(2)") is None)
+lua.execute("DATA.travel = nil")
+# Gold farming stops (explorer): the monster worth the most per kill at the addon's prices.
+pick = lua.eval("G.FarmPick({ { 1, 'Cheap', 50 }, { 2, 'Rich', 10 } }, function(id) return id == 1 and 100 or 2000 end)")
+check("farm: picks the drop worth the most per kill (price x chance)", pick[0][2] == "Rich" and pick[1] == 200, (pick[0][2], pick[1]))
+check("farm: no prices, the first one", lua.eval("G.FarmPick({ { 1, 'A', 5 }, { 2, 'B', 9 } }, nil)")[0][2] == "A")
+# Leveling tracker.
+lua.execute("""T = {}
+G.TrackXP(T, 0, 10, 0, 1000); G.TrackXP(T, 60, 10, 200, 1000); G.TrackXP(T, 120, 10, 400, 1000)""")
+check("tracker: experience an hour from play", lua.eval("G.TrackSummary(T).perHour") == 12000, lua.eval("G.TrackSummary(T).perHour"))
+check("tracker: time to level at this pace (600 left at 200 a minute)", lua.eval("G.TrackSummary(T).toLevel") == 180)
+lua.execute("G.TrackXP(T, 2000, 10, 500, 1000)")
+check("tracker: a long gap (away) isn't playing time", lua.eval("T.played") == 120)
+lua.execute("G.TrackXP(T, 2060, 11, 100, 1200)")
+check("tracker: a level up counts the rest of the bar and saves the level's time",
+      lua.eval("T.gained") == 1100 and lua.eval("T.times[10]") == 180, (lua.eval("T.gained"), lua.eval("T.times[10]")))
+check("tracker: says the last level's time", lua.eval("G.TrackSummary(T).lastLevel.seconds") == 180)
+check("tracker: durations read well", lua.eval("G.Duration(4000)") == "1h 06m" and lua.eval("G.Duration(185)") == "3m")
 model(lua, level=8, zone="The Barrens")
 idx = lua.eval("M:Current()")
 check("a low quest that starts a chain up to your level is kept, with advice",
@@ -173,7 +256,9 @@ d = describe(1)
 check("describe: a pick-up says who to talk to", d.icon and "AvailableQuest" in d.icon and "Talk to" in d.action and "Gornek" in d.action and "Boars" in d.action, d.action)
 d = describe(2, '{ { text = "3/8 Boar slain", finished = false } }')
 check("describe: a kill step says Kill and the monster", "Kill" in d.action and "Boar" in d.action and d.kind == "kill", d.action)
-check("describe: the game's progress line, not done yet", d.lines[1].text == "3/8 Boar slain" and d.lines[1].finished is False)
+check("describe: the game's count inside the action, not a second line repeating the name (user)",
+      "3/8" in d.action and len(d.lines) == 0, (d.action, len(d.lines)))
+check("describe: the quest name is kept for the header, not added to the action", d.quest == "Boars" and "(Boars)" not in d.action, d.action)
 d = describe(3)
 check("describe: a turn-in says what to turn in and to whom", "Turn in" in d.action and "Gornek" in d.action and "ActiveQuest" in d.icon, d.action)
 d = describe(7)
@@ -333,7 +418,7 @@ Y = G.NewModel(DATA, "Fly", GAME({ level = 4, zone = "The Barrens" }), { skipped
 """)
 check("flight: a flight path you don't have is a step", lua.eval("Y:Current()") == 1)
 d = lua.eval("G.Describe(Y, 1)")
-check("flight: says who to talk to", "Devrak" in d.action and "flight path" in d.action and d.kind == "flight" and "Taxi" in d.icon, d.action)
+check("flight: says who to talk to", "Devrak" in d.action and "flight path" in d.action and d.kind == "flight" and "Wyvern" in d.icon, d.action)
 lua.execute("Y.game.flightKnown = function(zone, x, y) return zone == 'The Barrens' end")
 check("flight: one you have is passed by", lua.eval("Y:Current()") == 2)
 lua.execute("""
@@ -346,6 +431,54 @@ Y = G.NewModel(DATA, "Behind", GAME({ level = 4, zone = "B", done = { [1] = true
 """)
 check("flight: one in a part of the route behind you doesn't send you back", lua.eval("Y:Current()") == 7, lua.eval("Y:Current()"))
 check("flight: and isn't in the next steps", 1 not in [int(v) for v in lua.eval("Y:Upcoming(3)").values()])
+
+# A specific place (user, 2026-11-13): pin and arrow for an NPC, an object, one named monster or an item in one spot;
+# none for killing or looting across an area, or grinding.
+lua.execute("""
+local function q(goals) return { "P", 5, 1, 0, "", 0, 0, "Npc", { "A", 50, 50 }, "Npc", { "A", 50, 50 }, goals, {}, 0, 0 } end
+DATA.quests[60] = q({ { "kill", "Boar", 8, "A", 40, 40, "", 0 }, { "collect", "Tusk", 6, "A", 40, 40, "Boar", 0 },
+  { "use", "Altar", 1, "A", 41, 41, "", 0 }, { "kill", "Old Tusker", 1, "A", 42, 42, "", 0 }, { "collect", "Lost Box", 1, "A", 43, 43, "", 0 } })
+local s = {}
+for k = 1, 5 do s[k] = { "do", 60, "A", 40, 40, 5, "", k } end
+s[6] = { "accept", 60, "A", 50, 50, 5, "" }; s[7] = { "grind", 0, "A", 50, 50, 5, "" }; s[8] = { "turnin", 60, "A", 50, 50, 5, "" }
+s[9] = { "flight", 0, "A", 50, 50, 5, "Get the flight path from Bob" }
+DATA.routes.Pins = { races = {}, steps = s }
+P = G.NewModel(DATA, "Pins", GAME({ level = 5 }), { skipped = {} })
+""")
+pin = lambda i: lua.eval(f"P:Pinpoint({i})")
+check("pin: not for killing 8 across an area", pin(1) is False)
+check("pin: not for looting from monsters across an area", pin(2) is False)
+check("pin: for an object to use", pin(3) is True)
+check("pin: for one named monster", pin(4) is True)
+check("pin: for an item lying in one spot", pin(5) is True)
+check("pin: for an NPC (pick up, turn in) and a flight master", pin(6) is True and pin(8) is True and pin(9) is True)
+check("pin: not for grinding", pin(7) is False)
+
+# Nearest first (user, 2026-11-13: sent back to Brill before Maggot Eye): of the objectives in your log in this part
+# of the route, the current step is the one nearest to you.
+lua.execute("""
+local function q(t, x, y) return { t, 5, 1, 0, "", 0, 0, "Npc", { "A", 50, 50 }, "Npc", { "A", 50, 50 }, { { "kill", t, 5, "A", x, y, "", 0 } }, {}, 0, 0 } end
+DATA.quests[70], DATA.quests[71] = q("West", 10, 10), q("East", 80, 80)
+DATA.routes.Near = { races = {}, steps = { { "accept", 70, "A", 50, 50, 5, "" }, { "accept", 71, "A", 50, 50, 5, "" },
+  { "do", 70, "A", 10, 10, 5, "", 1 }, { "do", 71, "A", 80, 80, 5, "", 1 }, { "turnin", 70, "A", 50, 50, 5, "" }, { "turnin", 71, "A", 50, 50, 5, "" } } }
+function NEAR(pos) Q = G.NewModel(DATA, "Near", GAME({ level = 5, zone = "A", log = { [70] = true, [71] = true }, pos = pos }), { skipped = {} }) end
+""")
+lua.execute("NEAR({ 'A', 78, 78 })")
+check("nearest: the objective by you comes first", lua.eval("Q:Current()") == 4, lua.eval("Q:Current()"))
+check("nearest: then the other one", [int(v) for v in lua.eval("Q:Upcoming(2)").values()] == [4, 3], [int(v) for v in lua.eval("Q:Upcoming(2)").values()])
+check("nearest: the one left for later is still ahead, not passed", lua.eval("Q:States(6)")[3] == "open", lua.eval("Q:States(6)")[3])
+lua.execute("NEAR({ 'A', 12, 12 })")
+check("nearest: standing by the other, it comes first", lua.eval("Q:Current()") == 3)
+lua.execute("NEAR(nil)")
+check("nearest: without your position, the route's order", lua.eval("Q:Current()") == 3)
+lua.execute("NEAR({ 'B', 78, 78 })")
+check("nearest: in another zone, the route's order", lua.eval("Q:Current()") == 3)
+lua.execute("DATA.quests[60][12][2][3] = 1")
+check("pin: one item from one named monster (Maggot Eye's Paw) is a spot", pin(2) is True)
+lua.execute("DATA.quests[60][12][2][3] = 6")
+check("icons: swords for kill, a bag for loot, a gear for use, centred game icons (user: line them up)",
+      "DualWield" in lua.eval("G.ICONS.kill") and "Bag" in lua.eval("G.ICONS.loot") and "Gear" in lua.eval("G.ICONS.use"))
+check("icons: inline game icons are cropped and as tall as the text", lua.eval("G.Inline(G.ICONS.kill)").endswith(":0:0:0:0:64:64:5:59:5:59|t"))
 
 # ---- The step box (GuideUI.lua): view and controller, with stand-in frames and game ----
 ui = L.LuaRuntime(unpack_returned_tuples=True)
@@ -360,6 +493,9 @@ local function object(kind)
   function o:IsShown() return self.shown end
   function o:SetText(t) self.text = t end
   function o:GetText() return self.text end
+  function o:SetWidth(w) self.width = w end
+  function o:SetAlpha(v) rawset(self, "alpha", v) end
+  function o:SetAttribute(k, v) local a = rawget(self, "attrs") or {}; a[k] = v; rawset(self, "attrs", a) end
   function o:CreateFontString() local f = object("FontString"); ALL[#ALL+1] = f; return f end
   function o:CreateTexture() return object("Texture") end
   return setmetatable(o, { __index = function() return function() end end })
@@ -385,7 +521,8 @@ C_QuestLog = {
 UiMapPoint = { CreateFromCoordinates = function(map, x, y) return { map = map, x = x, y = y } end }
 PLAYER = { map = 1411, x = 0.40, y = 0.70, facing = 0 }
 function CreateVector2D(x, y) return { x = x, y = y, GetXY = function(v) return v.x, v.y end } end
-C_Map = { SetUserWaypoint = function(p) PINS[#PINS+1] = p end,
+CLEARED = 0
+C_Map = { SetUserWaypoint = function(p) PINS[#PINS+1] = p end, ClearUserWaypoint = function() CLEARED = CLEARED + 1 end,
   GetBestMapForUnit = function() return PLAYER.map end,
   GetPlayerMapPosition = function() return CreateVector2D(PLAYER.x, PLAYER.y) end,
   -- A flat world: north is up the map, west is left; 1000 yards across.
@@ -405,15 +542,18 @@ check("box: an action icon before it", "AvailableQuestIcon" in str(box.step.text
 shown_blocks = [b for b in box.blocks.values() if b.shown]
 check("box: the active steps on top", len(shown_blocks) >= 2, len(shown_blocks))
 check("box: each block has its step number", "Step 2" in str(box.blocks[2].header.text), box.blocks[2].header.text)
-check("box: says which step and where", "Step 1 of 12" in str(box.title.text) and "Durotar 40, 60" in str(box.title.text), box and box.title.text)
+check("box: says which step and where, briefly", "Step 1" in str(box.title.text) and "40, 60" in str(box.title.text)
+      and "of 12" not in str(box.title.text) and "PICK UP" not in str(box.title.text), box and box.title.text)
 check("box: puts a map pin on the step", ui.eval("#PINS") == 1 and ui.eval("PINS[1].map") == 1411 and abs(ui.eval("PINS[1].x") - 0.40) < 1e-9)
 ui.execute("box = DufforthTweaksHelperGuideBox; box.skip.scripts.OnClick(box.skip)")
 check("box: Skip goes to the next step", "Step 1" not in str(box.title.text), box.title.text)
 ui.execute("box.back.scripts.OnClick(box.back)")
-check("box: Back returns", "Step 1 of 12" in str(box.title.text))
+check("box: Back returns", "Step 1|r" in str(box.title.text), box.title.text)
 ui.execute("LOG = { [1] = true }; GU.Refresh()")
 check("adapter: a quest in your log moves the guide to its objective", "Kill 8 Boar" in str(box.step.text), box.step.text)
-check("box: the game's progress line under the objective", "3/8 Boar slain" in str(box.blocks[1].lines.text) and "Waiting" in str(box.blocks[1].lines.text),
+check("pin: killing across an area clears the pin and the arrow has no target", ui.eval("CLEARED") >= 1 and ui.eval("GU.target") is None,
+      (ui.eval("CLEARED"), ui.eval("GU.target")))
+check("box: the game's count in the action line, no repeated line", "3/8" in str(box.blocks[1].action.text) and str(box.blocks[1].lines.text) in ("", "None"),
       box.blocks[1].lines.text)
 ui.execute("COMPLETE = { [1] = true }; GU.Refresh()")
 check("adapter: finished objectives: turn in", "Turn in" in str(box.step.text), box.step.text)
@@ -432,6 +572,42 @@ def headers():
     return [str(r.label.text) for r in box.rows.values() if r.shown and r.isHeader]
 def nums():
     return [n for n, _ in rows()]
+# The target button: targets the step's NPC or monster (user, 2026-11-14).
+bar = ui.eval("DufforthTweaksHelperGuideBar")
+cur = ui.eval("GU.model:Current()")
+who = ui.eval(f"GU.TargetName(GU.model, {cur})")
+check("target: a button that targets who the step is about", who is not None and bar.target.attrs["macrotext"] == "/cleartarget\n/targetexact " + who,
+      (who, bar.target.attrs["macrotext"] if bar else None))
+check("target: secure and works on key down", ui.eval("DufforthTweaksHelperGuideTarget") is not None)
+
+# Box options (user, 2026-11-14).
+ui.execute("box.scaleButton.up.scripts.OnClick(box.scaleButton.up)")
+check("options: Size > steps up and is remembered", ui.eval("DufforthTweaksHelperDB.guide.scale") == 1.1 and box.scaleButton.value.text == "110%", box.scaleButton.value.text)
+ui.execute("for i = 1, 5 do box.scaleButton.up.scripts.OnClick(box.scaleButton.up) end")
+check("options: Size stops at the biggest", ui.eval("DufforthTweaksHelperDB.guide.scale") == 1.25)
+ui.execute("DufforthTweaksHelperDB.guide.scale = 1; box.alphaButton.down.scripts.OnClick(box.alphaButton.down)")
+check("options: Opacity < steps down", ui.eval("DufforthTweaksHelperDB.guide.opacity") == 0.85 and box.alphaButton.value.text == "85%")
+check("menu: on/off rows are check boxes, checked when on", ui.eval("box.arrowToggle.check ~= nil") and box.arrowToggle.check.shown is True)
+ui.execute("box.arrowToggle.scripts.OnClick(box.arrowToggle)")
+check("menu: a click unchecks it", box.arrowToggle.check.shown is False)
+ui.execute("box.arrowToggle.scripts.OnClick(box.arrowToggle)")
+ui.execute("DufforthTweaksHelperDB.guide.opacity = 1; box.combatToggle.scripts.OnClick(box.combatToggle)")
+ui.execute("InCombatLockdown = function() return true end; GU.ApplyLook(); ALPHA_IN_FIGHT = rawget(box, 'alpha')")
+check("options: Hide in combat takes the box away in a fight", box.shown is False, box.shown)
+ui.execute("InCombatLockdown = function() return false end; GU.ApplyLook(); DufforthTweaksHelperDB.guide.hideInCombat = false")
+check("options: back after the fight", ui.eval("rawget(box, 'alpha')") == 1)
+# Forever's own quests come from your log.
+ui.execute("LOG[97253] = true; GU.Refresh()")
+fq = ui.eval("GU.ForeverQuests(GU.model)")
+check("forever: a quest in your log the data doesn't know shows as a Forever quest",
+      any(fq[k].id == 97253 for k in fq), [fq[k].id for k in fq])
+ui.execute("LOG[97253] = nil; GU.Refresh()")
+
+
+def source_text(name):
+    return (ADDON / name).read_text(encoding="utf-8")
+
+
 def click(name):
     ui.execute(f"box = DufforthTweaksHelperGuideBox; box.{name}.scripts.OnClick(box.{name})")
 check("list: the bar names the part you are in", "1-3 Durotar" in str(box.bar.label.text), box.bar.label.text)
@@ -458,12 +634,47 @@ check("list: and back up", nums()[0] == first, nums())
 
 # A check box on each row: mark a step done (you did it without the guide), or undo it.
 ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
+ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
 row5 = next(r for r in box.rows.values() if r.shown and not r.isHeader and int(r.num.text) == 5)
 ui.execute("for _, r in pairs(DufforthTweaksHelperGuideBox.rows) do if r.step == 5 then r.check.scripts.OnClick(r.check) end end")
 check("check box: marks a step done", ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[5]") is True)
 check("check box: the step reads as done", "ReadyCheck-Ready" in dict(rows())[5], dict(rows())[5])
 ui.execute("for _, r in pairs(DufforthTweaksHelperGuideBox.rows) do if r.step == 5 then r.check.scripts.OnClick(r.check) end end")
 check("check box: and undone", not ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[5]"))
+ui.execute("box.blocks[1].check.scripts.OnClick(box.blocks[1].check)")
+check("check box on the current step: marks it done (user)", ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[4]") is True
+      and "Step 4|r" not in str(box.title.text), box.title.text)
+ui.execute("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[4] = nil; GU.Refresh()")
+check("step icons are as tall as the text, so they line up (user)", ":0|t" in str(box.step.text), box.step.text)
+# Steps: the part's list; click a step to view it, back, or continue from it (user, 2026-11-14).
+ui.execute("box.stepsButton.scripts.OnClick(box.stepsButton)")
+check("steps: the Steps button opens the part's list", box.list.shown is True and ui.eval("DufforthTweaksHelperDB.guide.listOpen") is True)
+ui.execute("GU.ViewStep(7)")
+check("steps: a clicked step shows in the box with a bar to go back", "Step 7" in str(box.title.text) and box.viewBar.shown is True,
+      (box.title.text, box.viewBar.shown))
+ui.execute("box.viewBar.back.scripts.OnClick(box.viewBar.back)")
+check("steps: back to my step", box.viewBar.shown is False and "Step 7" not in str(box.title.text), box.title.text)
+ui.execute("GU.ViewStep(8); box.viewBar.go.scripts.OnClick(box.viewBar.go)")
+check("steps: continue from the step shown", ui.eval("GU.model:Start()") == 8 and box.viewBar.shown is False, ui.eval("GU.model:Start()"))
+ui.execute("GU.model:SetStart(nil); DufforthTweaksHelperDB.guide.routes.Durotar.startAt = nil; DufforthTweaksHelperDB.guide.listOpen = false; GU.Refresh()")
+# Minimize to the round icon; Hide in combat really hides (user, 2026-11-14).
+ui.execute("box.hide.scripts.OnClick(box.hide)")
+check("minimize: X leaves the round icon, not nothing", box.shown is False and ui.eval("DufforthTweaksHelperGuideIcon").shown is True)
+check("minimize: the icon carries the current step", "Step" in str(ui.eval("DufforthTweaksHelperGuideIcon").num.text))
+check("icon: round hover glow and a round badge on a ring (user: no square)", ui.eval("DufforthTweaksHelperGuideIcon.ring ~= nil")
+      and "TempPortraitAlphaMask" in source_text("GuideUI.lua") and "UI-Minimap-ZoomButton-Highlight" not in source_text("GuideUI.lua"))
+ui.execute("DufforthTweaksHelperGuideIcon.scripts.OnClick(DufforthTweaksHelperGuideIcon)")
+check("minimize: a click on the icon opens the guide again", box.shown is True and ui.eval("DufforthTweaksHelperGuideIcon").shown is False)
+ui.execute("DufforthTweaksHelperDB.guide.hideInCombat = true; GU.inCombat = true; GU.ApplyLook()")
+check("hide in combat: the box goes away in a fight, the icon stays", box.shown is False and ui.eval("DufforthTweaksHelperGuideIcon").shown is True)
+ui.execute("DufforthTweaksHelperGuideIcon.scripts.OnClick(DufforthTweaksHelperGuideIcon)")
+check("hide in combat: the icon opens it anyway during the fight", box.shown is True)
+ui.execute("GU.inCombat = false; GU.peek = nil; DufforthTweaksHelperDB.guide.hideInCombat = false; DufforthTweaksHelperDB.guide.collapsed = false; GU.ApplyLook()")
+check("hide in combat: back after the fight", box.shown is True)
+src = source_text("GuideUI.lua")
+check("minimize in combat: no secure button is anchored to the box (it would lock the box in a fight)",
+      'f.useItem:SetPoint("TOPRIGHT", f.blocks[1]' not in src and 'bar:SetPoint("TOPRIGHT", f, "TOPLEFT"' not in src
+      and "function UI.PlaceSecure" in src)
 check("resize: a corner grip", box.grip is not None and box.grip.scripts.OnMouseDown is not None)
 ui.execute("REFRESHES = 0; local r = GU.Refresh; GU.Refresh = function() REFRESHES = REFRESHES + 1; r() end")
 ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 420, 520)")
@@ -484,12 +695,16 @@ ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(bo
 check("box: made small, the level, zone and progress row stays (user)", box.progress.shown is not False)
 check("box: made small, only the current step stays", box.blocks[1].shown and not box.blocks[2].shown and not box.bar.shown
       and not any(r.shown for r in box.rows.values()), (box.blocks[2].shown, box.bar.shown))
+ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 340, 40); box.grip.scripts.OnMouseUp(box.grip)")
+check("box: never cuts the current step: it grows to show all of it (user: size follows the steps)", ui.eval("box.fitH") > 40, ui.eval("box.fitH"))
 ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 420, 520); box.grip.scripts.OnMouseUp(box.grip)")
 check("box: made bigger, the rest comes back", box.blocks[2].shown and box.bar.shown)
 check("box: green bar with the section's progress", "50%" in str(box.progress.label.text), box.progress.label.text)
 check("box: the bar says what each percentage is (user: what is 14% of the route?)",
-      "1-3 Durotar" in str(box.progress.label.text) and "zone" in str(box.progress.label.text) and "route" in str(box.progress.label.text),
-      box.progress.label.text)
+      "1-3 Durotar" in str(box.progress.label.text) and "zone" in str(box.progress.label.text), box.progress.label.text)
+check("box: whole-route percent only in the bar's hover, not on screen (user: too noisy)",
+      "route" not in str(box.progress.label.text).lower() and "Whole route" in str(box.progress.routeText)
+      and ui.eval("rawget(DufforthTweaksHelperGuideBox, 'routeLine')") is None, (box.progress.label.text, box.progress.routeText))
 
 # The Start quest button: one click uses the quest's item (Blizzard allows using items only from a click).
 ui.execute("SAVED_Q1 = DufforthTweaksHelperGuideData.quests[1]; local q = {} for k, v in pairs(SAVED_Q1) do q[k] = v end "
@@ -526,13 +741,75 @@ ui.execute("DufforthTweaksHelperGuideData.guides = { { name = 'Test Line', note 
 click("guides")
 check("guides: the menu opens with leveling and each questline", box.guideMenu.shown and "Leveling" in str(box.guideRows[1].label.text)
       and "Test Line" in str(box.guideRows[2].label.text), (box.guideMenu.shown, box.guideRows[1].label.text))
+check("guides: leveling split by zone, one zone per row (user: 10 levels too much)",
+      "Leveling by zone" in str(box.guideRows[3].label.text) and "1-3 Durotar" in str(box.guideRows[4].label.text)
+      and "," not in str(box.guideRows[4].label.text), (box.guideRows[3].label.text, box.guideRows[4].label.text))
+check("guides: the menu is as wide as its names, within limits", 220 <= ui.eval("box.guideMenu.width or 0") <= 320, ui.eval("box.guideMenu.width"))
+ui.execute("box.guideRows[3].scripts.OnClick(box.guideRows[3])")
+check("guides: the zone header is not a guide", box.guideMenu.shown)
+# Many parts: only MENU rows show, the wheel scrolls to the rest (user: rows overflowed and couldn't be picked).
+ui.execute("local m = box.guideMenu; local e = {}; for i = 1, 40 do e[i] = { nil, 'Part ' .. i, '', 1 } end; "
+           "m.entries, m.offset = e, 0; GU.DrawGuideMenu()")
+check("guides: a long menu says there is more", "below" in str(box.guideMenu.more.text) and box.guideRows[16].label.text == "   Part 16",
+      box.guideMenu.more.text)
+ui.execute("box.guideMenu.scripts.OnMouseWheel(box.guideMenu, -1); box.guideMenu.scripts.OnMouseWheel(box.guideMenu, -1)")
+check("guides: the wheel scrolls the menu", box.guideRows[1].label.text == "   Part 7", box.guideRows[1].label.text)
+ui.execute("for i = 1, 20 do box.guideMenu.scripts.OnMouseWheel(box.guideMenu, -1) end")
+check("guides: scrolling stops at the last part", box.guideRows[16].label.text == "   Part 40", box.guideRows[16].label.text)
+ui.execute("box.guideMenu:Hide()")
+click("guides")
 ui.execute("box.guideRows[2].scripts.OnClick(box.guideRows[2])")
-check("guides: picking one follows it", ui.eval("GU.RouteName()") == "Test Line" and "Step 1 of 1" in str(box.title.text) and not box.guideMenu.shown,
+check("guides: picking one follows it", ui.eval("GU.RouteName()") == "Test Line" and "Step 1" in str(box.title.text) and not box.guideMenu.shown,
       box.title.text)
 check("guides: remembered", ui.eval("DufforthTweaksHelperDB.guide.guideName") == "Test Line")
 click("guides")
 ui.execute("box.guideRows[1].scripts.OnClick(box.guideRows[1])")
-check("guides: and back to leveling", ui.eval("GU.RouteName()") == "Durotar" and "Step 4 of 12" in str(box.title.text), box.title.text)
+check("guides: and back to leveling", ui.eval("GU.RouteName()") == "Durotar" and "Step 4" in str(box.title.text), box.title.text)
+click("guides")
+ui.execute("box.guideRows[4].scripts.OnClick(box.guideRows[4])")
+check("guides: a zone part shows that part of the leveling route in the list", ui.eval("GU.RouteName()") == "Durotar"
+      and "1-3 Durotar" in str(box.bar.label.text) and not box.guideMenu.shown, box.bar.label.text)
+ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
+click("guides")
+ui.execute("box.guideRows[5].scripts.OnClick(box.guideRows[5])")
+cur = ui.eval("GU.model:Current()")
+first2 = ui.eval("GU.model:Sections()[2].first")
+check("guides: a zone click moves the guide itself there, not only the list (user: not redirected)",
+      cur is not None and cur >= first2 and ui.eval("GU.model:SectionOf(GU.model:Current())") == 2
+      and ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.startAt") == first2, (cur, first2))
+check("guides: the step box shows the chosen part", "3-6 The Barrens" in str(box.progress.label.text), box.progress.label.text)
+check("menu: the extra buttons sit in one Menu, so a narrow box has no overlap (user)",
+      not box.tools.shown and box.menuButton.text == "Menu", box.menuButton.text)
+click("menuButton")
+check("menu: Menu opens the panel with Guides, Auto and the arrow",
+      box.tools.shown and "Guides" in str(box.guides.text) and "Auto" in str(box.autoToggle.text)
+      and "arrow" in str(box.arrowToggle.text), box.guides.text)
+check("strip: Best and the map pin are buttons next to Menu, not menu rows (user)",
+      box.best.text == "Best" and ui.eval("box.pin.icon ~= nil") and ui.eval("box.best:GetParent() == nil or true"))
+click("menuButton")
+check("menu: a second click closes it", not box.tools.shown)
+click("menuButton")
+ui.execute("box.guides.scripts.OnEnter(box.guides)")
+check("menu: hovering Guides and zones opens its list beside the Menu, which stays open (user: hover, not click)",
+      box.tools.shown and box.guideMenu.shown)
+check("menu: the list opens on the side with room, never over the Menu (user)",
+      ui.eval("GU.SideFor(400, 610, 1920, 230)") == "left" and ui.eval("GU.SideFor(20, 230, 1920, 230)") == "right"
+      and ui.eval("GU.SideFor(20, 1800, 1920, 230)") == "below")
+check("guides: the box says which guide you're on (user: they all look the same)", "Speed" in str(box.progress.label.text),
+      box.progress.label.text)
+diff = ui.eval("GU.FirstDifference({ steps = { {'accept',1,'Durotar',0,0,1}, {'accept',2,'Durotar',0,0,5} } }, "
+               "{ steps = { {'accept',1,'Durotar',0,0,1}, {'accept',9,'The Barrens',0,0,12} } })")
+check("guides: switching says from which level the routes differ", tuple(diff) == (12, "The Barrens"), diff)
+ui.execute("box.tools:Hide(); box.tools.scripts.OnHide(box.tools)")
+check("menu: closing the Menu closes the list too", not box.guideMenu.shown)
+ui.execute("box.guideMenu:Hide()")
+ui.execute("box.best.scripts.OnClick(box.best)")
+check("best: goes back to the step that fits your level and what you have done", ui.eval("GU.model:Current()") == 4,
+      ui.eval("GU.model:Current()"))
+ui.execute("LEVEL = 5; box.best.scripts.OnClick(box.best)")
+check("best: at a higher level it skips the parts below you", ui.eval("GU.model:SectionOf(GU.model:Current())") == 2,
+      ui.eval("GU.model:Current()"))
+ui.execute("LEVEL = SAVED_LEVEL or 2; box.best.scripts.OnClick(box.best); GU.follow, GU.scrolled = true, false; GU.Refresh()")
 
 # Directions in the box, and the arrow on the first leg.
 ui.execute('DufforthTweaksHelperGuideData.travel = { flights = { { "Michael Garrett", "Undercity", 63.3, 48.6, 0 } }, '
@@ -567,7 +844,10 @@ ui.execute("GU.UpdateArrow()")
 arrow = ui.eval("DufforthTweaksHelperGuideArrow")
 check("arrow: shown for a step with a place", arrow is not None and arrow.shown, arrow and arrow.shown)
 check("arrow: how far", "100 yd" in str(arrow.dist.text), arrow.dist.text)
-check("arrow: what to do there", "More Boars" in str(arrow.label.text), arrow.label.text)
+check("arrow: no step text, the guide window shows it (user: same information twice)", not arrow.label.shown, arrow.label.text)
+check("arrow: the step in its tooltip", "More Boars" in str(arrow.label.text), arrow.label.text)
+check("arrow: no plate behind the distance (user: looks bad), outlined text only",
+      ui.eval("rawget(DufforthTweaksHelperGuideArrow, 'plate')") is None)
 short = str(ui.eval("GU.ArrowText(GU.model, { 5, 6 }, GU.adapter)"))
 check("arrow: one short line (user: too much text under the arrow)", "\n" not in short and "+1 more" in short and "|cffaaaaaa(" not in short, short)
 check("arrow: straight ahead when you face it", abs(arrow.angle) < 1e-6, arrow.angle)
@@ -613,6 +893,8 @@ function PLAY(routeName, raceBit)
   game.zone = function() return state.zone end
   game.raceBit = function() return raceBit end
   game.flightKnown = function(zone, x, y) return state.flights[zone .. x .. y] == true end
+  game.hearth = function() return state.home, true end
+  if WITH_POSITION then game.position = function() return state.zone, state.x, state.y end end
   local m = G.NewModel(DATA, routeName, game, { skipped = {} })
   local last, moves, stuck = nil, 0, 0
   while moves < 20000 do
@@ -623,23 +905,40 @@ function PLAY(routeName, raceBit)
     local step = steps[i]
     local kind, id = step[1], step[2]
     state.zone = step[3] ~= "?" and step[3] or state.zone
+    state.x, state.y = step[4] or state.x, step[5] or state.y
     state.level = math.max(state.level, step[6])
     if kind == "accept" then state.log[id] = true
     elseif kind == "do" then state.complete[id] = true
     elseif kind == "turnin" then state.done[id] = true; state.log[id] = nil; state.complete[id] = nil
     elseif kind == "grind" then state.level = step[6] + 1
-    elseif kind == "flight" then state.flights[step[3] .. step[4] .. step[5]] = true end
+    elseif kind == "flight" then state.flights[step[3] .. step[4] .. step[5]] = true
+    elseif kind == "fly" or kind == "hearth" then
+      -- Fly or hearth: you arrive where it says (without your position the guide can't see it, so you tick it).
+      if step[9] then state.zone, state.x, state.y = step[9][1], step[9][2], step[9][3] end
+      if not WITH_POSITION then m.saved.skipped[i] = true end
+    elseif kind == "home" then state.home = step[3]
+    elseif kind == "farm" then m.saved.skipped[i] = true end -- optional gold farming: ticked off
     moves = moves + 1
   end
   return moves, stuck, state.level, m:Current()
 end
 """)
-for route, race in (("Durotar", 2), ("Mulgore", 32), ("Tirisfal Glades", 16)):
+RACE_OF = {"Durotar": 2, "Mulgore": 32, "Tirisfal Glades": 16}
+LEVELING = sorted(str(k) for k in lua2.eval("DATA.routes").keys() if any(str(k).startswith(z) for z in RACE_OF))
+check("styles: speed, safe and explorer, each with and without dungeons, for every start (user)", len(LEVELING) == 18, LEVELING)
+for route in LEVELING:
+    race = next(v for k, v in RACE_OF.items() if route.startswith(k))
     result = list(lua2.eval(f"PLAY('{route}', {race})")) + [None]
     moves, stuck, level, left = result[:4]
     total = int(lua2.eval(f"#DATA.routes['{route}'].steps"))
     check(f"playthrough {route}: the guide never sticks and reaches the end", stuck == 0 and left is None and level >= 59,
           f"{moves} moves of {total} steps, stuck {stuck}, level {level}, left at {left}")
+
+lua2.execute("WITH_POSITION = true")
+moves, stuck, level, left = (list(lua2.eval("PLAY('Tirisfal Glades', 16)")) + [None])[:4]
+check("playthrough Tirisfal Glades with your position (nearest first): never sticks, reaches the end",
+      stuck == 0 and left is None and level >= 59, f"{moves} moves, stuck {stuck}, level {level}, left at {left}")
+lua2.execute("WITH_POSITION = false")
 
 # Each questline guide (attunements, Cozy Sleeping Bag) is followed to its end without sticking.
 for g in lua2.eval("DATA.guides").values():

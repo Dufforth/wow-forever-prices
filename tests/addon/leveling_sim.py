@@ -237,9 +237,15 @@ function TEXTS()
   for _, f in ipairs(FRAMES) do local t = rawget(f, "text"); if t and rawget(f, "shown") ~= false then out[#out + 1] = t end end
   return table.concat(out, "\n")
 end
-function ROWS()
+function ALLROWS()
   local out = {}
   for _, f in ipairs(FRAMES) do if rawget(f, "row") and rawget(f, "shown") ~= false then out[#out + 1] = f end end
+  return out
+end
+-- The plan's own rows (not the "Earlier steps" header and the done steps under it).
+function ROWS()
+  local out = {}
+  for _, f in ipairs(ALLROWS()) do if not f.row.earlierHeader and not f.row.done then out[#out + 1] = f end end
   return out
 end
 function HOVER(f) f.scripts.OnEnter(f); return table.concat(TIP, "\n") end
@@ -533,6 +539,39 @@ ui_lua.execute("DufforthTweaksHelperCrafting.Known().scanned = {}; DufforthTweak
 check("crafting: the window's recipes count as scanned for that profession", ui_lua.eval("DufforthTweaksHelperCrafting.Known().scanned.Tailoring") is True)
 ui_lua.execute("GetTradeSkillLine = function() return 'Tailoring' end; EVENT('TRADE_SKILL_CLOSE')")
 check("auto-open: on by default, with a checkbox in the tab", any(rawb == "openWithProfession" for rawb in [b.key for b in ui_lua.eval("PARENT.boxes").values()]))
+# Earlier steps (user, 2026-11-14): the plan below your skill, folded under a header; open, greyed and done.
+ui_lua.execute("""
+DufforthTweaksHelperDB.leveling.view = "plan"; DufforthTweaksHelperDB.leveling.showEarlier = false
+DufforthTweaksHelperLeveling.Refresh()
+function EARLIER() for _, f in ipairs(ALLROWS()) do if f.row and f.row.earlierHeader then return f end end end
+function DONE_ROWS() local n = 0 for _, f in ipairs(ALLROWS()) do if f.row and f.row.done then n = n + 1 end end return n end
+""")
+check("earlier steps: a folded header at the top of the plan", ui_lua.eval("EARLIER() ~= nil") and ui_lua.eval("DONE_ROWS()") == 0)
+ui_lua.execute("EARLIER().scripts.OnClick(EARLIER())")
+check("earlier steps: a click shows them, greyed and marked Done", ui_lua.eval("DONE_ROWS()") > 0 and "Done" in ui_lua.eval("TEXTS()"),
+      ui_lua.eval("DONE_ROWS()"))
+ui_lua.execute("EARLIER().scripts.OnClick(EARLIER())")
+check("earlier steps: and folds them again", ui_lua.eval("DONE_ROWS()") == 0)
+# A material you can craft: its own materials under it (user, 2026-11-14: a glove that needs a glove).
+nested = ui_lua.eval("DufforthTweaksHelperLeveling.NestedMaterials(2996, 3, 8, 300)")  # Bolt of Linen Cloth, Tailoring
+check("nested: a craftable material lists what it takes to make it", nested is not None and nested[1].id == 2589 and nested[1].need == 6,
+      nested and (nested[1].id, nested[1].need))
+check("nested: nothing to make when you have enough", ui_lua.eval("DufforthTweaksHelperLeveling.NestedMaterials(2996, 0, 8, 300)") is None)
+ui_lua.execute("DufforthTweaksHelperDB.leveling.view = 'plan'; DufforthTweaksHelperDB.leveling.openNested = nil; DufforthTweaksHelperLeveling.Refresh()")
+NESTN = "(function() local n = 0 for _, f in ipairs(ROWS()) do if f.row.nested then n = n + 1 end end return n end)()"
+check("nested: folded until you open them (user: on demand)", ui_lua.eval(NESTN) == 0)
+ui_lua.execute("for _, f in ipairs(ROWS()) do if f.row.nestFold then f.fold.scripts.OnClick(f.fold); break end end")
+nest_rows = ui_lua.eval("(function() local n, t = 0, nil for _, f in ipairs(ROWS()) do if f.row.nested then n = n + 1; t = t or f.sub.text end end return n, t end)()")
+check("nested: the plan shows them under the material, one level deeper, saying what they're for",
+      nest_rows[0] > 0 and "you make" in str(nest_rows[1]), nest_rows)
+ui_lua.execute("for _, f in ipairs(ROWS()) do if f.row.nestFold then f.fold.scripts.OnClick(f.fold); break end end")
+check("nested: a second click folds them again", ui_lua.eval(NESTN) == 0)
+PARTS = "(function() local n = 0 for _, f in ipairs(ROWS()) do if f.row.part then n = n + 1 end end return n end)()"
+before = ui_lua.eval(PARTS)
+ui_lua.execute("for _, f in ipairs(ROWS()) do if f.row.step and f.row.foldKey then f.fold.scripts.OnClick(f.fold); break end end")
+check("fold: a step's materials fold away with its button", ui_lua.eval(PARTS) < before, (before, ui_lua.eval(PARTS)))
+ui_lua.execute("DufforthTweaksHelperDB.leveling.foldSteps = nil; DufforthTweaksHelperLeveling.Refresh()")
+check("nested: an item nobody crafts has none", ui_lua.eval("DufforthTweaksHelperLeveling.NestedMaterials(2589, 5, 8, 300)") is None)
 # A step whose recipe is an item: Search, not Learn.
 ui_lua.execute("""
 DufforthTweaksHelperDB.leveling.view = "plan"
@@ -566,8 +605,10 @@ check("materials: vendor and AH have different colors", W.vendor[:10] != W.aucti
 # At a trainer: Learn learns the step's recipe.
 ui_lua.execute("""
 EVENT('AUCTION_HOUSE_CLOSED')
+RSTEP = DufforthTweaksHelperLeveling.Current().plan.steps[1] -- a step the plan keeps (2026-11-14 data: Simple Linen Pants comes with Tailoring)
+DufforthTweaksHelperCrafting.Known().spells[RSTEP.recipe[1]] = nil
 RSTEP.recipe[10] = "t"; RSTEP.recipe[11] = 0
-DufforthTweaksHelperLevelTrainers[RSTEP.recipe[1]] = { 1, 50, 1 }
+DufforthTweaksHelperLevelTrainers[RSTEP.recipe[1]] = { 1, 1, 1 } -- 1c: the plan keeps this step
 SERVICES = { { "Other Recipe", "", "available" }, { RSTEP.recipe[9], "", "available" } }
 GetNumTrainerServices = function() return #SERVICES end
 GetTrainerServiceInfo = function(i) return SERVICES[i][1], SERVICES[i][2], SERVICES[i][3] end

@@ -36,6 +36,37 @@ def nearest_cluster(points, anchor, radius=CLUSTER):
     return (first[0], sum(p[1] for p in group) / len(group), sum(p[2] for p in group) / len(group))
 
 
+ELITE_RANKS = (1, 2, 3)  # creature_template Rank: elite, rare elite, boss (4 = rare, not elite)
+LOOP_RANGE, LOOP_CELL, LOOP_SPOTS, LOOP_MIN = 350, 80, 5, 4  # yards, yards, spots, spawns
+
+
+def loop_points(points, spot):
+    """Up to LOOP_SPOTS spots around `spot` where these spawns crowd, in walking order from the one nearest
+    `spot` (a loop to circle while killing), or [] when there are too few spawns for a loop."""
+    near = [p for p in points if _distance2(p, spot) <= LOOP_RANGE * LOOP_RANGE]
+    if len(near) < LOOP_MIN:
+        return []
+    cells = {}
+    for p in near:
+        key = (round(p[1] / LOOP_CELL), round(p[2] / LOOP_CELL))
+        c = cells.setdefault(key, [0, 0.0, 0.0])
+        c[0] += 1; c[1] += p[1]; c[2] += p[2]
+    ranked = sorted(([n, x / n, y / n] for n, x, y in cells.values()), key=lambda c: -c[0])
+    picked = []
+    for n, x, y in ranked:
+        if all((x - a) ** 2 + (y - b) ** 2 >= (LOOP_CELL * 0.75) ** 2 for a, b in picked):
+            picked.append((x, y))
+        if len(picked) == LOOP_SPOTS:
+            break
+    if len(picked) < 2:
+        return []
+    order, here = [], (spot[1], spot[2])
+    while picked:
+        nxt = min(picked, key=lambda q: (q[0] - here[0]) ** 2 + (q[1] - here[1]) ** 2)
+        picked.remove(nxt); order.append((spot[0], nxt[0], nxt[1])); here = nxt
+    return order
+
+
 def spread_out(points, spot):
     """True when these spawns are all over the map around `spot`, not in one camp."""
     near = [p for p in points if _distance2(p, spot) <= WIDE_RANGE * WIDE_RANGE]
@@ -45,10 +76,45 @@ def spread_out(points, spot):
     return at_spot / len(near) < WIDE_SHARE
 
 
+SUMMON_COMMAND = 10  # CMaNGOS dbscripts: summon a creature at x, y, z (datalong = creature entry)
+SCRIPT_TABLES = ("dbscripts_on_spell", "dbscripts_on_event", "dbscripts_on_quest_start", "dbscripts_on_go_use",
+                 "dbscripts_on_go_template_use", "dbscripts_on_gossip", "dbscripts_on_creature_death", "dbscripts_on_relay")
+
+
+def instance_entrances(tables, area_triggers, maps=()):
+    """{dungeon map id: (continent, x, y)}: where the teleport into it stands (areatrigger_teleport + the client's
+    AreaTrigger positions), else the dungeon's corpse point from the client's Map table (you resurrect at the
+    entrance; Forever's client lacks many entrance triggers, Wailing Caverns among them)."""
+    out = {}
+    for r in maps:
+        corpse = int(num(r.get("CorpseMapID"), -1))
+        if corpse in (0, 1) and int(num(r.get("ID"))) not in (0, 1) and (num(r.get("Corpse_0")) or num(r.get("Corpse_1"))):
+            out[int(num(r["ID"]))] = (corpse, num(r["Corpse_0"]), num(r["Corpse_1"]))
+    for r in as_dicts(tables.get("areatrigger_teleport", [])) if tables.get("areatrigger_teleport") else []:
+        p = area_triggers.get(int(num(r["id"])))
+        target = int(num(r["target_map"]))
+        if p and p[0] in (0, 1) and target not in (0, 1):
+            out[target] = p  # the real entrance trigger beats the corpse point
+    return out
+
+
+def summon_spots(tables):
+    """{creature entry: [(x, y)]} where scripts summon it (a monster with no spawn of its own: Echeyakee,
+    Ishamuhale...). Scripts don't name the map; the caller uses the quest giver's."""
+    out = defaultdict(list)
+    for name in SCRIPT_TABLES:
+        for r in as_dicts(tables.get(name, [])) if tables.get(name) else []:
+            if int(num(r.get("command"))) == SUMMON_COMMAND and int(num(r.get("datalong"))) and (num(r.get("x")) or num(r.get("y"))):
+                out[int(num(r["datalong"]))].append((num(r["x"]), num(r["y"])))
+    return out
+
+
 class QuestRepository:
-    def __init__(self, tables, npc_side, triggers=None):
-        """npc_side(faction template id) -> "A", "H" or ""; triggers: area trigger id -> point."""
+    def __init__(self, tables, npc_side, triggers=None, entrances=None):
+        """npc_side(faction template id) -> "A", "H" or ""; triggers: area trigger id -> point;
+        entrances: dungeon map id -> its entrance point (objectives inside are placed there)."""
         self.t, self.npc_side, self.triggers = tables, npc_side, triggers or {}
+        self.entrances = entrances or {}
 
     def _index(self):
         t = self.t
@@ -56,6 +122,7 @@ class QuestRepository:
         self.mob_spawns = defaultdict(list)
         for r in as_dicts(t["creature"]):
             self.mob_spawns[int(r["id"])].append((int(num(r["map"])), num(r["position_x"]), num(r["position_y"])))
+        self.summons = summon_spots(t)
         self.objects = {int(r["entry"]): r for r in as_dicts(t["gameobject_template"])}
         self.object_spawns = defaultdict(list)
         for r in as_dicts(t["gameobject"]):
@@ -98,6 +165,13 @@ class QuestRepository:
         kind, entry = who
         return (self.mobs.get(entry, {}) if kind == "npc" else self.objects.get(entry, {})).get("Name" if kind == "npc" else "name", "?")
 
+    def _mob_info(self, entry):
+        """(min level, max level), elite: for a goal's tip."""
+        m = self.mobs.get(entry)
+        if not m:
+            return (0, 0), False
+        return (int(num(m["MinLevel"])), int(num(m["MaxLevel"]))), int(num(m.get("Rank", 0))) in ELITE_RANKS
+
     def _mob_level(self, entry):
         m = self.mobs.get(entry)
         return (num(m["MinLevel"]) + num(m["MaxLevel"])) / 2 if m else 0
@@ -126,16 +200,39 @@ class QuestRepository:
         return goals
 
     def _goals(self, r, anchor, keep_unplaced=False):
+        goals = self._placed_goals(r, anchor)
+        if goals is not None or not anchor or int(num(r.get("Type"))) != 0:
+            return goals
+        # A normal quest whose objective has no place in the data (a summoned monster like Echeyakee, an object
+        # with no spawn): put it at the giver and flag it, so the quest and the chain after it stay in the route
+        # (user, 2026-11-14: both reference guides do Echeyakee's chain, worth thousands of experience).
+        goals = []
+        for g in self._unplaced_goals(r):
+            g.point, g.guessed = anchor, True
+            goals.append(g)
+        return goals
+
+    def _placed_goals(self, r, anchor):
+        goals = self._placed_goals_raw(r, anchor)
+        for g in goals or []:
+            if g.point and g.point[0] not in (0, 1) and g.point[0] in self.entrances:
+                g.instance, g.point, g.loop, g.wide = g.point[0], self.entrances[g.point[0]], [], False
+        return goals
+
+    def _placed_goals_raw(self, r, anchor):
         goals = []
         for k in range(1, 5):
             target, count = int(num(r.get(f"ReqCreatureOrGOId{k}"))), int(num(r.get(f"ReqCreatureOrGOCount{k}")))
             if target > 0:
                 spawns = self.mob_spawns.get(target, [])
+                if not spawns and anchor and self.summons.get(target):
+                    spawns = [(anchor[0], x, y) for x, y in self.summons[target]]  # summoned by a script
                 p = nearest_cluster(spawns, anchor)
                 if p is None:
                     return None
+                levels, elite = self._mob_info(target)
                 goals.append(Goal("kill", self.mobs.get(target, {}).get("Name", "?"), p, max(1, count), self._mob_level(target),
-                                  wide=spread_out(spawns, p)))
+                                  wide=spread_out(spawns, p), loop=loop_points(spawns, p), levels=levels, elite=elite))
             elif target < 0:
                 p = nearest_cluster(self.object_spawns.get(-target, []), anchor)
                 if p is None:
@@ -159,8 +256,9 @@ class QuestRepository:
                     return sum(1 for q in self.mob_spawns.get(entry, []) if _distance2(q, p) <= CLUSTER * CLUSTER)
                 main, chance = max(sources, key=lambda s: (at_spot(s[0]), s[1]))
                 kills = round(count / max(0.05, chance / 100))
+                levels, elite = self._mob_info(main)
                 goals.append(Goal("collect", name, p, max(1, kills), self._mob_level(main), self.mobs.get(main, {}).get("Name", ""),
-                                  wide=spread_out(points, p)))
+                                  wide=spread_out(points, p), loop=loop_points(self.mob_spawns.get(main, []), p), levels=levels, elite=elite))
             else:
                 goals.append(Goal("collect", name, p, count))
         qid = int(r["entry"])
@@ -222,5 +320,5 @@ class QuestRepository:
                 prev=int(num(r.get("PrevQuestId"))), next_in_chain=int(num(r.get("NextQuestInChain"))),
                 exclusive=int(num(r.get("ExclusiveGroup"))), start_item=item, timed=int(num(r.get("LimitTime"))) > 0,
                 gear=[int(num(r.get(f"RewChoiceItemId{k}"))) for k in range(1, 7) if int(num(r.get(f"RewChoiceItemId{k}")))],
-                start_drop=start_drop))
+                start_drop=start_drop, money=max(0, int(num(r.get("RewOrReqMoney"))))))
         return out

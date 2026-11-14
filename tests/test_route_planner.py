@@ -337,3 +337,28 @@ class HordePlanTest(unittest.TestCase):
         self.assertTrue(tauren.allows("Thunder Bluff", 30), "cities always fit")
         self.assertFalse(tauren.allows("Tanaris", 20), "too early for Tanaris")
         self.assertTrue(tauren.allows("Tanaris", 44))
+
+
+class ShortcutsTest(unittest.TestCase):
+    """Flights and the hearthstone (2026-11-14: RestedXP flies and hearths, and runs a third less)."""
+
+    def test_flies_when_both_flight_paths_are_known_and_it_saves_time(self):
+        from route_planner import Shortcuts
+        s = Shortcuts(flights=[("A", (1, 0, 0)), ("B", (1, 5000, 0))])
+        s.learn((1, 0, 0)); s.learn((1, 5000, 0))
+        way = s.best((1, 0, 0), (1, 5000, 0), 5000 / 7, 0)
+        self.assertEqual(way[0], "fly")
+
+    def test_walks_without_the_flight_path(self):
+        from route_planner import Shortcuts
+        s = Shortcuts(flights=[("A", (1, 0, 0)), ("B", (1, 5000, 0))])
+        s.learn((1, 0, 0))
+        self.assertEqual(s.best((1, 0, 0), (1, 5000, 0), 5000 / 7, 0)[0], "walk")
+
+    def test_hearthstone_when_ready_and_home_is_near_the_target(self):
+        from route_planner import Shortcuts
+        s = Shortcuts(inns=[("Inn", (1, 3000, 0))])
+        s.home = s.inns[0]
+        self.assertEqual(s.best((1, 0, 0), (1, 3050, 0), 3050 / 7, now=0)[0], "hearth")
+        s.ready_at = 100
+        self.assertEqual(s.best((1, 0, 0), (1, 3050, 0), 3050 / 7, now=50)[0], "walk")  # on cooldown

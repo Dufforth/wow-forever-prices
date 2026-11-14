@@ -244,6 +244,48 @@ local function Prices()
     return DufforthTweaksHelperPrices and DufforthTweaksHelperPrices[market] or {}
 end
 
+-- ---- Quest reward choice (user, 2026-11-14) ----
+-- Pure: choices = { {gain = points better than what you wear, or nil; price = vendor price} } -> index, why.
+-- The biggest upgrade wins; with none, the reward that sells for the most.
+function Gear.PickReward(choices)
+    local best, bestGain = nil, 0
+    for i, c in ipairs(choices) do
+        if c.gain and c.gain > bestGain then best, bestGain = i, c.gain end
+    end
+    if best then return best, "upgrade" end
+    local top, topPrice = nil, -1
+    for i, c in ipairs(choices) do
+        if (c.price or 0) > topPrice then top, topPrice = i, c.price or 0 end
+    end
+    return top, "sell"
+end
+
+-- The quest window's reward choices, scored for you: { {id, name, gain, price} }.
+local RANGED_INV = { [15] = true, [25] = true, [26] = true }
+function Gear.RewardChoices()
+    local class, level = select(2, UnitClass("player")), UnitLevel("player")
+    local equipped = Equipped(class)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local out = {}
+    for i = 1, (GetNumQuestChoices and GetNumQuestChoices()) or 0 do
+        local link = GetQuestItemLink and GetQuestItemLink("choice", i)
+        local id = link and tonumber(string.match(link, "item:(%d+)"))
+        local info = id and ItemInfo(id) or {}
+        local price = id and getInfo and select(11, getInfo(id)) or 0
+        local gain
+        if id and info.inv and Gear.CanWear(class, level, info.class, info.subclass) then
+            local stats = ItemStats(link)
+            local norm = stats and Gear.ApplySchools(Gear.Normalize(stats), TooltipLines(id), class)
+            if norm then
+                local up = Gear.Upgrades({ { id = id, inv = info.inv, score = Gear.Score(norm, class, RANGED_INV[info.inv]), source = "quest" } }, equipped)
+                gain = up[1] and up[1].gain or nil
+            end
+        end
+        out[i] = { id = id, name = info.name or ("Reward " .. i), gain = gain, price = tonumber(price) or 0 }
+    end
+    return out
+end
+
 -- Builds the candidates from the game's item data; items not loaded yet are requested and counted.
 function Gear.Advice()
     local class = (UnitClass and select(2, UnitClass("player"))) or "WARRIOR"

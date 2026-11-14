@@ -14,7 +14,6 @@ import build_addon_crafts  # noqa: E402
 
 PROFESSIONS = build_addon_crafts.PROFESSIONS
 lua_string = build_addon_crafts.lua_string
-STARTER_SKILL = 1  # trainer recipes at skill 1 come with the profession
 
 
 def load_sources():
@@ -23,16 +22,20 @@ def load_sources():
 
 def how_to_learn(recipe, sources):
     """t: trainer, s: comes with the profession, v: recipe sold by a vendor, i: recipe item
-    (drop, quest...), ?: not known."""
+    (drop, quest...), ?: not known. Forever's own client data decides what comes with the profession (user,
+    2026-11-14: the guess "a skill-1 trainer recipe is a starter" made Elixir of Minor Strength free in Forever)."""
     spell, item = str(recipe["s"]), recipe.get("ri")
+    acquire = (sources.get("forever", {}).get(spell) or [None])[0]
+    if acquire == 1:
+        return "s"  # learned with the profession in Forever
+    if acquire == 3:
+        return "?"  # not a recipe you learn in Forever (an on-use effect, or taken out)
     if spell in sources["trainers"]:
         return "t"
     if item and str(item) in sources["vendors"]:
         return "v"
     if item:
         return "i"
-    if "trainer" in recipe["o"] and recipe["sk"] <= STARTER_SKILL:
-        return "s"
     if "trainer" in recipe["o"]:
         return "t"
     return "?"
@@ -49,6 +52,10 @@ def recipe_rows(catalog, sources):
         if gray <= 0:
             continue  # gives no skill
         learn = max(1, r["sk"] or 1)
+        f = sources.get("forever", {}).get(str(r["s"]))
+        if f:  # Forever's own learn skill and colours win over Classic's
+            learn = f[1] if f[1] > 1 else learn
+            yellow = f[2] or yellow
         yellow = max(yellow, learn)
         gray = max(gray, yellow)
         product = catalog["items"].get(str(r["i"]), {})

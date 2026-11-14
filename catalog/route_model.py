@@ -18,6 +18,11 @@ class Goal:
     mob_level: float = 0
     source: str = ""        # collect: the monster that drops it (for "Loot X from Y")
     wide: bool = False      # its monsters are all over the map: done along the way, not as a stop
+    loop: List[Point] = field(default_factory=list)  # kill/collect: spots to circle through where they spawn
+    levels: Tuple[int, int] = (0, 0)                 # the monsters' level range
+    elite: bool = False                              # elite (or rare) monsters: bring friends
+    guessed: bool = False                            # no place in the data: put at the quest giver so its chain isn't lost
+    instance: int = 0                                # inside this dungeon (map id); point = its entrance
 
 
 @dataclass
@@ -42,6 +47,7 @@ class Quest:
     timed: bool = False
     gear: List[int] = field(default_factory=list)
     start_drop: tuple = ()  # started by a dropped item: (item name, monster, drop chance %); start is where it drops
+    money: int = 0          # copper the quest pays (the explorer style values it)
 
 
 @dataclass
@@ -54,3 +60,4 @@ class Step:
     level: int
     text: str
     goal: int = 0           # do: which of the quest's objectives (1-based)
+    dest: Optional[list] = None  # fly / hearth: [zone, x, y] where you arrive

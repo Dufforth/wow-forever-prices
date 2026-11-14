@@ -98,13 +98,14 @@ class QuestRepositoryTest(unittest.TestCase):
         q = self.quests[6]
         self.assertEqual((q.start, q.start_drop), (None, ()))
 
-    def test_objectives_with_no_place_are_left_out(self):
-        self.assertNotIn(5, self.quests)
+    def test_objectives_with_no_place_go_to_the_giver_flagged(self):
+        # 2026-11-14: dropping them lost whole chains (Echeyakee and the four quests after it).
+        q = self.quests[5]
+        self.assertEqual(q.goals[0].point, q.start)
+        self.assertTrue(q.goals[0].guessed)
 
-    def test_kept_for_questline_guides_with_no_place(self):
-        quests = {q.id: q for q in QuestRepository(tables(), npc_side=side).load(keep_unplaced=True)}
-        self.assertIn(5, quests)
-        self.assertIsNone(quests[5].goals[0].point, "the objective is there, its place unknown")
+    def test_placed_objectives_are_not_flagged(self):
+        self.assertFalse(self.quests[1].goals[0].guessed)
 
 
 if __name__ == "__main__":
@@ -143,3 +144,25 @@ class PlaceholderTitleTest(unittest.TestCase):
         for title in ("Test Quest", "TEST", "zzOld", "[PH] Thing", "Deprecated quest", "Quest Test"):
             self.assertIsNotNone(SKIP_TITLE.search(title), title)
 
+
+
+class LoopPointsTest(unittest.TestCase):
+    """Kill-area loops (user, 2026-11-14): spots to circle through where the monsters spawn."""
+
+    def test_spots_in_walking_order_from_the_objective(self):
+        from route_data import loop_points
+        camps = [(1, 0, 0), (1, 200, 0), (1, 200, 200)]
+        spawns = [(m, x + dx, y + dy) for m, x, y in camps for dx, dy in ((0, 0), (5, 5), (-5, 3))]
+        loop = loop_points(spawns, (1, 0, 0))
+        self.assertEqual(len(loop), 3)
+        self.assertLess(abs(loop[0][1]) + abs(loop[0][2]), 20)  # starts at the objective's camp
+        self.assertGreater(loop[1][1], 150)
+
+    def test_too_few_spawns_no_loop(self):
+        from route_data import loop_points
+        self.assertEqual(loop_points([(1, 0, 0), (1, 5, 5)], (1, 0, 0)), [])
+
+    def test_far_spawns_ignored(self):
+        from route_data import loop_points
+        spawns = [(1, 0, 0)] * 3 + [(1, 5000, 0)] * 5
+        self.assertEqual(loop_points(spawns, (1, 0, 0)), [])

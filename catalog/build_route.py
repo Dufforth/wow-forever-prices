@@ -25,18 +25,28 @@ from build_farm import num  # noqa: E402
 from build_leveling_sources import side_of  # noqa: E402
 from route_data import QuestRepository  # noqa: E402
 from route_guides import guides  # noqa: E402
-from route_travel import TRANSPORTS, add_flight_steps, flight_masters, zone_continents  # noqa: E402
+from route_merge import merge_talks, stops  # noqa: E402
+from route_data import SCRIPT_TABLES, instance_entrances  # noqa: E402
+from route_class import insert_class_quests  # noqa: E402
+from route_forever import load_recorded, load_rxp  # noqa: E402
+from route_styles import STYLES, PVP_ZONES, ExplorerScorer, explorer_bands, farm_spots, insert_farm_stops, route_name, safe_bands  # noqa: E402
+from route_planner import Shortcuts  # noqa: E402
+from route_score import score, zone_boxes  # noqa: E402
+from route_travel import service_points, FLIGHT_MASTER  # noqa: E402
+
+DUNGEON_SUFFIX = " (dungeons)"
+from route_travel import INNKEEPER, REPAIR, TRANSPORTS, add_flight_steps, flight_masters, zone_continents  # noqa: E402
 from route_planner import Eligibility, HubScorer, RoutePlanner, TravelModel, XpModel, ZonePlan  # noqa: E402
 
 TABLES = build_farm.TABLES + ("item_template", "gameobject_questrelation", "gameobject_involvedrelation", "gameobject",
-                              "gameobject_template", "gameobject_loot_template", "areatrigger_involvedrelation")
+                              "gameobject_template", "gameobject_loot_template", "areatrigger_involvedrelation", "areatrigger_teleport") + SCRIPT_TABLES
 STARTS = {"Durotar": ("Orc", "Troll"), "Mulgore": ("Tauren",), "Tirisfal Glades": ("Undead",)}
 RACE_BITS = {"Orc": 2, "Undead": 16, "Tauren": 32, "Troll": 128}
 CITIES = {"Orgrimmar", "Thunder Bluff", "Undercity"}
 # Which zones fit each level band for the Horde (general leveling knowledge, not taken from any guide).
 # Bands overlap so the planner can finish a zone; the planner picks hubs and order inside them.
 HORDE_BANDS = [
-    (10, 17, ["The Barrens", "Silverpine Forest"]),
+    (10, 17, ["The Barrens", "Silverpine Forest", "Tirisfal Glades"]),  # Forever's own quests make Tirisfal worth it
     (16, 22, ["Stonetalon Mountains", "The Barrens", "Ashenvale"]),
     (20, 25, ["Hillsbrad Foothills", "Stonetalon Mountains", "Ashenvale", "The Barrens"]),
     (24, 30, ["Ashenvale", "Thousand Needles", "Hillsbrad Foothills"]),
@@ -79,6 +89,17 @@ def start_point(quests, zone, race_bit, where):
     return min(firsts, key=lambda q: (q.level, q.id)).start
 
 
+def goal_row(g, place):
+    """[kind, name, count, zone, x, y, source, wide, loop [[x, y]...], min level, max level, elite]."""
+    spot = place(g.point) or ["?", None, None]
+    loop = []
+    for p in g.loop:
+        w = place(p)
+        if w and w[0] == spot[0]:
+            loop.append([round(w[1], 1), round(w[2], 1)])
+    return [g.kind, g.name, g.count] + spot + [g.source, int(g.wide), loop, g.levels[0], g.levels[1], int(g.elite), int(g.guessed), g.instance]
+
+
 def serialize(quests, routes, where, ui_maps, commit, travel=None):
     by_id = {q.id: q for q in quests}
     extras = {"class": [q.id for q in quests if q.classes], "dungeon": [q.id for q in quests if q.kind == "dungeon"],
@@ -92,13 +113,13 @@ def serialize(quests, routes, where, ui_maps, commit, travel=None):
     for qid in sorted(used):
         q = by_id[qid]
         slim[str(qid)] = [q.title, q.level, q.min_level, q.classes, q.kind, q.prev, q.next_in_chain, q.start_name, place(q.start),
-                          q.end_name, place(q.end), [[g.kind, g.name, g.count] + (place(g.point) or ["?", None, None]) + [g.source, int(g.wide)] for g in q.goals],
+                          q.end_name, place(q.end), [goal_row(g, place) for g in q.goals],
                           q.gear, q.start_item, q.races, list(q.start_drop) or 0]
     return {"source": {"db": build_farm.DB_REPO, "commit": commit}, "uiMaps": ui_maps,
             "columns": {"quest": ["title", "level", "minLevel", "classes", "type", "prev", "nextInChain", "giver", "giverPlace",
-                                  "turnIn", "turnInPlace", "goals [kind, name, count, zone, x, y, source, wide]", "gearRewards", "startItem", "races",
+                                  "turnIn", "turnInPlace", "goals [kind, name, count, zone, x, y, source, wide, loop, minLevel, maxLevel, elite, guessed place, dungeon map]", "gearRewards", "startItem", "races",
                                   "drop [item, monster, chance %] for a quest started by a dropped item, else 0"],
-                        "step": ["kind", "quest", "zone", "x", "y", "level", "text", "goal"]},
+                        "step": ["kind", "quest", "zone", "x", "y", "level", "text", "goal", "dest [zone, x, y] for fly and hearth"]},
             "routes": routes, "extras": extras, "quests": slim, "travel": travel or {}}
 
 
@@ -109,7 +130,10 @@ def travel(quests, tables, factions, where):
     continents = zone_continents(points, where)
     for f in flights:
         continents.setdefault(f[1], f[4])
-    return {"flights": flights, "continents": continents,
+    side = lambda f: side_of(factions.get(f))  # noqa: E731
+    inns = [i[:4] for i in flight_masters(tables, side, where, INNKEEPER)]
+    repairs = [r[:4] for r in flight_masters(tables, side, where, REPAIR)]
+    return {"flights": flights, "continents": continents, "inns": inns, "repairs": repairs,
             "transports": [[kind, list(a), list(b)] for kind, a, b in TRANSPORTS]}
 
 
@@ -133,28 +157,66 @@ def main():
     wago = {name: table(name) for name in ("UiMapAssignment", "UiMap", "Map", "AreaTable", "FactionTemplate", "AreaTrigger")}
     factions = {int(r["ID"]): r for r in wago["FactionTemplate"]}
     triggers = {int(r["ID"]): (int(num(r["ContinentID"])), num(r["Pos_0"]), num(r["Pos_1"])) for r in wago["AreaTrigger"]}
-    every = QuestRepository(tables, npc_side=lambda f: side_of(factions.get(f)), triggers=triggers).load(keep_unplaced=True)
+    entrances = instance_entrances(tables, triggers, wago["Map"])  # dungeon objectives are placed at the entrance
+    every = QuestRepository(tables, npc_side=lambda f: side_of(factions.get(f)), triggers=triggers,
+                            entrances=entrances).load(keep_unplaced=True)
+    boxes = zone_boxes(wago["UiMap"], wago["UiMapAssignment"])
+    # Forever's own quests recorded in game (tools/import_recorded_quests.py): they join the route like any other.
+    recorded = load_recorded(ROOT / "catalog" / "forever_quests.json", boxes, {q.id for q in every})
+    every += recorded
+    # Forever's own quests with places from RestedXP's Forever guides (CC BY-NC-SA 4.0, see LICENSE-DATA.md);
+    # their experience: the median Classic quest of the same level.
+    by_level = {}
+    for q in every:
+        if q.xp:
+            by_level.setdefault(q.level, []).append(q.xp)
+    xp_by_level = {lv: sorted(v)[len(v) // 2] for lv, v in by_level.items()}
+    rxp = load_rxp(ROOT / "catalog" / "forever_rxp_quests.json", boxes, {q.id for q in every}, xp_by_level)
+    every += rxp
+    print(f"Forever quests: {len(recorded)} recorded in game, {len(rxp)} from RestedXP's Forever guides")
     # The route only uses quests it can place; questline guides take them all.
     quests = [q for q in every if all(g.point is not None for g in q.goals)]
+    by_id = {q.id: q for q in every}
     where = make_where(wago, tables)
+    side = lambda f: side_of(factions.get(f))  # noqa: E731
+    flight_points, inn_points = service_points(tables, side, FLIGHT_MASTER), service_points(tables, side, INNKEEPER)
+    flights = flight_masters(tables, side, where)
+    farm = farm_spots(json.loads((ROOT / "site" / "farm.json").read_text(encoding="utf-8")))  # explorer's farming stops
     routes = {}
     for zone, races in STARTS.items():
         race_bit = RACE_BITS[races[0]]
-        planner = RoutePlanner(quests, where=where, eligibility=Eligibility(), xp=XpModel(), travel=TravelModel(), scorer=HubScorer(),
-                               zone_plan=horde_plan(zone))
-        steps, me = planner.plan(start=start_point(quests, zone, race_bit, where), race_bit=race_bit)
-        routes[zone] = {"races": list(races), "reached": me.level, "hours": round(me.time / 3600, 1),
-                        "steps": [[s.kind, s.quest, s.zone, s.x, s.y, s.level, s.text, s.goal] for s in steps]}
-        print(f"{zone}: {len(steps)} steps, level {me.level}, about {routes[zone]['hours']} h, "
-              f"{sum(1 for s in steps if s.kind == 'grind')} grind steps")
+        race_bits = sum(RACE_BITS[r] for r in races)
+        for style, dungeons in [(st, dg) for st in STYLES for dg in (False, True)]:
+            eligibility = Eligibility()
+            eligibility.dungeons = dungeons  # the "with dungeons" route also takes dungeon quests (for players who group)
+            bands = START_BANDS[zone] + HORDE_BANDS
+            if style == "safe":
+                bands = safe_bands(bands)
+            elif style == "explorer":
+                bands = explorer_bands(bands)
+            planner = RoutePlanner(quests, where=where, eligibility=eligibility, xp=XpModel(), travel=TravelModel(),
+                                   scorer=ExplorerScorer() if style == "explorer" else HubScorer(),
+                                   zone_plan=ZonePlan(bands, cities=CITIES), shortcuts=Shortcuts(flight_points, inn_points),
+                                   avoid=PVP_ZONES if style == "safe" else ())
+            if style == "explorer":
+                planner.ZONE_CHANGE, planner.STAY = 150, 0.3  # moves on to new zones sooner: more of the world, more flight paths
+            steps, me = planner.plan(start=start_point(quests, zone, race_bit, where), race_bit=race_bit)
+            rows = [[s.kind, s.quest, s.zone, s.x, s.y, s.level, s.text, s.goal, s.dest] for s in steps]
+            rows = merge_talks(rows, quests)                               # one stop per NPC visit
+            rows = insert_class_quests(rows, quests, where, race_bits)     # class quests where the route passes their giver
+            rows = add_flight_steps(rows, flights)
+            if style == "explorer":
+                rows = insert_farm_stops(rows, farm)                       # a gold-farming stop per zone visit
+            name = route_name(zone, style, dungeons)
+            routes[name] = {"races": list(races), "reached": me.level, "hours": round(me.time / 3600, 1), "dungeons": dungeons,
+                            "style": style, "steps": rows}
+            card = score(rows, by_id, boxes, 22, class_bit=1)
+            late = score(rows, by_id, boxes, 60, class_bit=1, start=22)
+            print(f"{name}: {len(rows)} steps, level {me.level}, about {routes[name]['hours']} h to 60, {planner.flights_taken} flights, "
+                  f"{planner.hearths_used} hearthstones; scorecard 1-22 (warrior): {card}  (reference RestedXP 12.4 h, Zygor 14.3 h); "
+                  f"22-60: {late['hours']} h (reference Zygor Forever 74.0 h, RestedXP Forever 90.6 h)")
     ui_maps = {r["Name_lang"]: int(r["ID"]) for r in wago["UiMap"] if r["Type"] == "3"}
-    flights = flight_masters(tables, lambda f: side_of(factions.get(f)), where)
-    for r in routes.values():
-        r["steps"] = add_flight_steps(r["steps"], flights)
-    data = serialize(quests, {z: {**r, "steps": [dict(zip(["kind", "quest", "zone", "x", "y", "level", "text", "goal"], s)) for s in r["steps"]]}
-                              for z, r in routes.items()}, where, ui_maps, commit, travel(quests, tables, factions, where))
-    for r in data["routes"].values():
-        r["steps"] = [[s["kind"], s["quest"], s["zone"], s["x"], s["y"], s["level"], s["text"], s["goal"]] for s in r["steps"]]
+    data = serialize(quests, routes, where, ui_maps, commit, travel(quests, tables, factions, where))
     # Questline guides (attunements, Cozy Sleeping Bag): their own routes, chosen in the addon.
     data["guides"] = []
     for g in guides({q.id: q for q in every}, where):

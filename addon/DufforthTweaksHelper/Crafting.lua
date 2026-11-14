@@ -10,7 +10,14 @@ local Crafting = {}
 DufforthTweaksHelperCrafting = Crafting
 
 local GEAR_PROFESSIONS = "Blacksmithing, Engineering, Leatherworking and Tailoring"
-local ROW_HEIGHT, VISIBLE_ROWS = 32, 9
+local ROW_HEIGHT, MAX_ROWS = 32, 16
+-- Rows that fit the panel (the window can be short or tall); 9 when the height is unknown.
+local panel
+local function VisibleRows()
+    local h = panel and panel.GetHeight and tonumber(panel:GetHeight()) or 0
+    if h <= 0 then return 9 end
+    return math.max(2, math.min(MAX_ROWS, math.floor((h - 80 - 22) / ROW_HEIGHT)))
+end
 
 local function DB()
     DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
@@ -166,7 +173,7 @@ watcher:SetScript("OnEvent", function()
 end)
 
 -- ---- The tab ----
-local panel, lines, rows, offset = nil, {}, {}, 0
+local lines, rows, offset = {}, {}, 0
 
 local function QualityColor(quality)
     local c = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
@@ -209,20 +216,20 @@ end
 
 local function Draw()
     for i, line in ipairs(lines) do
-        local r = rows[i + offset]
+        local r = i <= VisibleRows() and rows[i + offset] or nil
         line.result = r
         line:SetShown(r ~= nil)
         if r then
             local Money = DufforthTweaksHelperDE.Money
             line.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(r.product)) or (GetItemIcon and GetItemIcon(r.product)) or "Interface\\Icons\\INV_Misc_QuestionMark")
             line.name:SetText(QualityColor(r.quality) .. r.name .. "|r")
-            line.sub:SetText(string.format("%s %s · %s", r.profession, r.skill > 0 and r.skill or "?", LearnText(r)))
+            line.sub:SetText(string.format("%s %s, %s", r.profession, r.skill > 0 and r.skill or "?", LearnText(r)))
             line.profit:SetText((r.profit >= 0 and "|cff40ff40+" or "|cffff5555-") .. Money(math.abs(r.profit)) .. "|r")
             line.detail:SetText("cost " .. Money(r.cost))
         end
     end
     panel.up:SetEnabled(offset > 0)
-    panel.down:SetEnabled(offset + VISIBLE_ROWS < #rows)
+    panel.down:SetEnabled(offset + VisibleRows() < #rows)
 end
 
 function Crafting.Refresh()
@@ -232,7 +239,7 @@ function Crafting.Refresh()
     local known = Crafting.Known()
     local market = Market()
     rows = Crafting.Recommend(professions or {}, known, options, market, DufforthTweaksHelperPrices)
-    offset = math.max(0, math.min(offset, #rows - VISIBLE_ROWS))
+    offset = math.max(0, math.min(offset, #rows - VisibleRows()))
     for _, box in ipairs(panel.boxes) do box:SetChecked(options[box.key] and true or false) end
 
     local mine, unchecked, crafting = {}, {}, false
@@ -303,14 +310,14 @@ function Crafting.BuildPanel(parent, width)
     }
     panel.count = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.count:SetPoint("TOPLEFT", 8, -60)
-    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() offset = math.max(0, offset - VISIBLE_ROWS); Draw() end)
+    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() offset = math.max(0, offset - VisibleRows()); Draw() end)
     panel.up:SetPoint("TOPRIGHT", -30, -56)
-    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() offset = math.min(offset + VISIBLE_ROWS, math.max(0, #rows - VISIBLE_ROWS)); Draw() end)
+    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() offset = math.min(offset + VisibleRows(), math.max(0, #rows - VisibleRows())); Draw() end)
     panel.down:SetPoint("LEFT", panel.up, "RIGHT", 4, 0)
     panel.empty = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     panel.empty:SetPoint("TOPLEFT", 12, -100); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
 
-    for i = 1, VISIBLE_ROWS do
+    for i = 1, MAX_ROWS do
         local line = CreateFrame("Button", nil, parent)
         line:SetSize(width - 8, ROW_HEIGHT)
         line:SetPoint("TOPLEFT", 4, -80 - (i - 1) * ROW_HEIGHT)
@@ -329,7 +336,7 @@ function Crafting.BuildPanel(parent, width)
         line:SetScript("OnLeave", function() GameTooltip:Hide() end)
         line:EnableMouseWheel(true)
         line:SetScript("OnMouseWheel", function(_, delta)
-            offset = math.max(0, math.min(offset - delta, #rows - VISIBLE_ROWS))
+            offset = math.max(0, math.min(offset - delta, #rows - VisibleRows()))
             Draw()
         end)
         lines[i] = line

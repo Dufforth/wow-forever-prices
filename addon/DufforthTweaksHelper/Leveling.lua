@@ -68,6 +68,49 @@ function Leveling.MaterialsCost(recipe, prices)
     return cost, parts
 end
 
+-- A recipe of this profession that makes this item, one you can use at this skill: { count, {mat, n, ...}, name }.
+-- Falls back to the crafted materials list (Light Leather, Bolt of Linen Cloth...). nil when you can't make it.
+function Leveling.MakerOf(item, professionIndex, skill)
+    local best
+    for _, r in ipairs(DufforthTweaksHelperLevelRecipes or {}) do
+        if r[PRODUCT] == item and r[PROF] == professionIndex and r[LEARN] <= (skill or 300) and r[HOW] ~= "?"
+            and (not best or r[LEARN] < best[LEARN]) then
+            best = r
+        end
+    end
+    if best then return { count = best[COUNT] or 1, mats = best[MATS], name = best[NAME] } end
+    local craft = (DufforthTweaksHelperMaterialCrafts or {})[item]
+    if craft then return { count = craft[1] or 1, mats = craft[2] } end
+    return nil
+end
+
+-- Fold a step's materials (open by default) or open a material's own materials (folded by default).
+function Leveling.ToggleFold(row)
+    if not (row and row.foldKey) then return end
+    local db = DB()
+    if row.nestFold then
+        db.openNested = db.openNested or {}
+        db.openNested[row.foldKey] = (not db.openNested[row.foldKey]) or nil
+    else
+        db.foldSteps = db.foldSteps or {}
+        db.foldSteps[row.foldKey] = (not db.foldSteps[row.foldKey]) or nil
+    end
+    Leveling.Refresh()
+end
+
+-- The materials to make `missing` of an item yourself: { {id, count (per item made), need}, ... } or nil.
+function Leveling.NestedMaterials(item, missing, professionIndex, skill)
+    if missing <= 0 then return nil end
+    local maker = Leveling.MakerOf(item, professionIndex, skill)
+    if not maker then return nil end
+    local crafts = math.ceil(missing / math.max(1, maker.count))
+    local out = {}
+    for i = 1, #maker.mats, 2 do
+        out[#out + 1] = { id = maker.mats[i], per = maker.mats[i + 1], need = maker.mats[i + 1] * crafts, crafts = crafts }
+    end
+    return out
+end
+
 -- What one craft's product brings back: the better of the auction (after the cut) and a vendor.
 function Leveling.Resale(recipe, prices)
     local ah = prices[recipe[PRODUCT]]
@@ -492,6 +535,13 @@ end
 local function ShowRowTooltip(line)
     local row = line.row
     if not row then return end
+    if row.earlierHeader then
+        GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Earlier steps", 1, 0.82, 0)
+        GameTooltip:AddLine("The plan from skill 1 to yours, for looking back. Click to open or fold.", 1, 1, 1, true)
+        GameTooltip:Show()
+        return
+    end
     GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
     if row.buy then
         local t = row.buy
@@ -562,15 +612,24 @@ local function Draw()
         line:SetShown(row ~= nil)
         -- Materials sit indented under their step, with a smaller icon.
         local indent = row and row.part and true or false
+        local deep = row and row.nested and true or false -- a material of a material you craft
+        local foldable = row and row.foldKey and not row.done and true or false
+        line.fold:SetShown(foldable)
+        if foldable then
+            line.fold.icon:SetTexture(row.folded and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+            line.fold:ClearAllPoints(); line.fold:SetPoint("LEFT", indent and 8 or 2, 0)
+        end
+        if line.icon.SetDesaturated then line.icon:SetDesaturated(false) end
         line.icon:ClearAllPoints()
-        line.icon:SetPoint("LEFT", indent and 26 or 2, 0)
+        local iconLeft = deep and 48 or (indent and 26 or (foldable and 18 or 2)) -- a step's icon makes room for its fold button
+        line.icon:SetPoint("LEFT", iconLeft, 0)
         line.icon:SetSize(indent and 18 or 26, indent and 18 or 26)
-        local textLeft = (indent and 26 or 2) + (indent and 18 or 26) + 6
+        local textLeft = iconLeft + (indent and 18 or 26) + 6
         line.name:ClearAllPoints(); line.name:SetPoint("TOPLEFT", textLeft, -3)
         line.sub:ClearAllPoints(); line.sub:SetPoint("BOTTOMLEFT", textLeft, 4)
-        local id = RowItem(row)
+        local id = (row and not row.done and not row.earlierHeader) and RowItem(row) or nil
         local searchable = id ~= nil and (where.auction or (where.merchant and current.merchant and current.merchant[id] ~= nil)) or false
-        local craft = row and row.craft
+        local craft = row and not row.done and row.craft
         if craft then
             line.rowButton:SetText(craft.label)
             line.rowButton:SetEnabled(craft.enabled and craft.run ~= nil)
@@ -583,14 +642,31 @@ local function Draw()
         local right = searchable and -66 or -4
         line.cost:ClearAllPoints(); line.cost:SetPoint("TOPRIGHT", right, -3)
         line.detail:ClearAllPoints(); line.detail:SetPoint("BOTTOMRIGHT", right, 4)
-        local textWidth = line.textWidth - (searchable and 62 or 0) - (indent and 24 or 0)
+        local textWidth = line.textWidth - (searchable and 62 or 0) - (indent and 24 or 0) - (deep and 22 or 0) - ((foldable and not indent) and 16 or 0)
         line.name:SetWidth(textWidth); line.sub:SetWidth(textWidth)
-        if row and row.part then
+        if row and row.earlierHeader then
+            local open = DB().showEarlier
+            line.icon:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up")
+            line.name:SetText(string.format("|cffffd100Earlier steps|r |cffaaaaaa(1-%d, %d steps)|r", row.to, row.count))
+            line.sub:SetText(open and "What the plan had you craft before your skill. Click to fold." or "Click to see what the plan had you craft before your skill.")
+            line.cost:SetText(""); line.detail:SetText("")
+        elseif row and row.done then
+            local s, r = row.step, row.step.recipe
+            line.icon:SetTexture(ItemIcon(r[PRODUCT])); line.icon:SetDesaturated(true)
+            line.name:SetText(string.format("|cff808080%d-%d  %s|r", s.from, s.to, r[NAME]))
+            line.sub:SetText(string.format("|cff808080%d crafts. %s|r", s.crafts, LearnLine(s.candidate)))
+            line.cost:SetText("|cff40c040Done|r"); line.detail:SetText("")
+        elseif row and row.part then
             local part, s = row.part, row.partOf
             local need, have = row.need, row.have
             line.icon:SetTexture(ItemIcon(part.id))
             line.name:SetText(string.format("|cffffffff%dx|r %s", need, ItemName(part.id)))
-            line.sub:SetText(string.format("%d a craft, %s, %s each", part.count, SOURCE_WORDS[part.source] or "?", Money(part.each or 0)))
+            if row.nested then
+                line.sub:SetText(string.format("For %d %s you make: %d each, %s, %s each", row.crafts, ItemName(row.nested.id), part.count,
+                    SOURCE_WORDS[part.source] or "?", Money(part.each or 0)))
+            else
+                line.sub:SetText(string.format("%d a craft, %s, %s each", part.count, SOURCE_WORDS[part.source] or "?", Money(part.each or 0)))
+            end
             line.cost:SetText(Money((part.each or 0) * need))
             line.detail:SetText(string.format(have >= need and "|cff40c040%d/%d|r" or "|cffffffff%d|r/%d", have, need))
         elseif row and row.buy then
@@ -1209,15 +1285,43 @@ RefreshNow = function()
         panel.summary:SetText(string.format("To %d: buy %s of materials%s", plan.reached, Money(buy),
             plan.learning > 0 and (", learn recipes for " .. Money(plan.learning)) or ""))
     else
+        -- Earlier steps (user, 2026-11-14): the plan from 1 up to your skill, folded under one header; open, they show
+        -- greyed as done, so you can look back at the whole plan.
+        if skill.rank > 1 then
+            local earlier = Leveling.Plan(chosen.index, 1, skill.rank, known, options, prices or {}, Leveling.Side())
+            if #earlier.steps > 0 then
+                rows[#rows + 1] = { earlierHeader = true, count = #earlier.steps, to = skill.rank }
+                if DB().showEarlier then
+                    for _, s in ipairs(earlier.steps) do rows[#rows + 1] = { step = s, done = true } end
+                end
+            end
+        end
         local left = {} -- what's still in your bags for the next steps
         for _, s in ipairs(plan.steps) do
-            rows[#rows + 1] = { step = s, craft = CraftState(s) }
-            for _, part in ipairs(s.candidate.parts) do
+            local stepKey = tostring(s.recipe[1]) .. ":" .. s.from
+            local folded = (DB().foldSteps or {})[stepKey] and true or false
+            rows[#rows + 1] = { step = s, craft = CraftState(s), foldKey = stepKey, folded = folded }
+            for _, part in ipairs(folded and {} or s.candidate.parts) do
                 local need = part.count * s.crafts
                 if left[part.id] == nil then left[part.id] = BagCount(part.id) end
                 local have = math.min(left[part.id], need)
                 left[part.id] = left[part.id] - have
-                rows[#rows + 1] = { part = part, partOf = s, have = have, need = need }
+                local partRow = { part = part, partOf = s, have = have, need = need }
+                rows[#rows + 1] = partRow
+                -- A material you can craft (a glove for a glove): what it takes to make the rest yourself (user, 2026-11-14),
+                -- folded until you open it.
+                local subs = Leveling.NestedMaterials(part.id, need - have, chosen.index, skill.rank)
+                local nestKey = stepKey .. ":" .. part.id
+                local open = (DB().openNested or {})[nestKey] and true or false
+                if subs then partRow.foldKey, partRow.nestFold, partRow.folded = nestKey, true, not open end
+                for _, sub in ipairs(open and subs or {}) do
+                    if left[sub.id] == nil then left[sub.id] = BagCount(sub.id) end
+                    local subHave = math.min(left[sub.id], sub.need)
+                    left[sub.id] = left[sub.id] - subHave
+                    local each, source = DufforthTweaksHelperCrafting.MaterialCost(sub.id, prices or {})
+                    rows[#rows + 1] = { part = { id = sub.id, count = sub.per, each = each, source = source }, partOf = s, nested = part,
+                        crafts = sub.crafts, have = subHave, need = sub.need }
+                end
             end
         end
         panel.summary:SetText(string.format("To %d: about %d crafts in %d steps", plan.reached, plan.crafts, #plan.steps))
@@ -1438,7 +1542,31 @@ function Leveling.BuildPanel(parent, width)
             GameTooltip:Show()
         end)
         line.rowButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        line:SetScript("OnClick", function() pcall(SearchRow, thisLine.row) end)
+        -- Fold or open a step's materials, or a craftable material's own materials.
+        line.fold = CreateFrame("Button", nil, line)
+        line.fold:SetSize(14, 14)
+        line.fold.icon = line.fold:CreateTexture(nil, "ARTWORK"); line.fold.icon:SetAllPoints()
+        line.fold:SetScript("OnClick", function() Leveling.ToggleFold(thisLine.row) end)
+        line.fold:SetScript("OnEnter", function(self)
+            local row = thisLine.row
+            if not row then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(row.nestFold and (row.folded and "Show what it takes to make it yourself" or "Hide what it takes to make it")
+                or (row.folded and "Show this step's materials" or "Hide this step's materials"), 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        line.fold:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        line.fold:Hide()
+        line:SetScript("OnClick", function()
+            local row = thisLine.row
+            if row and row.earlierHeader then
+                DB().showEarlier = not DB().showEarlier
+                Leveling.Refresh()
+                return
+            end
+            if row and row.done then return end
+            pcall(SearchRow, row)
+        end)
         line.textWidth = width - 150
         line.name = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         line.name:SetPoint("TOPLEFT", 34, -3); OneLine(line.name, width - 150)

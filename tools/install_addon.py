@@ -37,14 +37,15 @@ def install(game):
     addons = game / "Interface" / "AddOns"
     target = addons / ADDON.name
     target.mkdir(parents=True, exist_ok=True)
-    # Files removed from the project are removed from the game too, so nothing stale lingers.
-    wanted = {path.name for path in ADDON.iterdir() if path.is_file()}
-    for path in target.iterdir():
-        if path.is_file() and path.name not in wanted:
+    # Files removed from the project are removed from the game too, so nothing stale lingers. Subfolders
+    # (Media: the guide icon) are copied too.
+    wanted = {path.relative_to(ADDON) for path in ADDON.rglob("*") if path.is_file()}
+    for path in sorted(target.rglob("*"), reverse=True):
+        if path.is_file() and path.relative_to(target) not in wanted:
             path.unlink()
-    for path in ADDON.iterdir():
-        if path.is_file():
-            shutil.copy(path, target / path.name)
+    for rel in wanted:
+        (target / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ADDON / rel, target / rel)
     moved = migrate_settings(game)
     for old_name, _ in OLD_NAMES:
         old = addons / old_name
