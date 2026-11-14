@@ -310,6 +310,17 @@ local function Draggable(f, key, mouseButton)
     if p then f:ClearAllPoints(); f:SetPoint(p[1], UIParent, p[2], p[3], p[4]) end
 end
 
+-- The eat button acts on the left press and release: secure buttons fire on the press when 'cast on key
+-- down' is on (the default), so one registered only for the release never ate (user, 2026-11-13).
+Cons.FOOD_CLICKS = { "LeftButtonDown", "LeftButtonUp" }
+
+-- No food in your bags, at the auction house: a click searches the food to buy (once, on the release).
+function Cons.FoodPostClick(self, mouseButton, down)
+    if down or mouseButton ~= "LeftButton" or self.food or not self.buy then return end
+    local L = DufforthTweaksHelperLeveling
+    if L and L.SearchAuctionHouse then pcall(L.SearchAuctionHouse, self.buy.row[ID]) end
+end
+
 local foodButton
 local function FoodButton()
     if foodButton then return foodButton end
@@ -319,17 +330,13 @@ local function FoodButton()
     if hint then b:SetPoint("RIGHT", hint, "LEFT", -10, 0) else b:SetPoint("CENTER", UIParent, "CENTER", -60, -160) end
     -- Left-click eats, right-drag moves (user: "when I'm trying to move the food reminder I'm using
     -- it": a left-button drag also clicked it). Only the left button has an action.
-    b:RegisterForClicks("LeftButtonUp")
+    b:RegisterForClicks(unpack(Cons.FOOD_CLICKS))
     DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
     Draggable(b, "foodPoint", "RightButton")
     b.icon = b:CreateTexture(nil, "ARTWORK"); b.icon:SetAllPoints()
     b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     b.label:SetPoint("TOP", b, "BOTTOM", 0, -2); b.label:SetWidth(140)
-    b:SetScript("PostClick", function(self, mouseButton)
-        if mouseButton ~= "LeftButton" or self.food or not self.buy then return end
-        local L = DufforthTweaksHelperLeveling
-        if L and L.SearchAuctionHouse then pcall(L.SearchAuctionHouse, self.buy.row[ID]) end
-    end)
+    b:SetScript("PostClick", Cons.FoodPostClick)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if self.buy and not self.food then
@@ -423,7 +430,7 @@ if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
             b:Show()
         end,
         leave = function(b)
-            b:RegisterForClicks("LeftButtonUp")
+            b:RegisterForClicks(unpack(Cons.FOOD_CLICKS))
             b:RegisterForDrag("RightButton")
             pcall(Cons.UpdateFoodReminder)
         end })

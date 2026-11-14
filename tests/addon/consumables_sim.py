@@ -150,4 +150,15 @@ check("real data: a warrior's top food gives Strength or Agility or attack power
 _, _, mage = lua.eval('FITS("MAGE", 45)')
 check("real data: a mage gets no rage potions", len(mage.rage.rows) == 0)
 check("real data: the food builder found Forever's Well Fed foods", int(lua.eval("#REAL")) > 150)
+
+# The eat button (user, 2026-11-13: "i cannot click on the food icon to eat it"). Secure buttons act on the press
+# when 'cast on key down' is on (the default), so a button registered only for the release never eats.
+clicks = [str(v) for v in lua.eval("C.FOOD_CLICKS").values()]
+check("eat button: the left press and release both reach it", "LeftButtonDown" in clicks and "LeftButtonUp" in clicks, clicks)
+check("eat button: the right button stays for moving it", not any(c.startswith("RightButton") for c in clicks), clicks)
+lua.execute("""SEARCHES = 0
+DufforthTweaksHelperLeveling = { SearchAuctionHouse = function() SEARCHES = SEARCHES + 1 end }
+BTN = { buy = { row = { 4544 } } }
+C.FoodPostClick(BTN, "LeftButton", true); C.FoodPostClick(BTN, "LeftButton", false)""")
+check("eat button: the auction search runs once per click, not on press and release", lua.eval("SEARCHES") == 1, lua.eval("SEARCHES"))
 sys.exit(1 if failed else 0)
