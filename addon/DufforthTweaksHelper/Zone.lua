@@ -265,6 +265,17 @@ local function Notice()
     return f
 end
 
+if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
+    DufforthTweaksHelper.RegisterMovable({ label = "Spell notice", get = Notice,
+        enter = function(f)
+            f.title:SetText("New spells to train (example)")
+            f.body:SetText("Shows at login and level-up when your trainer has something new.")
+            f.icon:SetTexture("Interface\\Icons\\INV_Misc_Book_09")
+            f:Show()
+        end,
+        leave = function(f) f:Hide() end })
+end
+
 function Zone.ShowTrainNotice(t)
     local f = Notice()
     local names = {}
@@ -294,9 +305,102 @@ trainWatcher:SetScript("OnEvent", function()
     if C_Timer then C_Timer.After(3, Announce) else Announce() end
 end)
 
+-- ---- Guide probe ----
+-- What the game says about your quests, saved for the leveling guide (DB.guideProbe): completed quest
+-- IDs (the guide uses Classic quest IDs, so they must match Forever's), your quest log, and who and
+-- where you are. Read after a /reload; nothing is shown in game.
+local function CompletedIDs()
+    if C_QuestLog and C_QuestLog.GetAllCompletedQuestIDs then
+        local ok, ids = pcall(C_QuestLog.GetAllCompletedQuestIDs)
+        if ok and type(ids) == "table" then return ids end
+    end
+    if GetQuestsCompleted then
+        local ok, done = pcall(GetQuestsCompleted)
+        if ok and type(done) == "table" then
+            local ids = {}
+            for id in pairs(done) do ids[#ids + 1] = id end
+            return ids
+        end
+    end
+    return {}
+end
+
+local function LogEntries()
+    local out = {}
+    if C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo then
+        for i = 1, C_QuestLog.GetNumQuestLogEntries() or 0 do
+            local info = C_QuestLog.GetInfo(i)
+            if info and not info.isHeader and info.questID then
+                out[#out + 1] = info.questID .. ":" .. tostring(info.title) .. ":" .. tostring(info.level)
+            end
+        end
+    elseif GetNumQuestLogEntries and GetQuestLogTitle then
+        for i = 1, GetNumQuestLogEntries() or 0 do
+            local title, level, _, isHeader, _, _, _, id = GetQuestLogTitle(i)
+            if title and not isHeader and id then out[#out + 1] = id .. ":" .. title .. ":" .. tostring(level) end
+        end
+    end
+    return out
+end
+
+function Zone.SaveGuideProbe()
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    local ids = CompletedIDs()
+    table.sort(ids)
+    local probe = { at = time and time() or 0, level = UnitLevel and UnitLevel("player") or 0,
+        completed = table.concat(ids, ","), completedCount = #ids, log = table.concat(LogEntries(), ";"),
+        zone = (GetRealZoneText and GetRealZoneText()) or "?" }
+    if UnitRace then local _, race = UnitRace("player"); probe.race = race end
+    if UnitClass then probe.class = select(2, UnitClass("player")) end
+    if C_Map and C_Map.GetBestMapForUnit then
+        local map = C_Map.GetBestMapForUnit("player")
+        probe.mapID = map
+        local pos = map and C_Map.GetPlayerMapPosition and C_Map.GetPlayerMapPosition(map, "player")
+        if pos then
+            local x, y = pos.x, pos.y
+            if not x and pos.GetXY then x, y = pos:GetXY() end
+            if x then probe.x, probe.y = math.floor(x * 1000 + 0.5) / 10, math.floor(y * 1000 + 0.5) / 10 end
+        end
+    end
+    DufforthTweaksHelperDB.guideProbe = probe
+end
+
+local probeWatcher = CreateFrame("Frame")
+for _, event in ipairs({ "PLAYER_LOGIN", "QUEST_TURNED_IN", "QUEST_ACCEPTED" }) do pcall(probeWatcher.RegisterEvent, probeWatcher, event) end
+probeWatcher:SetScript("OnEvent", function()
+    -- A moment later: the quest log and completed list update after these events.
+    if C_Timer then C_Timer.After(2, function() pcall(Zone.SaveGuideProbe) end) else pcall(Zone.SaveGuideProbe) end
+end)
+
 -- ---- Panel ----
 local ROW_HEIGHT, TOP = 30, -40
 local panel, lines, rows, offset = nil, {}, {}, 0
+
+-- Rows that fit the page now: the window can be made taller or shorter, so more rows are made than
+-- fit and the rest stay hidden.
+local function Shown()
+    local h = panel and panel.GetHeight and panel:GetHeight() or 0
+    if not h or h <= 0 then return #lines end
+    return math.max(4, math.min(#lines, math.floor((h + TOP - 20) / ROW_HEIGHT)))
+end
+
+-- Sections fold with a click on their header; folded ones are remembered (DB.collapsed[key]).
+local function Collapsed(key)
+    local c = DufforthTweaksHelperDB and DufforthTweaksHelperDB.collapsed
+    return c and c[key] or false
+end
+local function Section(key, title, note, entries)
+    local closed = Collapsed(key)
+    rows[#rows + 1] = { header = title, key = key, closed = closed, count = #entries, note = note }
+    if not closed then for _, e in ipairs(entries) do rows[#rows + 1] = e end end
+end
+local function Toggle(key)
+    if not key then return end
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    DufforthTweaksHelperDB.collapsed = DufforthTweaksHelperDB.collapsed or {}
+    DufforthTweaksHelperDB.collapsed[key] = (not DufforthTweaksHelperDB.collapsed[key]) or nil
+    Zone.Refresh()
+end
 local status
 local SECTIONS = {
     { key = "starters", title = "Quests started by a drop (easy to miss)" },
@@ -387,16 +491,18 @@ end
 local function Draw()
     local auction = AtAuction()
     for i, line in ipairs(lines) do
-        local r = rows[offset + i]
+        local r = i <= Shown() and rows[offset + i] or nil
         line.row = r
         line:SetShown(r ~= nil)
         local searching = r ~= nil and not r.header and r.item ~= nil and auction and true or false
         line.search:SetShown(searching)
         PlaceRight(line, searching)
         if r and r.header then
-            line.icon:Hide(); line.cost:SetText(""); line.detail:SetText("")
-            line.name:SetText("|cff73bfff" .. r.header .. "|r"); line.sub:SetText(r.note or "")
+            DufforthTweaksHelper.StyleRow(line, "header", r.closed)
+            line.cost:SetText(""); line.detail:SetText(r.closed and ("|cffaaaaaa" .. r.count .. " hidden|r") or "")
+            line.name:SetText("|cffffd100" .. r.header .. "|r"); line.sub:SetText(r.closed and "" or (r.note or ""))
         elseif r then
+            DufforthTweaksHelper.StyleRow(line, "child")
             local spellIcon = r.kind == "train" and GetSpellTexture and GetSpellTexture(r.data[2]) or nil
         local icon = spellIcon or Icon(r.item) or (r.kind == "quest" and "Interface\\GossipFrame\\AvailableQuestIcon")
             or (r.kind == "train" and "Interface\\Icons\\INV_Misc_Book_09") or "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -405,12 +511,12 @@ local function Draw()
             line.name:SetText(name); line.sub:SetText(sub); line.cost:SetText(right); line.detail:SetText(detail)
         end
     end
-    panel.pageText:SetText(#rows > #lines and string.format("%d / %d", math.floor(offset / #lines) + 1, math.ceil(#rows / #lines)) or "")
+    panel.pageText:SetText(#rows > Shown() and string.format("%d / %d", math.floor(offset / Shown()) + 1, math.ceil(#rows / Shown())) or "")
     panel.status:SetText(status and (GetTime and GetTime() or 0) - status.at < 8 and status.text or "")
 end
 
 local function Scroll(delta)
-    offset = math.max(0, math.min(offset + delta, math.max(0, #rows - #lines)))
+    offset = math.max(0, math.min(offset + delta, math.max(0, #rows - Shown())))
     Draw()
 end
 
@@ -425,18 +531,16 @@ function Zone.Refresh()
     if okTrain and train then
         local money = DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(train.total) or tostring(train.total)
         local enough = not GetMoney or GetMoney() >= train.total
-        rows[#rows + 1] = { header = "New spells to train", note = "Cost " .. money .. (enough and "" or " (more than you have)") }
-        for _, s in ipairs(train.rows) do rows[#rows + 1] = { kind = "train", data = s, trainers = train.trainers } end
+        local entries = {}
+        for _, s in ipairs(train.rows) do entries[#entries + 1] = { kind = "train", data = s, trainers = train.trainers } end
+        Section("zone:train", "New spells to train", "Cost " .. money .. (enough and "" or " (more than you have)"), entries)
     end
     for _, sec in ipairs(SECTIONS) do
-        if #s[sec.key] > 0 then
-            rows[#rows + 1] = { header = sec.title }
-            for _, e in ipairs(s[sec.key]) do rows[#rows + 1] = e end
-        end
+        if #s[sec.key] > 0 then Section("zone:" .. sec.key, sec.title, nil, s[sec.key]) end
     end
     panel.empty:SetText(#rows > 0 and "" or (zone and "Nothing here fits your level. Zones a few levels above you may have more."
         or "No guide for this zone (cities, dungeons and battlegrounds aren't covered)."))
-    offset = math.min(offset, math.max(0, #rows - #lines))
+    offset = math.min(offset, math.max(0, #rows - Shown()))
     Draw()
 end
 
@@ -519,7 +623,7 @@ function Zone.BuildPanel(parent, width)
     local height = parent.GetHeight and parent:GetHeight() or 0
     -- Rows fill the page down to the arrows.
     local count = height > 0 and math.floor((height + TOP - 20) / ROW_HEIGHT) or 13
-    count = math.max(4, math.min(count, 20))
+    count = 24 -- more than fit; Shown() decides how many show
     for i = 1, count do
         local line = CreateFrame("Button", nil, parent)
         line:SetSize(width - 8, ROW_HEIGHT)
@@ -544,12 +648,14 @@ function Zone.BuildPanel(parent, width)
         line.search:Hide()
         line:SetScript("OnEnter", ShowRow)
         line:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        line:SetScript("OnClick", function() pcall(Pin, thisLine) end)
+        line:SetScript("OnClick", function()
+            if thisLine.row and thisLine.row.header then Toggle(thisLine.row.key) else pcall(Pin, thisLine) end
+        end)
         lines[i] = line
     end
-    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-#lines) end)
+    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-Shown()) end)
     panel.up:SetPoint("BOTTOMRIGHT", -30, 2)
-    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(#lines) end)
+    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(Shown()) end)
     panel.down:SetPoint("LEFT", panel.up, "RIGHT", 4, 0)
     panel.pageText = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.pageText:SetPoint("RIGHT", panel.up, "LEFT", -6, 0); panel.pageText:SetJustifyH("RIGHT")

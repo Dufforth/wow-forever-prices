@@ -410,7 +410,10 @@ function W.BuildLines(known, numbers, options)
     -- Bloodrage: free rage, off the global cooldown, so it never takes another spell's try; on its
     -- one-minute cooldown the game just skips it. "Not enough rage" was the most common error in
     -- every stance (user asked for it, 2026-11-12). In combat only, so it isn't spent before a pull.
-    if known["Bloodrage"] then out[#out + 1] = "/cast [combat] Bloodrage" end
+    -- Once per fight: a castsequence at "nil" is skipped silently, so after Bloodrage goes off the
+    -- button stops asking for it (it was refused 15-26 times a fight on its cooldown).
+    -- No space after "]": the game trims it, and it keeps the level 26 macro at 255 characters.
+    if known["Bloodrage"] then out[#out + 1] = "/castsequence [combat]reset=combat Bloodrage,nil" end
     return out
 end
 
@@ -722,7 +725,8 @@ function W.MacroNext(lines, facts, ready, now)
         if action and line.kind == "castsequence" then spell = W.SequenceNext(action, now) end
         if spell then
             if OFF_GCD[spell] then
-                if not off and ready(spell) then off = spell end
+                -- Bloodrage is background rage: the icon shows what you're fighting with instead.
+                if not off and spell ~= "Bloodrage" and ready(spell) then off = spell end
             elseif not gcd then
                 gcd = spell
             end
@@ -1040,9 +1044,38 @@ local function ReadCurse()
     return nil
 end
 
+-- In combat the aura list can't be read, so curses are also tracked from UNIT_AURA's own report of
+-- what was added and removed (updateInfo). Whether Forever lets an addon read that report in combat
+-- is unknown: DB().debug.auraSignal counts readable and hidden reports to find out.
+W.curses = {}
+function W.TrackCurse(updateInfo)
+    if type(updateInfo) ~= "table" then return end
+    local signal = DB().debug.auraSignal or { reports = 0, readable = 0, hidden = 0, curses = 0 }
+    DB().debug.auraSignal = signal
+    signal.reports = signal.reports + 1
+    if updateInfo.isFullUpdate then W.curses = {} end
+    for _, aura in ipairs(updateInfo.addedAuras or {}) do
+        local id, name, kind = Plain(aura.auraInstanceID), Plain(aura.name), Plain(aura.dispelName)
+        if id == nil or (name == nil and kind == nil) then
+            signal.hidden = signal.hidden + 1
+        else
+            signal.readable = signal.readable + 1
+            if kind == "Curse" or (type(name) == "string" and string.find(name, "Bane", 1, true)) then
+                W.curses[id] = name or "Curse"
+                signal.curses = signal.curses + 1
+            end
+        end
+    end
+    for _, id in ipairs(updateInfo.removedAuraInstanceIDs or {}) do
+        local plain = Plain(id)
+        if plain ~= nil then W.curses[plain] = nil end
+    end
+end
+
 function W.CurseOnYou()
     local fighting = UnitAffectingCombat and UnitAffectingCombat("player")
     if not fighting then curseBlocked = false end
+    for _, name in pairs(W.curses) do return name end -- seen through aura events (works in combat if allowed)
     if curseBlocked then return nil end
     local ok, name = pcall(ReadCurse)
     if not ok then
@@ -1055,6 +1088,15 @@ end
 function W.CursePrompt(facts, ready, curse)
     if curse and facts.known[CLEANSE] and ready(CLEANSE) then return CLEANSE end
     return nil
+end
+
+-- Before a pull: whether Charge would land now (user: Charge failed with "Out of range" or "Target too
+-- close" when pressed at the wrong distance, 2026-11-13). inRange: the game's range check; close:
+-- within about 10 yards (Charge needs 8 to 25).
+function W.ChargeNote(inRange, close)
+    if inRange then return "|cff40ff40In Charge range|r" end
+    if close then return "|cffff8040Too close to Charge|r" end
+    return "|cffaaaaaaGet closer to Charge|r"
 end
 
 local lastAlert = 0
@@ -1105,6 +1147,10 @@ local function UpdateHint()
     if warning then notes[#notes + 1] = warning end
     local enemies = W.EnemyCount()
     if enemies >= 2 then notes[#notes + 1] = enemies .. " enemies" end
+    if spell == "Charge" and not facts.inCombat and hostile then
+        local close = CheckInteractDistance and CheckInteractDistance("target", 3) and true or false
+        notes[#notes + 1] = W.ChargeNote(SpellInRange("Charge"), close)
+    end
     if facts.known[SHOUT] and not facts.shoutLeft and facts.inCombat then notes[#notes + 1] = "|cffff8040No Battle Shout|r" end
     hint.spell:SetText(hint.unlocked and "Drag to move" or (ready and spell or ("|cff909090" .. spell .. "|r")))
     hint.notes:SetText(table.concat(notes, "\n"))
@@ -1155,6 +1201,10 @@ function W.SetHintUnlocked(on)
     UpdateHint()
 end
 function W.HintUnlocked() return hint and hint.unlocked or false end
+if DufforthTweaksHelper.RegisterMovable then
+    DufforthTweaksHelper.RegisterMovable({ label = "Warrior icon", get = function() return hint end,
+        enter = function() W.SetHintUnlocked(true) end, leave = function() W.SetHintUnlocked(false) end })
+end
 
 -- ---- Fight log ----
 -- Each fight is saved in DufforthTweaksHelperDB.warrior.fights (the game writes the file on
@@ -1271,6 +1321,41 @@ function W.TrackGear()
     return W.gearId
 end
 
+-- Talent points per tree, "Arms 10 / Fury 0 / Protection 7". Classic returns (name, icon, points,
+-- ...), newer clients (id, name, description, icon, points, ...): the name is the first text and the
+-- points the first number up to 61 after it.
+function W.TalentText()
+    if not (GetNumTalentTabs and GetTalentTabInfo) then return "?" end
+    local parts = {}
+    for tab = 1, GetNumTalentTabs() or 0 do
+        local values = { GetTalentTabInfo(tab) }
+        local name, points
+        for i = 1, #values do
+            local v = Plain(values[i])
+            if not name and type(v) == "string" then name = v
+            elseif name and not points and type(v) == "number" and v >= 0 and v <= 61 then points = v end
+        end
+        parts[#parts + 1] = (name or ("Tree " .. tab)) .. " " .. (points or "?")
+    end
+    return #parts > 0 and table.concat(parts, " / ") or "?"
+end
+
+-- "2H", "1H+shield", "dual wield", "1H" or "none" from what's in your hands.
+function W.WeaponSetup()
+    local getInfo = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    local function loc(slot)
+        local id = GetInventoryItemID and GetInventoryItemID("player", slot)
+        if not id or not getInfo then return nil end
+        local _, _, _, equipLoc = getInfo(id)
+        return equipLoc
+    end
+    local main, off = loc(16), loc(17)
+    if main == "INVTYPE_2HWEAPON" then return "2H" end
+    if off == "INVTYPE_SHIELD" then return "1H+shield" end
+    if off == "INVTYPE_WEAPON" or off == "INVTYPE_WEAPONOFFHAND" then return "dual wield" end
+    return main and "1H" or "none"
+end
+
 local function AddEnemy(unit)
     if not fight or not UnitExists(unit) or not UnitCanAttack("player", unit) then return end
     local key = tostring(Plain(UnitName(unit)) or "?") .. ":" .. tostring(Plain(UnitLevel(unit)) or 0)
@@ -1293,6 +1378,11 @@ function W.FightStart()
         rageCapped = 0, shoutUp = 0, ticked = 0, result = "won", tries = {}, tried = {},
         gear = W.gearId or 0, manual = {}, -- manual: spells cast that the macro doesn't have (own keys)
     }
+    -- Spec and weapons, to compare Prot or Arms and shield or two-hander from real fights.
+    local okTalents, talents = pcall(W.TalentText)
+    fight.talents = okTalents and talents or "?"
+    local okSetup, setup = pcall(W.WeaponSetup)
+    fight.setup = okSetup and setup or "?"
     -- The pull: what was tried in the 6 seconds before combat started (Charge, first presses).
     for _, try in ipairs(W.preTries) do
         if fight.start - try.at <= 6 then
@@ -1579,7 +1669,7 @@ Listen(events, { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED"
     "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE", "UPDATE_SHAPESHIFT_FORMS", "UNIT_AURA",
     "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_SHAPESHIFT_FORM", "UPDATE_BONUS_ACTIONBAR",
     "PLAYER_EQUIPMENT_CHANGED", "GROUP_ROSTER_UPDATE" })
-events:SetScript("OnEvent", W.Guard("macro events", function(_, event, unit)
+events:SetScript("OnEvent", W.Guard("macro events", function(_, event, unit, updateInfo)
     if event ~= "UNIT_AURA" then CountEvent(event) end
     if event == "PLAYER_LOGIN" then
         -- Errors start fresh each session, so the saved file shows only the current version's.
@@ -1597,6 +1687,7 @@ events:SetScript("OnEvent", W.Guard("macro events", function(_, event, unit)
     end
     if event == "UNIT_AURA" then
         if unit ~= "player" then return end
+        pcall(W.TrackCurse, updateInfo)
         local now = GetTime()
         if W.lastAura and now - W.lastAura < 1 then return end -- buffs change often; once a second is plenty
         W.lastAura = now

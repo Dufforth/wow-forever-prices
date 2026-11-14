@@ -325,8 +325,19 @@ local function FoodButton()
     b.icon = b:CreateTexture(nil, "ARTWORK"); b.icon:SetAllPoints()
     b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     b.label:SetPoint("TOP", b, "BOTTOM", 0, -2); b.label:SetWidth(140)
+    b:SetScript("PostClick", function(self, mouseButton)
+        if mouseButton ~= "LeftButton" or self.food or not self.buy then return end
+        local L = DufforthTweaksHelperLeveling
+        if L and L.SearchAuctionHouse then pcall(L.SearchAuctionHouse, self.buy.row[ID]) end
+    end)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.buy and not self.food then
+            if GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.buy.row[ID]) end
+            GameTooltip:AddLine("You have no Well Fed food. Click to find this one on the auction house: the most for your gold for your class. Right-drag to move.", 0.45, 0.8, 1, true)
+            GameTooltip:Show()
+            return
+        end
         if self.food and GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.food[ID]) end
         GameTooltip:AddLine("Click to eat. Well Fed adds +5% kill experience on Forever and lasts 15 min. Right-drag to move it.", 0.45, 0.8, 1, true)
         GameTooltip:Show()
@@ -339,8 +350,22 @@ end
 
 local WELL_FED, EATING = { ["Well Fed"] = true }, { ["Food"] = true, ["Food & Drink"] = true, ["Nutritious Food"] = true }
 
+-- The food to buy when your bags have none: the recommended food for your class and level (most for
+-- the gold among the strong ones). -> { row, price, source } or nil.
+function Cons.FoodToBuy(data, class, level, prices)
+    local food = Cons.Advice(data, class, level, prices).food.rows
+    for _, e in ipairs(food) do if e.badge == "best" then return e end end
+    return food[1]
+end
+
+local function AtAuction()
+    local L = DufforthTweaksHelperLeveling
+    return L and L.Where and L.Where().auction or false
+end
+
 function Cons.UpdateFoodReminder()
     if InCombatLockdown and InCombatLockdown() then return end -- a secure button can't change in combat
+    if DufforthTweaksHelper.EditMode and DufforthTweaksHelper.EditMode() then return end -- being placed
     local b = FoodButton()
     local class = (UnitClass and select(2, UnitClass("player"))) or "WARRIOR"
     local level = UnitLevel and UnitLevel("player") or 1
@@ -354,7 +379,14 @@ function Cons.UpdateFoodReminder()
             food = Cons.BestFoodInBags(DufforthTweaksHelperConsumableData, class, level, have)
         end
     end
-    b.food = food
+    -- None in your bags, at the auction house: suggest one to buy (user picked this, 2026-11-13).
+    local buy
+    if not food and Cons.ShouldRemind(state) and AtAuction() then
+        local market = DufforthTweaksHelper and DufforthTweaksHelper.MarketName and DufforthTweaksHelper.MarketName() or ""
+        local prices = DufforthTweaksHelperPrices and DufforthTweaksHelperPrices[market] or {}
+        buy = Cons.FoodToBuy(DufforthTweaksHelperConsumableData, class, level, prices)
+    end
+    b.food, b.buy = food, buy
     -- Saved for diagnosis (DufforthTweaksHelperDB.consumables.lastCheck).
     Options().lastCheck = { at = time and time() or 0, on = state.on and true or false, wellFed = state.wellFed or false,
         eating = state.eating or false, level = level, class = class, food = food and food[NAME] or "none in bags" }
@@ -364,13 +396,42 @@ function Cons.UpdateFoodReminder()
         b.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(food[ID])) or (GetItemIcon and GetItemIcon(food[ID])) or "Interface\\Icons\\INV_Misc_Food_15")
         b.label:SetText("|cffffd100Eat:|r " .. food[NAME])
         b:Show()
+    elseif buy then
+        -- Not an item to use: the click searches the auction house (PostClick), so no secure action.
+        b:SetAttribute("type1", nil)
+        b:SetAttribute("item1", nil)
+        local row = buy.row
+        b.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(row[ID])) or (GetItemIcon and GetItemIcon(row[ID])) or "Interface\\Icons\\INV_Misc_Food_15")
+        local money = DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(buy.price) or tostring(buy.price)
+        b.label:SetText("|cffff9933Buy:|r " .. row[NAME] .. " " .. money)
+        b:Show()
     else
         b:Hide()
     end
 end
 
+-- Edit mode: show the eat button with an example, drag with either button, no eating while placing it.
+if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
+    DufforthTweaksHelper.RegisterMovable({ label = "Eat button", get = FoodButton,
+        enter = function(b)
+            b:RegisterForClicks()
+            b:RegisterForDrag("LeftButton", "RightButton")
+            if not b:IsShown() then
+                b.icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
+                b.label:SetText("|cffffd100Eat:|r (your food)")
+            end
+            b:Show()
+        end,
+        leave = function(b)
+            b:RegisterForClicks("LeftButtonUp")
+            b:RegisterForDrag("RightButton")
+            pcall(Cons.UpdateFoodReminder)
+        end })
+end
+
 local foodWatcher = CreateFrame("Frame")
-for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "BAG_UPDATE_DELAYED", "UNIT_AURA", "PLAYER_LEVEL_UP" }) do
+for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "BAG_UPDATE_DELAYED", "UNIT_AURA", "PLAYER_LEVEL_UP",
+    "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED" }) do
     pcall(foodWatcher.RegisterEvent, foodWatcher, event)
 end
 pcall(foodWatcher.RegisterEvent, foodWatcher, "PLAYER_REGEN_DISABLED")
@@ -386,6 +447,32 @@ end)
 -- ---- Panel ----
 local ROW_HEIGHT, TOP = 30, -40
 local panel, lines, rows, offset = nil, {}, {}, 0
+
+-- Rows that fit the page now: the window can be made taller or shorter, so more rows are made than
+-- fit and the rest stay hidden.
+local function Shown()
+    local h = panel and panel.GetHeight and panel:GetHeight() or 0
+    if not h or h <= 0 then return #lines end
+    return math.max(4, math.min(#lines, math.floor((h + TOP - 20) / ROW_HEIGHT)))
+end
+
+-- Sections fold with a click on their header; folded ones are remembered (DB.collapsed[key]).
+local function Collapsed(key)
+    local c = DufforthTweaksHelperDB and DufforthTweaksHelperDB.collapsed
+    return c and c[key] or false
+end
+local function Section(key, title, note, entries)
+    local closed = Collapsed(key)
+    rows[#rows + 1] = { header = title, key = key, closed = closed, count = #entries, note = note }
+    if not closed then for _, e in ipairs(entries) do rows[#rows + 1] = e end end
+end
+local function Toggle(key)
+    if not key then return end
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    DufforthTweaksHelperDB.collapsed = DufforthTweaksHelperDB.collapsed or {}
+    DufforthTweaksHelperDB.collapsed[key] = (not DufforthTweaksHelperDB.collapsed[key]) or nil
+    Cons.Refresh()
+end
 local SOURCE = { vendor = "|cff59b3ffVendor|r", auction = "|cffff9933AH|r" }
 local BADGE = { best = "|cff9ad99aBest of its kind|r", strongest = "|cffffd100Strongest|r", kit = "|cff40ff40Recommended|r" }
 
@@ -431,16 +518,18 @@ end
 local function Draw()
     local auction = AtAuction()
     for i, line in ipairs(lines) do
-        local r = rows[offset + i]
+        local r = i <= Shown() and rows[offset + i] or nil
         line.row = r
         line:SetShown(r ~= nil)
         local searching = r ~= nil and not r.header and auction and true or false
         line.search:SetShown(searching)
         PlaceRight(line, searching)
         if r and r.header then
-            line.icon:Hide(); line.cost:SetText(""); line.detail:SetText("")
-            line.name:SetText("|cff73bfff" .. r.header .. "|r"); line.sub:SetText(r.note or "")
+            DufforthTweaksHelper.StyleRow(line, "header", r.closed)
+            line.cost:SetText(""); line.detail:SetText(r.closed and ("|cffaaaaaa" .. r.count .. " hidden|r") or "")
+            line.name:SetText("|cffffd100" .. r.header .. "|r"); line.sub:SetText(r.closed and "" or (r.note or ""))
         elseif r then
+            DufforthTweaksHelper.StyleRow(line, "child")
             local item = r.row
             line.icon:Show(); line.icon:SetTexture(Icon(item[ID]))
             line.name:SetText(item[NAME])
@@ -450,12 +539,12 @@ local function Draw()
             line.detail:SetText(BADGE[r.kit and "kit" or r.badge] or "")
         end
     end
-    local pages = math.max(1, math.ceil(#rows / math.max(1, #lines)))
-    panel.pageText:SetText(#rows > #lines and string.format("%d / %d", math.floor(offset / #lines) + 1, pages) or "")
+    local pages = math.max(1, math.ceil(#rows / math.max(1, Shown())))
+    panel.pageText:SetText(#rows > Shown() and string.format("%d / %d", math.floor(offset / Shown()) + 1, pages) or "")
 end
 
 local function Scroll(delta)
-    offset = math.max(0, math.min(offset + delta, math.max(0, #rows - #lines)))
+    offset = math.max(0, math.min(offset + delta, math.max(0, #rows - Shown())))
     Draw()
 end
 
@@ -470,23 +559,23 @@ function Cons.Refresh()
     rows = {}
     local kit = Cons.Kit(advice)
     if #kit > 0 then
-        rows[#rows + 1] = { header = "Use together: these buffs stack", note = "One of each kind. Potions are for different moments: they share a cooldown." }
+        local copies = {}
         for _, e in ipairs(kit) do
             local copy = {}
             for k, v in pairs(e) do copy[k] = v end
             copy.kit = true
-            rows[#rows + 1] = copy
+            copies[#copies + 1] = copy
         end
+        Section("cons:kit", "Use together: these buffs stack", "One of each kind. Potions are for different moments: they share a cooldown.", copies)
     end
     for _, s in ipairs(Cons.SECTIONS) do
         local list = advice[s.key]
         if #list.rows > 0 then
-            rows[#rows + 1] = { header = s.title, note = list.unpriced > 0 and string.format("%d more without a price", list.unpriced) or nil }
-            for _, r in ipairs(list.rows) do rows[#rows + 1] = r end
+            Section("cons:" .. s.key, s.title, list.unpriced > 0 and string.format("%d more without a price", list.unpriced) or nil, list.rows)
         end
     end
     panel.empty:SetText(#rows == 0 and "No consumable with a price helps your class at your level yet. Prices come with the addon download." or "")
-    offset = math.min(offset, math.max(0, #rows - #lines))
+    offset = math.min(offset, math.max(0, #rows - Shown()))
     Draw()
 end
 
@@ -536,7 +625,7 @@ function Cons.BuildPanel(parent, width)
     local height = parent.GetHeight and parent:GetHeight() or 0
     -- Rows fill the page down to the arrows.
     local count = height > 0 and math.floor((height + TOP - 20) / ROW_HEIGHT) or 13
-    count = math.max(4, math.min(count, 20))
+    count = 24 -- more than fit; Shown() decides how many show
     for i = 1, count do
         local line = CreateFrame("Button", nil, parent)
         line:SetSize(width - 8, ROW_HEIGHT)
@@ -568,12 +657,14 @@ function Cons.BuildPanel(parent, width)
         line.search:Hide()
         line:SetScript("OnEnter", ShowRow)
         line:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        line:SetScript("OnClick", ClickRow)
+        line:SetScript("OnClick", function(self)
+            if self.row and self.row.header then Toggle(self.row.key) else ClickRow(self) end
+        end)
         lines[i] = line
     end
-    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-#lines) end)
+    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-Shown()) end)
     panel.up:SetPoint("BOTTOMRIGHT", -30, 2)
-    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(#lines) end)
+    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(Shown()) end)
     panel.down:SetPoint("LEFT", panel.up, "RIGHT", 4, 0)
     panel.pageText = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.pageText:SetPoint("RIGHT", panel.up, "LEFT", -6, 0); panel.pageText:SetJustifyH("RIGHT")

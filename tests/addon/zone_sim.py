@@ -105,6 +105,25 @@ lua.execute("DufforthTweaksHelperDB.trainDismissed = 26; SHOWN = nil")
 check("notice: after the X, nothing until the next level", lua.eval("DufforthTweaksHelperDB.trainDismissed") == 26)
 real = lua.eval('#DufforthTweaksHelperClassTrainers.WARRIOR.spells')
 check("real data: warrior trainer spells are in ZoneData.lua", real > 50, real)
+# The guide probe: what the game says about quests, saved for checking the route data against Forever.
+lua.execute("""
+UnitRace = function() return "Orc", "Orc" end
+C_QuestLog = C_QuestLog or {}
+C_QuestLog.GetAllCompletedQuestIDs = function() return { 788, 789, 4641 } end
+C_QuestLog.GetNumQuestLogEntries = function() return 3 end
+C_QuestLog.GetInfo = function(i)
+  return ({ { title = "Durotar", isHeader = true }, { title = "Sarkoth", questID = 790, level = 3 }, { title = "Cutting Teeth", questID = 788, level = 2 } })[i]
+end
+C_Map = { GetBestMapForUnit = function() return 1411 end, GetPlayerMapPosition = function() return { x = 0.4321, y = 0.6789 } end }
+DufforthTweaksHelperDB = {}
+OK, ERR = pcall(Z.SaveGuideProbe)
+P = DufforthTweaksHelperDB.guideProbe
+""")
+check("probe: runs without an error", lua.eval("OK") is True, lua.eval("tostring(ERR)"))
+check("probe: completed quest IDs", lua.eval("P and P.completed") == "788,789,4641")
+check("probe: quest log entries (headers left out)", lua.eval("P and P.log") == "790:Sarkoth:3;788:Cutting Teeth:2", lua.eval("P and P.log"))
+check("probe: who and where", lua.eval("P.race") == "Orc" and lua.eval("P.class") == "WARRIOR" and lua.eval("P.mapID") == 1411
+      and abs(lua.eval("P.x") - 43.2) < 0.1, lua.eval("P.zone"))
 check("no zone data: nothing, no error", lua.eval("#Z.Suggest(nil, ITEMS, PRICES, PLAYER).quests") == 0)
 
 # The real data: a level 15 Horde warrior in the Barrens, a level 30 Alliance mage in Stranglethorn.

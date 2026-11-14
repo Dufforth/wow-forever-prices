@@ -9,6 +9,81 @@ local function Print(message)
 end
 DufforthTweaksHelper.Print = Print
 
+-- ---- Edit mode: every on-screen piece the addon shows, placed in one go ----
+-- Each module registers { label, get = function() -> frame, enter, leave }: enter shows the piece (with
+-- example content if it has nothing to show) and makes it draggable; leave puts it back to normal.
+-- (User picked this, 2026-11-13, after moving the spell notice and the eat button one by one.)
+local movables, editing = {}, false
+function DufforthTweaksHelper.RegisterMovable(m) movables[#movables + 1] = m end
+function DufforthTweaksHelper.EditMode() return editing end
+
+local function Overlay(frame, label)
+    local existing = rawget(frame, "dthOverlay")
+    if existing then return existing end
+    local o = CreateFrame("Frame", nil, frame)
+    o:SetAllPoints(frame)
+    o:SetFrameLevel((frame.GetFrameLevel and frame:GetFrameLevel() or 1) + 5)
+    local fill = o:CreateTexture(nil, "OVERLAY")
+    fill:SetAllPoints(o); fill:SetColorTexture(0.2, 0.8, 0.3, 0.3)
+    local text = o:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    text:SetPoint("BOTTOM", o, "TOP", 0, 2); text:SetText(label .. " |cffaaaaaa(drag)|r")
+    o:Hide()
+    frame.dthOverlay = o
+    return o
+end
+
+-- on = true shows every piece to drag; false locks them. Not in combat (some pieces are secure).
+function DufforthTweaksHelper.SetEditMode(on)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    editing = on and true or false
+    for _, m in ipairs(movables) do
+        local ok, frame = pcall(m.get)
+        if ok and frame then
+            local o = Overlay(frame, m.label)
+            if editing then pcall(m.enter, frame); o:Show() else o:Hide(); pcall(m.leave, frame) end
+        end
+    end
+    return true
+end
+
+-- ---- List rows: section titles and the items under them ----
+-- User (2026-11-13): sections had no icon, didn't look like titles, and items didn't look like they
+-- belonged to them. Titles get a gold band and a +/- icon; items are indented with a gold guide line.
+local function Decor(line)
+    local d = rawget(line, "dthDecor")
+    if d then return d end
+    d = {}
+    d.band = line:CreateTexture(nil, "BACKGROUND")
+    d.band:SetPoint("TOPLEFT", 0, -2); d.band:SetPoint("BOTTOMRIGHT", 0, 2)
+    -- A dark neutral strip, not gold: a gold band looked like the hover highlight (user, 2026-11-13).
+    d.band:SetColorTexture(0, 0, 0, 0.55)
+    d.edge = line:CreateTexture(nil, "BORDER")
+    d.edge:SetPoint("BOTTOMLEFT", 0, 2); d.edge:SetPoint("BOTTOMRIGHT", 0, 2); d.edge:SetHeight(1)
+    d.edge:SetColorTexture(1, 0.82, 0, 0.7)
+    d.guide = line:CreateTexture(nil, "BORDER")
+    d.guide:SetPoint("TOPLEFT", 9, 0); d.guide:SetPoint("BOTTOMLEFT", 9, 0); d.guide:SetWidth(2)
+    d.guide:SetColorTexture(1, 0.82, 0, 0.35)
+    line.dthDecor = d
+    return d
+end
+
+-- kind: "header" (a section title; closed = folded) or "child" (an item in a section).
+function DufforthTweaksHelper.StyleRow(line, kind, closed)
+    local d = Decor(line)
+    local header = kind == "header"
+    d.band:SetShown(header); d.edge:SetShown(header); d.guide:SetShown(not header)
+    line.icon:ClearAllPoints()
+    if header then
+        line.icon:SetSize(16, 16); line.icon:SetPoint("LEFT", 6, 0)
+        line.icon:SetTexture(closed and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+        line.icon:Show()
+        line.name:SetPoint("TOPLEFT", 28, -3); line.sub:SetPoint("BOTTOMLEFT", 28, 4)
+    else
+        line.icon:SetSize(24, 24); line.icon:SetPoint("LEFT", 16, 0)
+        line.name:SetPoint("TOPLEFT", 46, -3); line.sub:SetPoint("BOTTOMLEFT", 46, 4)
+    end
+end
+
 -- A scroll arrow drawn with the game's own textures: the game's fonts have no ▲ or ▼, so text
 -- arrows show as empty squares. direction: "up" or "down".
 function DufforthTweaksHelper.ArrowButton(parent, direction, onClick)
@@ -91,6 +166,18 @@ RunCommand = function(input)
     local command, option = string.match(string.lower(input or ""), "^%s*(%S*)%s*(%S*)")
     if command == "" or command == "menu" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle() end
+    elseif command == "guide" then
+        if DufforthTweaksHelperGuideUI then DufforthTweaksHelperGuideUI.Toggle()
+        else Print("the leveling guide needs a full game restart (new files).") end
+    elseif command == "auto" then
+        if DufforthTweaksHelperQuestAuto then
+            DufforthTweaksHelperQuestAuto.SetEnabled(not DufforthTweaksHelperQuestAuto.Enabled())
+            if DufforthTweaksHelperGuideUI then DufforthTweaksHelperGuideUI.Refresh() end
+        end
+    elseif command == "arrow" then
+        if DufforthTweaksHelperGuideUI then DufforthTweaksHelperGuideUI.SetArrowShown(not (DufforthTweaksHelperDB.guide or {}).arrow) end
+    elseif command == "move" then
+        if not DufforthTweaksHelper.SetEditMode(not DufforthTweaksHelper.EditMode()) then Print("on-screen pieces can't move in combat.") end
     elseif command == "gather" or command == "crafting" or command == "leveling" or command == "warrior"
         or command == "class" or command == "consumables" or command == "zone" or command == "gear" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle(command) end
@@ -104,6 +191,10 @@ RunCommand = function(input)
         Print("/dufforth - open the window (also the minimap button). /dth works too.")
         Print("/dufforth gather, /dufforth crafting, /dufforth leveling, /dufforth zone, /dufforth class (consumables), /dufforth gear, /dufforth warrior - open it on that tab")
         Print("/dufforth shopping - open the Leveling tab's shopping list")
+        Print("/dufforth guide - show or hide the leveling guide (Horde 1-60)")
+        Print("/dufforth arrow - show or hide the guide's waypoint arrow")
+        Print("/dufforth auto - turn auto accept and turn-in of quests on or off (hold Shift to do one yourself)")
+        Print("/dufforth move - show every on-screen piece (warrior icon, eat button, spell notice) to drag; again to lock")
         Print("/dufforth de - show or hide disenchant advice in item tooltips")
         Print("/dufforth disenchant - open the list that disenchants BoE gear, one click per item")
         Print("/nk - herb and ore commands; /nk help lists them")

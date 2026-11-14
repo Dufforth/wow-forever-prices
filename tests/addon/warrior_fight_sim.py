@@ -296,6 +296,8 @@ def run(name, spells, stances, level, form, shield, seeds=range(1, 11), **kw):
         seconds += f.seconds
     n = len(list(seeds))
     per = {k: round(v / n, 1) for k, v in sorted(total.items())}
+    global LAST_ERRORS
+    LAST_ERRORS = {k: v / n for k, v in errors.items()}
     summary = f"per fight {per}, kills {kills / n:.1f}, rage 80+ {capped / seconds:.0%}, errors {errors}"
     if VERBOSE:
         print(f"-- {name}: {summary}")
@@ -337,10 +339,13 @@ LEVEL26B = LEVEL26 + ["Bloodrage"]
 for form, label in ((1, "battle"), (2, "defensive")):
     _, _, s_without, *_ = run(f"{label}, lvl 26 without Bloodrage", LEVEL26, ["battle", "defensive"], 26, form, True, buffs=("Battle Shout",))
     per_b, cap_b, s_with, body_b, _ = run(f"{label}, lvl 26 with Bloodrage", LEVEL26B, ["battle", "defensive"], 26, form, True, buffs=("Battle Shout",))
+    errors_b = LAST_ERRORS
     print(f"     {label} without Bloodrage: " + s_without)
     print(f"     {label} with Bloodrage:    " + s_with)
-    check(f"{label}: Bloodrage in the button only in combat", "/cast [combat] Bloodrage" in body_b, body_b)
-    check(f"{label}: Bloodrage about once a minute (its cooldown)", 0.5 <= per_b.get("Bloodrage", 0) <= 1.0, s_with)
+    check(f"{label}: Bloodrage in the button once per fight, only in combat", "/castsequence [combat]reset=combat Bloodrage,nil" in body_b, body_b)
+    check(f"{label}: Bloodrage once a fight", per_b.get("Bloodrage", 0) == 1.0, s_with)
+    if label == "battle":  # in Defensive Stance most "not ready" refusals are Shield Block's, so only Battle tells
+        check(f"{label}: Bloodrage isn't asked for again while it cools down", errors_b.get("not ready", 0) < 60, s_with)
     check(f"{label}: Bloodrage doesn't push rage to waste", cap_b < 0.1, s_with)
 per_old, _, s_old, *_ = run("battle, lvl 25 (Overpower line)", LEVEL25, ["battle", "defensive"], 25, 1, True, buffs=("Battle Shout",))
 per, cap, s, body, _ = run("battle, lvl 26 with Execute", LEVEL26, ["battle", "defensive"], 26, 1, True, buffs=("Battle Shout",))

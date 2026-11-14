@@ -77,6 +77,8 @@ jobs:
           python tests/addon/consumables_sim.py > /dev/null
           python tests/addon/zone_sim.py > /dev/null
           python tests/addon/gear_sim.py > /dev/null
+          python tests/addon/guide_sim.py > /dev/null
+          python tests/addon/quest_auto_sim.py > /dev/null
 
       - name: Get saved prices
         env:
@@ -120,6 +122,7 @@ jobs:
           python tools/build_addon_consumables.py addon/DufforthTweaksHelper/ConsumablesData.lua
           python tools/build_addon_zones.py addon/DufforthTweaksHelper/ZoneData.lua
           python tools/build_addon_gear.py addon/DufforthTweaksHelper/GearData.lua
+          python tools/build_addon_guide.py addon/DufforthTweaksHelper/GuideData.lua
           python tools/build_addon_prices.py state addon/DufforthTweaksHelper/Prices.lua || true
           python tools/build_addon_zip.py _site/downloads
           cp -r state/. _site/data/ || true

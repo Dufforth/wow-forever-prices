@@ -7,7 +7,11 @@ local ICON = "Interface\\Icons\\INV_Misc_QuestionMark" -- a question mark: help
 local ROW = 26
 -- The last tab is your class (named after it): consumables for everyone, the macro for warriors.
 local TABS = { "Gather", "Disenchant", "Crafting", "Leveling", "Zone", "Class" }
-local WIDTH, HEIGHT = 500, 560
+-- Tabs in one slim row on top: side tabs took too much room (user, 2026-11-13). 560 wide so six
+-- names fit (at 500, "Disenchant" spilled out of its tab).
+local WIDTH, HEIGHT = 560, 560
+local PAGE_WIDTH = WIDTH - 16
+local MIN_HEIGHT, MAX_HEIGHT = 460, 1000
 
 local function DB()
     DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
@@ -112,7 +116,7 @@ end
 
 local function Page(name)
     local page = CreateFrame("Frame", nil, menu)
-    page:SetPoint("TOPLEFT", 8, -58)
+    page:SetPoint("TOPLEFT", 8, -56)
     page:SetPoint("BOTTOMRIGHT", -8, 34)
     page:Hide()
     pages[name] = page
@@ -137,7 +141,7 @@ local function BuildGather(page)
     local y = -4
     y = Header(page, y, "Herb and ore icons on the minimap")
     local status = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    status:SetPoint("TOPLEFT", 12, y); status:SetWidth(WIDTH - 50); status:SetJustifyH("LEFT")
+    status:SetPoint("TOPLEFT", 12, y); status:SetWidth(PAGE_WIDTH - 34); status:SetJustifyH("LEFT")
     refreshers[#refreshers + 1] = function() status:SetText(GatherStatus()) end
     y = y - 58
     y = Check(page, y, "Keep herb and ore icons after swapping tracking", "Remembers each herb and ore dot you hover on the minimap. After you swap tracking, it shows a small picture of that node there (Peacebloom, Copper Ore, and so on), so herbs stay visible while you find minerals and the other way round, for 5 minutes after you last hovered it (see below). While a tracking is on, the game shows its own dots and the addon adds nothing on top. Hover a picture to see its name. Same as /nk on and /nk off.",
@@ -187,7 +191,7 @@ local function BuildWarrior(page)
     y = Header(page, y, "One button for your warrior")
     local function Text(height, font)
         local text = page:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
-        text:SetPoint("TOPLEFT", 12, y); text:SetWidth(WIDTH - 50); text:SetJustifyH("LEFT")
+        text:SetPoint("TOPLEFT", 12, y); text:SetWidth(PAGE_WIDTH - 34); text:SetJustifyH("LEFT")
         y = y - height
         return text
     end
@@ -242,7 +246,7 @@ local CLASS_VIEWS = {
 
 local function RestartNote(frame, what)
     local note = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    note:SetPoint("TOPLEFT", 12, -30); note:SetWidth(WIDTH - 40); note:SetJustifyH("LEFT")
+    note:SetPoint("TOPLEFT", 12, -30); note:SetWidth(PAGE_WIDTH - 24); note:SetJustifyH("LEFT")
     note:SetText("|cffffd100Restart the game to see " .. what .. ".|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
 end
 
@@ -258,15 +262,15 @@ local function BuildClass(page)
             views[#views + 1] = v
             if v.key == "macro" then BuildWarrior(frame)
             elseif v.key == "consumables" then
-                if DufforthTweaksHelperConsumables then DufforthTweaksHelperConsumables.BuildPanel(frame, WIDTH - 16) else RestartNote(frame, "consumables") end
+                if DufforthTweaksHelperConsumables then DufforthTweaksHelperConsumables.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, "consumables") end
             elseif v.key == "gear" then
-                if DufforthTweaksHelperGear then DufforthTweaksHelperGear.BuildPanel(frame, WIDTH - 16) else RestartNote(frame, "gear advice") end
+                if DufforthTweaksHelperGear then DufforthTweaksHelperGear.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, "gear advice") end
             end
         end
     end
     -- Buttons to the other views, right-aligned on the title line.
     for _, v in ipairs(views) do
-        local x = WIDTH - 16
+        local x = PAGE_WIDTH
         for i = #views, 1, -1 do
             local other = views[i]
             if other.key ~= v.key then
@@ -284,7 +288,7 @@ end
 
 local function Build()
     menu = CreateFrame("Frame", "DufforthTweaksHelperMenu", UIParent, "BasicFrameTemplateWithInset")
-    menu:SetSize(WIDTH, HEIGHT)
+    menu:SetSize(WIDTH, math.max(MIN_HEIGHT, math.min(MAX_HEIGHT, DB().menuHeight or HEIGHT)))
     menu:SetPoint("CENTER")
     menu:SetMovable(true); menu:EnableMouse(true); menu:RegisterForDrag("LeftButton")
     menu:SetScript("OnDragStart", menu.StartMoving)
@@ -310,27 +314,27 @@ local function Build()
     -- Each tab is built on its own: one that fails shows its error, and the others still work.
     local function Note(page, text)
         local note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        note:SetPoint("TOPLEFT", 12, -12); note:SetWidth(WIDTH - 40); note:SetJustifyH("LEFT")
+        note:SetPoint("TOPLEFT", 12, -12); note:SetWidth(PAGE_WIDTH - 24); note:SetJustifyH("LEFT")
         note:SetText(text)
     end
     local builders = {
         Gather = function(page) BuildGather(page) end,
         Disenchant = function(page) BuildDisenchant(page) end,
-        Crafting = function(page) DufforthTweaksHelperCrafting.BuildPanel(page, WIDTH - 16) end,
+        Crafting = function(page) DufforthTweaksHelperCrafting.BuildPanel(page, PAGE_WIDTH) end,
         Leveling = function(page)
             -- New files only load after a full game restart, not a /reload: say so instead of failing.
             if not DufforthTweaksHelperLeveling then
                 Note(page, "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
                 return
             end
-            DufforthTweaksHelperLeveling.BuildPanel(page, WIDTH - 16)
+            DufforthTweaksHelperLeveling.BuildPanel(page, PAGE_WIDTH)
         end,
         Zone = function(page)
             if not DufforthTweaksHelperZone then
                 Note(page, "|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload.")
                 return
             end
-            DufforthTweaksHelperZone.BuildPanel(page, WIDTH - 16)
+            DufforthTweaksHelperZone.BuildPanel(page, PAGE_WIDTH)
         end,
         Class = function(page) BuildClass(page) end,
     }
@@ -358,6 +362,38 @@ local function Build()
     box:SetScript("OnEnter", function(self) ShowTip(self, "Left-click opens this window, right-click opens the disenchant list, drag moves it. If hidden, type /dufforth.") end)
     box:SetScript("OnLeave", function() GameTooltip:Hide() end)
     refreshers[#refreshers + 1] = function() box:SetChecked(not (DB().minimap or {}).hide) end
+    -- Edit mode: every on-screen piece shows with a green frame to drag, then lock them in one click.
+    local move = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
+    move:SetSize(110, 22); move:SetPoint("BOTTOMRIGHT", -26, 8)
+    move:SetScript("OnClick", function()
+        if not DufforthTweaksHelper.SetEditMode(not DufforthTweaksHelper.EditMode()) then
+            ShowTip(move, "Not in combat: some pieces are locked by the game during fights.")
+        end
+        RefreshMenu()
+    end)
+    move:SetScript("OnEnter", function(self) ShowTip(self, "Shows the warrior icon, the eat button and the spell notice with a green frame so you can drag them where you like. Click again to lock them. Same as /dth move.") end)
+    move:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    refreshers[#refreshers + 1] = function() move:SetText(DufforthTweaksHelper.EditMode() and "Lock pieces" or "Move pieces") end
+
+    -- Taller or shorter: drag the corner. Lists show as many rows as fit; the height is remembered.
+    menu:SetResizable(true)
+    if menu.SetResizeBounds then menu:SetResizeBounds(WIDTH, MIN_HEIGHT, WIDTH, MAX_HEIGHT)
+    elseif menu.SetMinResize then menu:SetMinResize(WIDTH, MIN_HEIGHT); menu:SetMaxResize(WIDTH, MAX_HEIGHT) end
+    local grip = CreateFrame("Button", nil, menu)
+    grip:SetSize(16, 16); grip:SetPoint("BOTTOMRIGHT", -4, 4)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:SetScript("OnMouseDown", function() menu:StartSizing("BOTTOMRIGHT") end)
+    grip:SetScript("OnMouseUp", function()
+        menu:StopMovingOrSizing()
+        DB().menuHeight = math.floor(menu:GetHeight() + 0.5)
+        RefreshMenu()
+        if DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.Refresh then pcall(DufforthTweaksHelperLeveling.Refresh) end
+    end)
+    grip:SetScript("OnEnter", function(self) ShowTip(self, "Drag to make the window taller or shorter.") end)
+    grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     if DB().menuTab == "Warrior" then DB().menuTab = "Class" end -- the Warrior tab became your class's tab
     ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Gather")
 end

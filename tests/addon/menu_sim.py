@@ -218,6 +218,44 @@ check("clicking Macro shows the macro again", g.DufforthTweaksHelperDB.classView
 g.DufforthTweaksHelperMenu_Toggle("gear")
 check("/dufforth gear opens the Gear view", g.DufforthTweaksHelperDB.menuTab == "Class" and g.DufforthTweaksHelperDB.classView == "gear")
 check("the Gear view has its buttons to Consumables and Macro", len([f for f in g.ALL.values() if f.kind == "Button" and f.text == "Gear"]) == 2)
+# Interface 4.20: side tabs, Edit mode, folding sections.
+move = [f for f in g.ALL.values() if f.kind == "Button" and f.text in ("Move pieces", "Lock pieces")]
+check("Edit mode: a Move pieces button", len(move) == 1)
+move[0].scripts.OnClick(move[0])
+check("Edit mode: one click turns it on", g.DufforthTweaksHelper.EditMode() is True and move[0].text == "Lock pieces")
+move[0].scripts.OnClick(move[0])
+check("Edit mode: a second click locks again", g.DufforthTweaksHelper.EditMode() is False and move[0].text == "Move pieces")
+lua.execute("""
+DufforthTweaksHelperPrices["forever.normal.horde.us"] = DufforthTweaksHelperPrices["forever.normal.horde.us"] or {}
+for _, r in ipairs(DufforthTweaksHelperConsumableData) do DufforthTweaksHelperPrices["forever.normal.horde.us"][r[1]] = 100 end
+DufforthTweaksHelper.MarketName = function() return "forever.normal.horde.us" end
+""")
+g.DufforthTweaksHelperMenu_Toggle("consumables")
+g.DufforthTweaksHelperConsumables.Refresh()
+lua.execute("""
+function HEADERLINE(start)
+  for _, f in ipairs(ALL) do
+    local n = rawget(f, "name")
+    if f.kind == "Button" and type(n) == "table" and type(rawget(n, "text")) == "string" and string.sub(n.text, 1, #start) == start then return f end
+  end
+end
+""")
+def header_line(start):
+    return lua.globals().HEADERLINE(start)
+food = header_line("|cffffd100Food")
+check("sections: a gold title with a minus button when open", food is not None and "MinusButton" in str(food["icon"].texture))
+food.scripts.OnClick(food)
+folded = header_line("|cffffd100Food")
+check("sections: a click folds it, shows a plus button and remembers", g.DufforthTweaksHelperDB.collapsed["cons:food"] is True
+      and "PlusButton" in str(folded["icon"].texture))
+folded.scripts.OnClick(folded)
+check("sections: a second click opens it", g.DufforthTweaksHelperDB.collapsed["cons:food"] is None)
+child = None
+for f in g.ALL.values():
+    if f.kind == "Button" and lua.eval("function(f) local d = rawget(f, 'dthDecor'); return d and d.guide.shown and rawget(f, 'shown') end")(f):
+        child = f
+        break
+check("sections: items under a title are indented with a guide line", child is not None)
 g.DufforthTweaksHelperMenu_Toggle("gather")
 check("the minimap button is a question mark (help)", 'local ICON = "Interface' in source("Menu.lua") and 'INV_Misc_QuestionMark" -- a question mark' in source("Menu.lua"))
 

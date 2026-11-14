@@ -201,3 +201,46 @@ class WarriorHistoryTests(unittest.TestCase):
         self.saved.write_text(self.SAVED.replace("at = 100", "at = 300"), encoding="utf-8")
         self.assertEqual(self.tool.archive(str(self.game), self.history), (1, 3))
         self.assertEqual(sorted(r["fight"]["at"] for r in self.records()), [100, 200, 300])
+
+
+class CompareSetupsTest(unittest.TestCase):
+    def test_groups_by_setup_talents_and_stance(self):
+        import compare_setups
+        fights = [
+            {"fight": {"setup": "2H", "talents": "Arms 17 / Fury 0 / Protection 0", "stance": 1, "seconds": 10, "damageTotal": 600,
+                       "damageTaken": 300, "result": "won", "level": 26}},
+            {"fight": {"setup": "1H+shield", "talents": "Arms 0 / Fury 0 / Protection 17", "stance": 2, "seconds": 20, "damageTotal": 800,
+                       "damageTaken": 150, "result": "won", "level": 26}},
+            {"fight": {"stance": 1, "seconds": 15, "damageTotal": 700, "damageTaken": 100, "result": "died", "level": 25},
+             "gear": {"items": {"mainhand": {"name": "Sword"}, "offhand": {"name": "Shield"}}}},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "h.jsonl"
+            path.write_text("\n".join(json.dumps(f) for f in fights), encoding="utf-8")
+            g = compare_setups.table(path)
+        two = g.loc[("2H", "Arms 17 / Fury 0 / Protection 0", "Battle")]
+        self.assertEqual(two.dps, 60.0)
+        self.assertEqual(two.per_kill_with_rest, 20.0)  # 10 s + 300 health / 30 per second
+        old = g.loc[("1H+off hand", "not saved", "Battle")]
+        self.assertEqual(old.deaths, 1)
+
+
+class BuildAddonGuideTest(unittest.TestCase):
+    def test_writes_routes_quests_and_map_ids_as_lua(self):
+        import build_addon_guide
+        data = {"uiMaps": {"Durotar": 1411}, "extras": {"class": [2], "dungeon": [], "item": []},
+                "routes": {"Durotar": {"races": ["Orc", "Troll"], "steps": [["accept", 1, "Durotar", 42.1, 68.3, 1, 'Accept "Cutting Teeth" from Gornek']]}},
+                "quests": {"1": ["Cutting Teeth", 2, 1, 0, "", 0, 0, "Gornek", ["Durotar", 42.1, 68.3], "Gornek", ["Durotar", 42.1, 68.3],
+                                 [["kill", "Mottled Boar", 10, "Durotar", 44.0, 70.0]], [], 0, 2]}}
+        text = build_addon_guide.lua(data)
+        import lupa.lua51 as L
+        lua = L.LuaRuntime()
+        lua.execute(text)
+        g = lua.globals().DufforthTweaksHelperGuideData
+        self.assertEqual(g.uiMaps["Durotar"], 1411)
+        self.assertEqual(g.routes["Durotar"].steps[1][2], 1)
+        self.assertEqual(g.routes["Durotar"].steps[1][7], 'Accept "Cutting Teeth" from Gornek')
+        self.assertEqual(g.routes["Durotar"].races[2], "Troll")
+        self.assertEqual(g.quests[1][1], "Cutting Teeth")
+        self.assertEqual(g.quests[1][12][1][2], "Mottled Boar")
+        self.assertEqual(g.extras["class"][1], 2)

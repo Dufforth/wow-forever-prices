@@ -367,6 +367,13 @@ end
 --   profession switcher | two options | Plan / Shopping list + total | summary | notice |
 --   ROWS rows | page count and scroll arrows. Long text is cut to its row; hovering shows all of it.
 local panel, lines, rows, offset = nil, {}, {}, 0
+
+-- Rows that fit the page now (the window can be made taller or shorter).
+local function VisibleRows()
+    local h = panel and panel.GetHeight and panel:GetHeight() or 0
+    if not h or h <= 0 or not Leveling.LAYOUT then return #lines end
+    return math.max(4, math.min(#lines, math.floor((h + Leveling.LAYOUT.rows - 28) / ROW_HEIGHT)))
+end
 -- Which game windows are open: vendor, auction house, profession window.
 local where = { merchant = false, auction = false, tradeSkill = false, trainer = false }
 
@@ -550,7 +557,7 @@ end
 local function Draw()
     local shopping = DB().view == VIEW_SHOP
     for i, line in ipairs(lines) do
-        local row = rows[i + offset]
+        local row = i <= VisibleRows() and rows[i + offset] or nil
         line.row = row
         line:SetShown(row ~= nil)
         -- Materials sit indented under their step, with a smaller icon.
@@ -609,8 +616,8 @@ local function Draw()
             line.detail:SetText(SignedMoney(math.floor(s.cost / math.max(1, s.to - s.from))) .. " a point")
         end
     end
-    local last = math.min(offset + #lines, #rows)
-    panel.pageText:SetText(#rows > #lines and string.format("%d-%d of %d", offset + 1, last, #rows) or "")
+    local last = math.min(offset + VisibleRows(), #rows)
+    panel.pageText:SetText(#rows > VisibleRows() and string.format("%d-%d of %d", offset + 1, last, #rows) or "")
     panel.up:SetEnabled(offset > 0)
     panel.down:SetEnabled(last < #rows)
     panel.planButton:SetEnabled(shopping)
@@ -624,7 +631,7 @@ local function Draw()
 end
 
 local function Scroll(by)
-    offset = math.max(0, math.min(offset + by, #rows - #lines))
+    offset = math.max(0, math.min(offset + by, #rows - VisibleRows()))
     Draw()
 end
 
@@ -1215,7 +1222,7 @@ RefreshNow = function()
         end
         panel.summary:SetText(string.format("To %d: about %d crafts in %d steps", plan.reached, plan.crafts, #plan.steps))
     end
-    offset = math.max(0, math.min(offset, #rows - #lines))
+    offset = math.max(0, math.min(offset, #rows - VisibleRows()))
     Draw()
 end
 
@@ -1401,7 +1408,7 @@ function Leveling.BuildPanel(parent, width)
     -- Rows fill the space down to the page bar.
     local height = parent.GetHeight and parent:GetHeight() or 0
     local count = height > 0 and math.floor((height + L.rows - 28) / ROW_HEIGHT) or VISIBLE_ROWS
-    count = math.max(4, math.min(count, 12))
+    count = 20 -- more than fit; VisibleRows() decides how many show
     for i = 1, count do
         local line = CreateFrame("Button", nil, parent)
         line:SetSize(width - 8, ROW_HEIGHT)
@@ -1443,9 +1450,9 @@ function Leveling.BuildPanel(parent, width)
     end
     Leveling.LAYOUT.rowCount = count
 
-    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-#lines) end)
+    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-VisibleRows()) end)
     panel.up:SetPoint("BOTTOMRIGHT", -30, 2)
-    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(#lines) end)
+    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(VisibleRows()) end)
     panel.down:SetPoint("LEFT", panel.up, "RIGHT", 4, 0)
     panel.pageText = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.pageText:SetPoint("RIGHT", panel.up, "LEFT", -6, 0); panel.pageText:SetJustifyH("RIGHT")

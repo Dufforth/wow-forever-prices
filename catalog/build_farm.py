@@ -39,7 +39,7 @@ ZONE_TYPE = 3
 BATTLEGROUNDS = {30, 489, 529}  # Alterac Valley, Warsong Gulch, Arathi Basin: not farmable
 CITIES = {"Stormwind City", "Ironforge", "Darnassus", "Orgrimmar", "Thunder Bluff", "Undercity"}
 RANKS = {1: "elite", 2: "rare elite", 3: "boss", 4: "rare"}
-SKIP_TITLE = re.compile(r"deprecated|unused|\[ph\]|<|zz|test", re.I)
+SKIP_TITLE = re.compile(r"deprecated|unused|\[ph\]|<|zz|^test\b|\btest$", re.I)  # placeholders; not "The Test of Skulls"
 
 
 # ---- Reading the SQL dump ----------------------------------------------------------

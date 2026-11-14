@@ -115,6 +115,10 @@ base = "on = true, inCombat = false, dead = false, wellFed = nil, eating = nil, 
 check("reminder: out of combat and not Well Fed", lua.eval("C.ShouldRemind({" + base + "})"))
 for k, v in (("inCombat", "true"), ("wellFed", "'Well Fed'"), ("eating", "'Food'"), ("dead", "true"), ("on", "false"), ("level", "60")):
     check(f"reminder: not when {k} = {v}", not lua.eval("C.ShouldRemind({" + base + f", {k} = {v}" + "})"))
+lua.execute("BUY = C.FoodToBuy(DATA, 'WARRIOR', 30, PRICES)")
+check("buy food: the recommended food for your class", lua.eval("BUY.row[2]") == "Strong Food" and lua.eval("BUY.price") == 10000)
+check("buy food: a mage gets the Intellect food", lua.eval("C.FoodToBuy(DATA, 'MAGE', 30, PRICES).row[2]") == "Brain Food")
+check("buy food: nothing priced, nothing suggested", lua.eval("C.FoodToBuy(DATA, 'WARRIOR', 30, {})") is None)
 check("describe: plain words", lua.eval('C.Describe({ str = 20, xp = 5 })') == "+20 Strength, +5% kill experience", lua.eval('C.Describe({ str = 20, xp = 5 })'))
 check("describe: restores", lua.eval('C.Describe({ hp = 500 })') == "500 health")
 check("duration", lua.eval("C.Duration(900)") == "15 min" and lua.eval("C.Duration(7200)") == "2 h" and lua.eval("C.Duration(0)") == "instant")

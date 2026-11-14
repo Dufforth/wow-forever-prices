@@ -239,6 +239,32 @@ end
 -- ---- Panel ----
 local ROW_HEIGHT, TOP = 30, -40
 local panel, lines, rows, offset = nil, {}, {}, 0
+
+-- Rows that fit the page now: the window can be made taller or shorter, so more rows are made than
+-- fit and the rest stay hidden.
+local function Shown()
+    local h = panel and panel.GetHeight and panel:GetHeight() or 0
+    if not h or h <= 0 then return #lines end
+    return math.max(4, math.min(#lines, math.floor((h + TOP - 20) / ROW_HEIGHT)))
+end
+
+-- Sections fold with a click on their header; folded ones are remembered (DB.collapsed[key]).
+local function Collapsed(key)
+    local c = DufforthTweaksHelperDB and DufforthTweaksHelperDB.collapsed
+    return c and c[key] or false
+end
+local function Section(key, title, note, entries)
+    local closed = Collapsed(key)
+    rows[#rows + 1] = { header = title, key = key, closed = closed, count = #entries, note = note }
+    if not closed then for _, e in ipairs(entries) do rows[#rows + 1] = e end end
+end
+local function Toggle(key)
+    if not key then return end
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    DufforthTweaksHelperDB.collapsed = DufforthTweaksHelperDB.collapsed or {}
+    DufforthTweaksHelperDB.collapsed[key] = (not DufforthTweaksHelperDB.collapsed[key]) or nil
+    Gear.Refresh()
+end
 local QUALITY = { [0] = "9d9d9d", [1] = "ffffff", [2] = "1eff00", [3] = "0070dd", [4] = "a335ee" }
 
 local function Money(c) return DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(c) or tostring(c) end
@@ -260,16 +286,18 @@ end
 local function Draw()
     local auction = AtAuction()
     for i, line in ipairs(lines) do
-        local r = rows[offset + i]
+        local r = i <= Shown() and rows[offset + i] or nil
         line.row = r
         line:SetShown(r ~= nil)
         local searching = r ~= nil and not r.header and r.candidate.source == "auction" and auction and true or false
         line.search:SetShown(searching)
         PlaceRight(line, searching)
         if r and r.header then
-            line.icon:Hide(); line.cost:SetText(""); line.detail:SetText("")
-            line.name:SetText("|cff73bfff" .. r.header .. "|r"); line.sub:SetText(r.note or "")
+            DufforthTweaksHelper.StyleRow(line, "header", r.closed)
+            line.cost:SetText(""); line.detail:SetText(r.closed and ("|cffaaaaaa" .. r.count .. " hidden|r") or "")
+            line.name:SetText("|cffffd100" .. r.header .. "|r"); line.sub:SetText(r.closed and "" or (r.note or ""))
         elseif r then
+            DufforthTweaksHelper.StyleRow(line, "child")
             local c = r.candidate
             line.icon:Show()
             line.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(c.id)) or (GetItemIcon and GetItemIcon(c.id)) or "Interface\\Icons\\INV_Misc_QuestionMark")
@@ -281,11 +309,11 @@ local function Draw()
             line.detail:SetText("points")
         end
     end
-    panel.pageText:SetText(#rows > #lines and string.format("%d / %d", math.floor(offset / #lines) + 1, math.ceil(#rows / #lines)) or "")
+    panel.pageText:SetText(#rows > Shown() and string.format("%d / %d", math.floor(offset / Shown()) + 1, math.ceil(#rows / Shown())) or "")
 end
 
 local function Scroll(delta)
-    offset = math.max(0, math.min(offset + delta, math.max(0, #rows - #lines)))
+    offset = math.max(0, math.min(offset + delta, math.max(0, #rows - Shown())))
     Draw()
 end
 
@@ -303,17 +331,11 @@ function Gear.Refresh()
     for _, u in ipairs(upgrades) do
         if u.candidate.source == "quest" then quest[#quest + 1] = u else auction[#auction + 1] = u end
     end
-    if #quest > 0 then
-        rows[#rows + 1] = { header = "From quests you can do now" }
-        for _, u in ipairs(quest) do rows[#rows + 1] = u end
-    end
-    if #auction > 0 then
-        rows[#rows + 1] = { header = "From the auction house" }
-        for _, u in ipairs(auction) do rows[#rows + 1] = u end
-    end
+    if #quest > 0 then Section("gear:quest", "From quests you can do now", nil, quest) end
+    if #auction > 0 then Section("gear:auction", "From the auction house", nil, auction) end
     panel.status:SetText(waiting > 0 and string.format("Loading %d items from the game...", waiting) or "")
     panel.empty:SetText(#rows > 0 and "" or (waiting > 0 and "Loading item data, one moment." or "No upgrades found: your gear beats what the AH and your quests offer at your level."))
-    offset = math.min(offset, math.max(0, #rows - #lines))
+    offset = math.min(offset, math.max(0, #rows - Shown()))
     Draw()
 end
 
@@ -355,7 +377,7 @@ function Gear.BuildPanel(parent, width)
     panel.empty:SetPoint("TOPLEFT", 12, TOP - 8); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
     local height = parent.GetHeight and parent:GetHeight() or 0
     local count = height > 0 and math.floor((height + TOP - 20) / ROW_HEIGHT) or 13
-    count = math.max(4, math.min(count, 20))
+    count = 24 -- more than fit; Shown() decides how many show
     for i = 1, count do
         local line = CreateFrame("Button", nil, parent)
         line:SetSize(width - 8, ROW_HEIGHT)
@@ -380,11 +402,12 @@ function Gear.BuildPanel(parent, width)
         line.search:Hide()
         line:SetScript("OnEnter", ShowRow)
         line:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        line:SetScript("OnClick", function(self) if self.row and self.row.header then Toggle(self.row.key) end end)
         lines[i] = line
     end
-    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-#lines) end)
+    panel.up = DufforthTweaksHelper.ArrowButton(parent, "up", function() Scroll(-Shown()) end)
     panel.up:SetPoint("BOTTOMRIGHT", -30, 2)
-    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(#lines) end)
+    panel.down = DufforthTweaksHelper.ArrowButton(parent, "down", function() Scroll(Shown()) end)
     panel.down:SetPoint("LEFT", panel.up, "RIGHT", 4, 0)
     panel.pageText = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.pageText:SetPoint("RIGHT", panel.up, "LEFT", -6, 0); panel.pageText:SetJustifyH("RIGHT")

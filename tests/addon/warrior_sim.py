@@ -147,6 +147,17 @@ update()
 check("level 26 spellbook: the macro has Execute for Battle Stance, not Overpower",
       "/cast [form:1] Execute" in macro() and "Overpower" not in macro())
 check("level 26 macro fits 255 characters", len(macro()) <= 255)
+setup(["Battle Stance", "Defensive Stance", "Heroic Strike", "Battle Shout", "Charge", "Rend", "Overpower", "Sunder Armor",
+       "Revenge", "Shield Block", "Execute", "Bloodrage"], [2457, 71])
+update()
+body = macro()
+check("Bloodrage: once per fight when it fits (Battle Shout's line goes first when the buff is missing)",
+      len(body) <= 255 and ("/castsequence [combat]reset=combat Bloodrage,nil" in body or "Battle Shout" in body)
+      and "/cast [combat] Bloodrage" not in body)
+picks = W.ButtonPick(W.ParseMacro("/startattack\n/cast [form:1] Execute\n/cast [form:1] Heroic Strike\n/cast [combat] Bloodrage"),
+                     lua.table_from({"known": lua.table_from({"Execute": True, "Heroic Strike": True, "Bloodrage": True}), "stance": 1, "inCombat": True}),
+                     lambda n: n != "Execute", 0)
+check("icon: Bloodrage is never the pick (Heroic Strike shows while Execute waits)", picks[0] == "Heroic Strike" if isinstance(picks, tuple) else picks == "Heroic Strike")
 setup(["Battle Stance", "Berserker Stance", "Whirlwind", "Heroic Strike"], [2457, 2458])
 update()
 check("Berserker on slot 2 uses form:2", "/castsequence [form:2] Whirlwind,Heroic Strike" in macro())
@@ -223,6 +234,39 @@ check("Shatter Curse: suggested when a curse is on you", W.CursePrompt(lua.table
 check("Shatter Curse: not without a curse", W.CursePrompt(lua.table_from({"known": kc}), lambda n: True, None) is None)
 check("Shatter Curse: not if you don't know it", W.CursePrompt(lua.table_from({"known": lua.table_from({})}), lambda n: True, "Bane") is None)
 check("Shatter Curse: never written into the button", "Shatter Curse" not in macro())
+# In combat: a curse seen through UNIT_AURA's report, removed when it ends; hidden reports are counted.
+lua.execute("""
+W = DufforthTweaksHelperWarrior
+W.curses = {}
+W.TrackCurse({ addedAuras = { { auraInstanceID = 7, name = "Curse of Weakness", dispelName = "Curse" }, { auraInstanceID = 8, name = "Rend" } } })
+""")
+check("curse signal: a curse in the aura report is tracked", lua.eval("W.curses[7]") == "Curse of Weakness" and lua.eval("W.curses[8]") is None)
+lua.execute("C_UnitAuras = { GetAuraDataByIndex = function() error('blocked') end }; INCOMBAT = true")
+check("curse signal: in combat the tracked curse is used even when the aura list is blocked", W.CurseOnYou() == "Curse of Weakness")
+lua.execute("W.TrackCurse({ removedAuraInstanceIDs = { 7 } }); INCOMBAT = false; C_UnitAuras = nil")
+check("curse signal: removed when it ends", lua.eval("W.curses[7]") is None)
+sig = lua.eval("DufforthTweaksHelperDB.warrior.debug.auraSignal")
+check("curse signal: reports are counted for diagnosis", sig is not None and sig.reports >= 2 and sig.curses >= 1)
+# Charge range note.
+check("charge: in range", "In Charge range" in W.ChargeNote(True, False))
+check("charge: too close", "Too close" in W.ChargeNote(False, True))
+check("charge: too far", "closer" in W.ChargeNote(False, False))
+# Talents and weapon setup per fight.
+lua.execute("""
+GetNumTalentTabs = function() return 3 end
+TT = { { "Arms", 132355, 10, "WarriorArms" }, { 161, "Fury", "desc", 132347, 0, "bg", 0, true }, { "Protection", 134952, 7 } }
+GetTalentTabInfo = function(i) return unpack(TT[i]) end
+""")
+check("talents: both return layouts read (" + str(W.TalentText()) + ")", W.TalentText() == "Arms 10 / Fury 0 / Protection 7")
+lua.execute("""
+INV = { [16] = 1, [17] = 2 }
+LOCS = { [1] = "INVTYPE_WEAPONMAINHAND", [2] = "INVTYPE_SHIELD", [3] = "INVTYPE_2HWEAPON" }
+GetInventoryItemID = function(_, slot) return INV[slot] end
+GetItemInfoInstant = function(id) return id, "", "", LOCS[id] end
+""")
+check("setup: one-hander and shield", W.WeaponSetup() == "1H+shield")
+lua.execute("INV = { [16] = 3 }")
+check("setup: two-hander", W.WeaponSetup() == "2H")
 # Forever blocks aura reads in combat: the check must not raise (it froze the icon on Charge).
 lua.execute("""
 SAVED_AURAS = C_UnitAuras
