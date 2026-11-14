@@ -1624,19 +1624,13 @@ function W.ClearLog() DB().fights = {}; DB().macros = {} end
 
 local logEvents = CreateFrame("Frame")
 Listen(logEvents, { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SUCCEEDED",
-    "UI_ERROR_MESSAGE", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED", "COMBAT_LOG_EVENT_UNFILTERED",
+    "UI_ERROR_MESSAGE", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED",
     "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" })
 logEvents:SetScript("OnEvent", W.Guard("fight log", function(_, event, a, b, c, ...)
     CountEvent(event)
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        if not W.IsWarrior() or not CombatLogGetCurrentEventInfo then return end
-        local _, subevent, _, sourceGUID, sourceName, sourceFlags, _, destGUID, destName, destFlags, _, p12, _, _, p15 =
-            CombatLogGetCurrentEventInfo()
-        if subevent == "UNIT_DIED" then W.ForgetDead(destGUID); return end
-        -- Swings put the amount 12th; spells put it 15th.
-        W.CombatLog(subevent, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags,
-            subevent == "SWING_DAMAGE" and p12 or (string.find(subevent, "_DAMAGE$") and p15 or 0))
-    elseif event == "PLAYER_REGEN_DISABLED" then W.FightStart()
+    -- No combat log: Forever forbids addons to register it, and trying shows the game's "blocked from an
+    -- action" popup (user, 2026-11-13). W.CombatLog stays for clients that allow it.
+    if event == "PLAYER_REGEN_DISABLED" then W.FightStart()
     elseif event == "PLAYER_REGEN_ENABLED" then W.FightEnd(); W.recent = {}; W.SequenceCombatEnded()
     elseif event == "PLAYER_DEAD" then W.LogDied()
     elseif event == "PLAYER_TARGET_CHANGED" then AddEnemy("target")

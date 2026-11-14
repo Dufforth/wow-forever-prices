@@ -292,7 +292,14 @@ check("nothing ready shows nothing", next_spell(set()) is None)
 
 # ---- Fight log ----
 g.INCOMBAT = True
-log_frame = [f for f in g.FRAMES.values() if f.events["COMBAT_LOG_EVENT_UNFILTERED"]][0]
+log_frame = [f for f in g.FRAMES.values() if f.events["PLAYER_REGEN_DISABLED"] and f.events["UNIT_SPELLCAST_SENT"]][0]
+# User (2026-11-13, popup 'DufforthTweaksHelper has been blocked from an action only available to the Blizzard UI'):
+# the game log showed RegisterEvent('COMBAT_LOG_EVENT_UNFILTERED') in Warrior.lua; Forever forbids it to addons.
+check("no frame registers the combat log (forbidden on Forever)", not any(f.events["COMBAT_LOG_EVENT_UNFILTERED"] for f in g.FRAMES.values()))
+import re as _re
+from pathlib import Path as _P
+offenders = [p.name for p in _P(ADDON).glob("*.lua") if _re.search(r'RegisterEvent[^\n]*COMBAT_LOG_EVENT|"COMBAT_LOG_EVENT_UNFILTERED"', p.read_text(encoding="utf-8"))]
+check("no addon file asks for the combat log " + str(offenders), offenders == [])
 
 
 def fire(event, *args):
@@ -381,7 +388,7 @@ CreateFrame = function(...) local f = real(...); f.RegisterEvent = function(self
 """)
 lua.execute(source("Warrior.lua"))
 check("an unknown event name is skipped, the rest still registers",
-      any(f.events["COMBAT_LOG_EVENT_UNFILTERED"] for f in list(g.FRAMES.values())[-3:]))
+      any(f.events["UNIT_SPELLCAST_SENT"] for f in list(g.FRAMES.values())[-3:]))
 check("an error while building shows on the tab", (lambda: (lua.execute("UnitClass = function() error('boom') end"), W.SafeUpdate(), "Error" in W.state.status)[2])())
 
 # ---- Diagnostics in the saved file ----

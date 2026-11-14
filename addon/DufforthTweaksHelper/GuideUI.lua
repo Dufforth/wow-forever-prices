@@ -610,6 +610,15 @@ local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
     return top, fits
 end
 
+-- The arrow's line: the first step's action, without the quest name after it, and how many more steps the
+-- block holds (user, 2026-11-13: the arrow showed every grouped step with its quest name).
+function UI.ArrowText(model, group, adapter)
+    local d = DufforthTweaksHelperGuide.Describe(model, group[1])
+    local action = string.gsub(d and d.action or "", "%s*|cffaaaaaa%(.-%)|r$", "")
+    local more = #group > 1 and string.format(" |cffaaaaaa+%d more|r", #group - 1) or ""
+    return "|T" .. (d and d.icon or "") .. ":14:14|t " .. action .. more
+end
+
 -- Class, dungeon and gray quests: what each is, where its giver is, and what a click does.
 local function Where2(e) return e.zone and string.format("%s %d, %d", e.zone, math.floor((e.x or 0) + 0.5), math.floor((e.y or 0) + 0.5)) or "?" end
 
@@ -978,7 +987,7 @@ function UI.Refresh()
             -- Far away: the arrow points at the first leg (the zeppelin tower, the flight master).
             UI.target = { map = model.data.uiMaps[first.zone], x = first.x, y = first.y, zone = first.zone, text = "1. " .. first.text }
         elseif map and x and y then
-            UI.target = { map = map, x = x, y = y, zone = zone, text = (GroupText(model, blocks[1], adapter)) }
+            UI.target = { map = map, x = x, y = y, zone = zone, text = UI.ArrowText(model, blocks[1], adapter) }
         end
     end
     if UI.override and UI.override.map then UI.target = UI.override end -- you clicked a class or dungeon quest
