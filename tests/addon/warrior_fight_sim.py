@@ -37,6 +37,7 @@ STANCE_IDS = {"battle": 2457, "defensive": 71, "berserker": 2458}
 
 def build(spells, stances, level, shield=True, group=False, buffs=()):
     lua = L.LuaRuntime(unpack_returned_tuples=True)
+    for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
     lua.execute(MOCK)
     lua.execute(source("Core.lua"))
     lua.execute(source("Warrior.lua"))

@@ -63,12 +63,12 @@ COZY_SLEEPING_BAG = {
     "note": "Cozy Sleeping Bag: a hidden chain from the Barrens to Westfall, Stonetalon, Loch Modan and Thoradin's Wall. "
             "Starts at level 14; level 30+ recommended (Loch Modan and Arathi). Rewards the 12-slot Cozy Sleeping Bag.",
     "quests": {
-        79007: _q("...and that note you found", 40, 0, 79192, "Burned-Out Remains", BARRENS, "Nailed Plank", WESTFALL),
-        79192: _q("Stepping Stones", 40, 79007, 79980, "Nailed Plank", WESTFALL, "Pocket Litter", STONETALON),
-        79980: _q("Scramble", 40, 79192, 79974, "Pocket Litter", STONETALON, "Mound of Dirt", STONETALON),
-        79974: _q("Wet Job", 40, 79980, 79975, "Mound of Dirt", STONETALON, "Carved Figurine", LOCH),
-        79975: _q("Eagle's Fist", 40, 79974, 79976, "Carved Figurine", LOCH, "Messenger Bag", HILLSBRAD),
-        79976: _q("This Must Be The Place", 40, 79975, 0, "Messenger Bag", HILLSBRAD, "Hastily Rolled-Up Satchel", HILLSBRAD),
+        79007: _q("...and that note you found", 14, 0, 79192, "Burned-Out Remains", BARRENS, "Nailed Plank", WESTFALL),
+        79192: _q("Stepping Stones", 14, 79007, 79980, "Nailed Plank", WESTFALL, "Pocket Litter", STONETALON),
+        79980: _q("Scramble", 14, 79192, 79974, "Pocket Litter", STONETALON, "Mound of Dirt", STONETALON),
+        79974: _q("Wet Job", 14, 79980, 79975, "Mound of Dirt", STONETALON, "Carved Figurine", LOCH),
+        79975: _q("Eagle's Fist", 14, 79974, 79976, "Carved Figurine", LOCH, "Messenger Bag", HILLSBRAD),
+        79976: _q("This Must Be The Place", 14, 79975, 0, "Messenger Bag", HILLSBRAD, "Hastily Rolled-Up Satchel", HILLSBRAD),
     },
     "steps": [
         ["accept", 79007, *BARRENS, 14, "Click the Burned-Out Remains south of Camp Taurajo: take the note", 0],

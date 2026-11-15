@@ -56,7 +56,7 @@ for f in [l.strip() for l in toc if l.strip().endswith(".lua")]:
     except Exception as e:
         bad = True
         print("LOAD ERROR", f, str(e)[:300])
-for tab in ("leveling", "zone", "crafting", "warrior", "disenchant", "leveling"):
+for tab in ("leveling", "zone", "grind", "fishing", "crafting", "warrior", "disenchant", "leveling"):
     try:
         lua.execute(f'DufforthTweaksHelperMenu_Toggle("{tab}")')
     except Exception as e:
@@ -67,6 +67,31 @@ print("chat:", chat[:400])
 lua.execute("DufforthTweaksHelperLeveling.Refresh()")
 texts = lua.eval('(function() local o = {} for _, f in ipairs(ALL) do local t = rawget(f, "text"); if t and (string.find(t, "/ 150", 1, true) or string.find(t, "To 150", 1, true) or string.find(t, "error", 1, true) or string.find(t, "crafts", 1, true)) then o[#o+1] = t end end return table.concat(o, " || ") end)()')
 print("leveling tab:", texts[:500])
-ok = not bad and "error" not in texts.lower() and "crafts" in texts
+# Grind tab: asks the spec first (Forever doesn't give talents), then lists spots; hover and click work.
+grind_ok = True
+try:
+    lua.execute('DufforthTweaksHelperMenu_Toggle("grind"); DufforthTweaksHelperGrind.Refresh()')
+    asking = lua.eval('(function() for _, f in ipairs(ALL) do local t = rawget(f, "text"); if t and string.find(t, "Which spec", 1, true) then return true end end return false end)()')
+    lua.execute('DufforthTweaksHelperGrind.ChooseSpec("arms")')
+    rows = lua.eval('(function() local n = 0 for _, f in ipairs(ALL) do local t = rawget(f, "text"); if t and string.find(t, "xp/h", 1, true) then n = n + 1 end end return n end)()')
+    lua.execute('local p = DufforthTweaksHelperGrind.Player(); local list = DufforthTweaksHelperGrind.List(DufforthTweaksHelperGrindSpots, p, DufforthTweaksHelperGrindItems, {}, "xp"); DufforthTweaksHelperGrind.Tooltip(UIParent, list[1]); DufforthTweaksHelperGrind.PinSpot(list[1])')
+    print("grind tab: asked spec", asking, "rows", rows)
+    grind_ok = asking is True and rows > 3
+except Exception as e:
+    grind_ok = False
+    print("GRIND ERROR", str(e)[:300])
+# Fishing tab: hidden without Fishing, shown and built (key, perks) once Fishing is known.
+fish_ok = True
+try:
+    hidden = lua.eval('(function() for _, f in ipairs(ALL) do if rawget(f, "isTab") and rawget(f, "text") == "Fishing" then return f.shown end end end)()')
+    lua.execute('IsPlayerSpell = function(id) return id == 7620 end; DufforthTweaksHelperMenu_Toggle("fishing")')
+    shown = lua.eval('(function() for _, f in ipairs(ALL) do if rawget(f, "isTab") and rawget(f, "text") == "Fishing" then return f.shown end end end)()')
+    keyrow = lua.eval('(function() for _, f in ipairs(ALL) do if rawget(f, "text") == "Fishing key" then return true end end return false end)()')
+    print("fishing tab: hidden without Fishing", hidden is False, "shown with it", shown, "built", keyrow)
+    fish_ok = hidden is False and shown is True and keyrow is True and lua.eval("DufforthTweaksHelperDB.menuTab") == "Fishing"
+except Exception as e:
+    fish_ok = False
+    print("FISHING ERROR", str(e)[:300])
+ok = not bad and "error" not in texts.lower() and "crafts" in texts and grind_ok and fish_ok
 print("all passed" if ok else "FAILED")
 sys.exit(0 if ok else 1)

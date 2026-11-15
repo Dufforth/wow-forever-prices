@@ -5,6 +5,7 @@
 -- experience for your level that you haven't done, and the monsters whose drops are worth the
 -- most per kill at today's prices (bundled AH prices after the 5% cut, else what a vendor pays).
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Zone = {}
 DufforthTweaksHelperZone = Zone
 
@@ -174,7 +175,7 @@ function Zone.TrainNow(known)
     if #rows == 0 then return nil end
     local faction = UnitFactionGroup and UnitFactionGroup("player")
     local side = faction == "Alliance" and "A" or faction == "Horde" and "H" or ""
-    local zoneName = (GetRealZoneText and GetRealZoneText()) or ""
+    local zoneName = DufforthTweaksHelperLocale.ZoneName()
     return { rows = rows, total = total, trainers = Zone.NearTrainers(data.trainers, side, zoneName, 2) }
 end
 
@@ -184,7 +185,7 @@ function Zone.TrainMessage(t)
     local where = {}
     for _, tr in ipairs(t.trainers) do where[#where + 1] = string.format("%s (%s %d, %d)", tr[3], tr[1], math.floor(tr[4] + 0.5), math.floor(tr[5] + 0.5)) end
     local money = DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(t.total) or tostring(t.total)
-    return string.format("%d new spell%s to train: %s. Cost %s.%s", #t.rows, #t.rows == 1 and "" or "s", table.concat(names, ", "), money,
+    return string.format(L["%d new spell%s to train: %s. Cost %s.%s"], #t.rows, #t.rows == 1 and "" or "s", table.concat(names, ", "), money,
         #where > 0 and (" Trainer: " .. table.concat(where, " or ") .. ".") or "")
 end
 
@@ -200,7 +201,7 @@ local function SaveDebug(t, known)
     table.sort(names)
     DufforthTweaksHelperDB.trainDebug = { at = time and time() or 0, level = UnitLevel and UnitLevel("player") or 0,
         class = UnitClass and select(2, UnitClass("player")) or "?", spellbook = n, sample = table.concat(names, "; "),
-        found = t and Zone.TrainMessage(t) or "nothing to train" }
+        found = t and Zone.TrainMessage(t) or L["nothing to train"] }
 end
 
 -- On screen, never in chat (user: "never use chat for notifications, I can't see the chat"):
@@ -256,7 +257,7 @@ local function Notice()
     f:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText(self.full or "", 1, 1, 1, 1, true)
-        GameTooltip:AddLine("Click to open the Zone tab. Drag to move it. The X hides this until your next level.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(L["Click to open the Zone tab. Drag to move it. The X hides this until your next level."], 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -266,10 +267,10 @@ local function Notice()
 end
 
 if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
-    DufforthTweaksHelper.RegisterMovable({ label = "Spell notice", get = Notice,
+    DufforthTweaksHelper.RegisterMovable({ label = L["Spell notice"], get = Notice,
         enter = function(f)
-            f.title:SetText("New spells to train (example)")
-            f.body:SetText("Shows at login and level-up when your trainer has something new.")
+            f.title:SetText(L["New spells to train (example)"])
+            f.body:SetText(L["Shows at login and level-up when your trainer has something new."])
             f.icon:SetTexture("Interface\\Icons\\INV_Misc_Book_09")
             f:Show()
         end,
@@ -282,7 +283,7 @@ function Zone.ShowTrainNotice(t)
     for _, s in ipairs(t.rows) do names[#names + 1] = SpellLabel(s) end
     local money = DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(t.total) or tostring(t.total)
     local tr = t.trainers[1]
-    f.title:SetText(string.format("%d new spell%s to train (%s)", #t.rows, #t.rows == 1 and "" or "s", money))
+    f.title:SetText(string.format(L["%d new spell%s to train (%s)"], #t.rows, #t.rows == 1 and "" or "s", money))
     f.body:SetText(table.concat(names, ", ") .. (tr and ("  |cffaaaaaa" .. tr[3] .. "|r") or ""))
     f.icon:SetTexture((GetSpellTexture and GetSpellTexture(t.rows[1][2])) or "Interface\\Icons\\INV_Misc_Book_09")
     f.full = Zone.TrainMessage(t)
@@ -349,7 +350,7 @@ function Zone.SaveGuideProbe()
     table.sort(ids)
     local probe = { at = time and time() or 0, level = UnitLevel and UnitLevel("player") or 0,
         completed = table.concat(ids, ","), completedCount = #ids, log = table.concat(LogEntries(), ";"),
-        zone = (GetRealZoneText and GetRealZoneText()) or "?" }
+        zone = DufforthTweaksHelperLocale.ZoneName() }
     if UnitRace then local _, race = UnitRace("player"); probe.race = race end
     if UnitClass then probe.class = select(2, UnitClass("player")) end
     if C_Map and C_Map.GetBestMapForUnit then
@@ -403,10 +404,10 @@ local function Toggle(key)
 end
 local status
 local SECTIONS = {
-    { key = "starters", title = "Quests started by a drop (easy to miss)" },
-    { key = "rares", title = "Rare monsters here" },
-    { key = "quests", title = "Quests with the most experience for you" },
-    { key = "mobs", title = "Monsters worth the most per kill" },
+    { key = "starters", title = L["Quests started by a drop (easy to miss)"] },
+    { key = "rares", title = L["Rare monsters here"] },
+    { key = "quests", title = L["Quests with the most experience for you"] },
+    { key = "mobs", title = L["Monsters worth the most per kill"] },
 }
 local QUALITY = { [0] = "9d9d9d", [1] = "ffffff", [2] = "1eff00", [3] = "0070dd", [4] = "a335ee" }
 local SOURCE = { vendor = "|cff59b3ffVendor|r", auction = "|cffff9933AH|r" }
@@ -414,7 +415,7 @@ local SOURCE = { vendor = "|cff59b3ffVendor|r", auction = "|cffff9933AH|r" }
 local function Money(c) return DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(math.floor(c + 0.5)) or tostring(c) end
 local function ItemName(id)
     local info = DufforthTweaksHelperZoneItems and DufforthTweaksHelperZoneItems[id]
-    if not info then return "Item " .. id end
+    if not info then return L["Item "] .. id end
     return "|cff" .. (QUALITY[info[2]] or "ffffff") .. info[1] .. "|r"
 end
 local function Icon(id)
@@ -425,8 +426,8 @@ local function Prices()
     return DufforthTweaksHelperPrices and DufforthTweaksHelperPrices[market] or {}
 end
 local function AtAuction()
-    local L = DufforthTweaksHelperLeveling
-    if L and L.Where then return L.Where().auction end
+    local LV = DufforthTweaksHelperLeveling
+    if LV and LV.Where then return LV.Where().auction end
     return AuctionHouseFrame and AuctionHouseFrame.IsShown and AuctionHouseFrame:IsShown()
 end
 
@@ -448,7 +449,7 @@ local function Player()
         classBit = classID and 2 ^ (classID - 1) or nil, done = done, inLog = inLog }
 end
 
-local function ZoneName() return (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText()) or "" end
+local function ZoneName() return DufforthTweaksHelperLocale.ZoneName() end
 
 local function Where(x, y) return x and string.format("%d, %d", math.floor(x + 0.5), math.floor(y + 0.5)) or "" end
 
@@ -458,25 +459,25 @@ function Zone.RowText(e)
     if e.kind == "train" then
         local tr = e.trainers and e.trainers[1]
         local cost = DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(d[4]) or tostring(d[4])
-        return "|cff40ff40" .. SpellLabel(d) .. "|r", tr and string.format("Level %d. Trainer: %s, %s", d[1], tr[1], tr[3]) or ("Level " .. d[1]),
+        return "|cff40ff40" .. SpellLabel(d) .. "|r", tr and string.format(L["Level %d. Trainer: %s, %s"], d[1], tr[1], tr[3]) or (L["Level "] .. d[1]),
             tr and Where(tr[4], tr[5]) or "", cost
     elseif e.kind == "starter" then
         local level = d[9] == d[10] and tostring(d[9]) or (d[9] .. "-" .. d[10])
         local chance = d[11] < 100 and (" " .. d[11] .. "%") or ""
-        return ItemName(d[1]), string.format("From %s (%s)%s. Starts \"%s\", level %d", d[8], level, chance, d[4], d[5]),
+        return ItemName(d[1]), string.format(L["From %s (%s)%s. Starts \"%s\", level %d"], d[8], level, chance, d[4], d[5]),
             Where(d[12], d[13]), "|cffffd100Hidden|r"
     elseif e.kind == "rare" then
         local drops = {}
         for _, x in ipairs(d[7]) do drops[#drops + 1] = ItemName(x[1]) .. " " .. x[2] .. "%" end
-        return "|cffc0c0c0" .. d[1] .. "|r", string.format("Level %d%s %s. %s", d[2], d[3] ~= d[2] and ("-" .. d[3]) or "", d[4],
-            #drops > 0 and table.concat(drops, ", ") or "No notable drops"), Where(d[5], d[6]), e.value > 0 and ("~" .. Money(e.value) .. " a kill") or ""
+        return "|cffc0c0c0" .. d[1] .. "|r", string.format(L["Level %d%s %s. %s"], d[2], d[3] ~= d[2] and ("-" .. d[3]) or "", d[4],
+            #drops > 0 and table.concat(drops, ", ") or L["No notable drops"]), Where(d[5], d[6]), e.value > 0 and ("~" .. Money(e.value) .. L[" a kill"]) or ""
     elseif e.kind == "quest" then
-        local reward = e.item and (" Reward: " .. ItemName(e.item)) or ""
-        local tag = e.inLog and "|cff40ff40In your log|r" or e.needsEarlier and "|cff808080Earlier quest first|r" or (d[12] == "group" and "|cffff8040Group|r" or "")
-        return "|cffffd100" .. d[2] .. "|r", string.format("Level %d, ~%d XP.%s%s", d[3], d[6], d[9] ~= "" and (" " .. d[9] .. ".") or "", reward),
+        local reward = e.item and (L[" Reward: "] .. ItemName(e.item)) or ""
+        local tag = e.inLog and L["|cff40ff40In your log|r"] or e.needsEarlier and L["|cff808080Earlier quest first|r"] or (d[12] == "group" and L["|cffff8040Group|r"] or "")
+        return "|cffffd100" .. d[2] .. "|r", string.format(L["Level %d, ~%d XP.%s%s"], d[3], d[6], d[9] ~= "" and (" " .. d[9] .. ".") or "", reward),
             Where(d[10], d[11]), tag
     else
-        return d[1], string.format("Level %d-%d. Mostly %s", d[2], d[3], ItemName(e.item)), Where(d[4], d[5]), Money(e.value) .. " a kill"
+        return d[1], string.format(L["Level %d-%d. Mostly %s"], d[2], d[3], ItemName(e.item)), Where(d[4], d[5]), Money(e.value) .. L[" a kill"]
     end
 end
 
@@ -524,7 +525,7 @@ function Zone.Refresh()
     if not panel then return end
     local player, zoneName = Player(), ZoneName()
     local zone = DufforthTweaksHelperZoneData and DufforthTweaksHelperZoneData[zoneName]
-    panel.title:SetText(string.format("%s, level %d", zoneName ~= "" and zoneName or "Unknown zone", player.level))
+    panel.title:SetText(string.format(L["%s, level %d"], zoneName ~= "" and zoneName or L["Unknown zone"], player.level))
     local s = Zone.Suggest(zone, DufforthTweaksHelperZoneItems, Prices(), player)
     rows = {}
     local okTrain, train = pcall(Zone.TrainNow)
@@ -533,13 +534,13 @@ function Zone.Refresh()
         local enough = not GetMoney or GetMoney() >= train.total
         local entries = {}
         for _, s in ipairs(train.rows) do entries[#entries + 1] = { kind = "train", data = s, trainers = train.trainers } end
-        Section("zone:train", "New spells to train", "Cost " .. money .. (enough and "" or " (more than you have)"), entries)
+        Section("zone:train", L["New spells to train"], L["Cost "] .. money .. (enough and "" or L[" (more than you have)"]), entries)
     end
     for _, sec in ipairs(SECTIONS) do
         if #s[sec.key] > 0 then Section("zone:" .. sec.key, sec.title, nil, s[sec.key]) end
     end
-    panel.empty:SetText(#rows > 0 and "" or (zone and "Nothing here fits your level. Zones a few levels above you may have more."
-        or "No guide for this zone (cities, dungeons and battlegrounds aren't covered)."))
+    panel.empty:SetText(#rows > 0 and "" or (zone and L["Nothing here fits your level. Zones a few levels above you may have more."]
+        or L["No guide for this zone (cities, dungeons and battlegrounds aren't covered)."]))
     offset = math.min(offset, math.max(0, #rows - Shown()))
     Draw()
 end
@@ -552,7 +553,7 @@ local function Pin(line)
     if r.kind == "train" then
         local tr = r.trainers and r.trainers[1]
         if not tr or tr[3] ~= ZoneName() then
-            status = { at = GetTime and GetTime() or 0, text = tr and ("The trainer is in " .. tr[3] .. ".") or "No trainer found." }
+            status = { at = GetTime and GetTime() or 0, text = tr and (L["The trainer is in "] .. tr[3] .. ".") or L["No trainer found."] }
             Draw()
             return
         end
@@ -565,15 +566,15 @@ local function Pin(line)
         C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, x / 100, y / 100))
         if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then C_SuperTrack.SetSuperTrackedUserWaypoint(true) end
     end)
-    status = { at = GetTime and GetTime() or 0, text = ok and string.format("Map pin set at %d, %d.", math.floor(x + 0.5), math.floor(y + 0.5))
-        or string.format("Couldn't set a map pin. The spot is at %d, %d.", math.floor(x + 0.5), math.floor(y + 0.5)) }
+    status = { at = GetTime and GetTime() or 0, text = ok and string.format(L["Map pin set at %d, %d."], math.floor(x + 0.5), math.floor(y + 0.5))
+        or string.format(L["Couldn't set a map pin. The spot is at %d, %d."], math.floor(x + 0.5), math.floor(y + 0.5)) }
     Draw()
 end
 
 local function Search(line)
     local r = line.row
-    local L = DufforthTweaksHelperLeveling
-    if r and r.item and L and L.SearchAuctionHouse then L.SearchAuctionHouse(r.item) end
+    local LV = DufforthTweaksHelperLeveling
+    if r and r.item and LV and LV.SearchAuctionHouse then LV.SearchAuctionHouse(r.item) end
 end
 
 local function ShowRow(line)
@@ -585,27 +586,27 @@ local function ShowRow(line)
     GameTooltip:AddLine(sub, 0.8, 0.8, 0.8, true)
     local d = r.data
     if r.kind == "train" then
-        GameTooltip:AddLine("Your class trainer teaches this at your level. New ranks hit harder; the warrior button uses them by itself.", 0.45, 0.8, 1, true)
+        GameTooltip:AddLine(L["Your class trainer teaches this at your level. New ranks hit harder; the warrior button uses them by itself."], 0.45, 0.8, 1, true)
         for _, tr in ipairs(r.trainers or {}) do
             GameTooltip:AddDoubleLine("    " .. tr[1], string.format("%s %d, %d", tr[3], math.floor(tr[4] + 0.5), math.floor(tr[5] + 0.5)), 0.8, 0.8, 0.8, 1, 1, 1)
         end
     elseif r.kind == "starter" then
-        GameTooltip:AddLine("Loot it and right-click it in your bags to start the quest. Many players never see these.", 0.45, 0.8, 1, true)
+        GameTooltip:AddLine(L["Loot it and right-click it in your bags to start the quest. Many players never see these."], 0.45, 0.8, 1, true)
     elseif r.kind == "rare" then
-        GameTooltip:AddLine("Rares spawn rarely and someone may have killed it. Worth a look when you pass by.", 0.45, 0.8, 1, true)
+        GameTooltip:AddLine(L["Rares spawn rarely and someone may have killed it. Worth a look when you pass by."], 0.45, 0.8, 1, true)
     elseif r.kind == "quest" then
-        GameTooltip:AddDoubleLine("Experience", "about " .. d[6], 0.8, 0.8, 0.8, 1, 1, 1)
-        if d[7] > 0 then GameTooltip:AddDoubleLine("Money", Money(d[7]), 0.8, 0.8, 0.8, 1, 1, 1) end
-        if r.item then GameTooltip:AddDoubleLine("Reward worth", Money(r.reward), 0.8, 0.8, 0.8, 1, 1, 1) end
-        if d[12] == "group" then GameTooltip:AddLine("A group quest: bring friends.", 1, 0.5, 0.25, true) end
+        GameTooltip:AddDoubleLine(L["Experience"], "about " .. d[6], 0.8, 0.8, 0.8, 1, 1, 1)
+        if d[7] > 0 then GameTooltip:AddDoubleLine(L["Money"], Money(d[7]), 0.8, 0.8, 0.8, 1, 1, 1) end
+        if r.item then GameTooltip:AddDoubleLine(L["Reward worth"], Money(r.reward), 0.8, 0.8, 0.8, 1, 1, 1) end
+        if d[12] == "group" then GameTooltip:AddLine(L["A group quest: bring friends."], 1, 0.5, 0.25, true) end
     else
         for _, x in ipairs(d[7]) do
             local v, source = Zone.ItemValue(x[1], DufforthTweaksHelperZoneItems, Prices())
-            GameTooltip:AddDoubleLine(string.format("    %s (%.1f per 100 kills)", ItemName(x[1]), x[2] * 100), Money(v) .. " " .. (SOURCE[source] or ""), 0.8, 0.8, 0.8, 1, 1, 1)
+            GameTooltip:AddDoubleLine(string.format(L["    %s (%.1f per 100 kills)"], ItemName(x[1]), x[2] * 100), Money(v) .. " " .. (SOURCE[source] or ""), 0.8, 0.8, 0.8, 1, 1, 1)
         end
-        GameTooltip:AddDoubleLine("Average per kill", Money(r.value), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Average per kill"], Money(r.value), 1, 0.82, 0, 1, 1, 1)
     end
-    GameTooltip:AddLine("Click to put a pin on your map. Classic estimates; Forever may differ.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine(L["Click to put a pin on your map. Classic estimates; Forever may differ."], 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
@@ -617,7 +618,7 @@ function Zone.BuildPanel(parent, width)
     panel.status:SetPoint("TOPRIGHT", -8, -6); panel.status:SetJustifyH("RIGHT")
     panel.legend = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.legend:SetPoint("TOPLEFT", 8, -22); panel.legend:SetWidth(width - 16); panel.legend:SetJustifyH("LEFT")
-    panel.legend:SetText("What's worth doing around you, for your level. Click a row for a map pin; hover for details.")
+    panel.legend:SetText(L["What's worth doing around you, for your level. Click a row for a map pin; hover for details."])
     panel.empty = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     panel.empty:SetPoint("TOPLEFT", 12, TOP - 8); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
     local height = parent.GetHeight and parent:GetHeight() or 0
@@ -643,7 +644,7 @@ function Zone.BuildPanel(parent, width)
         for _, f in ipairs({ line.name, line.sub }) do if f.SetWordWrap then f:SetWordWrap(false) end end
         local thisLine = line
         line.search = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
-        line.search:SetSize(58, 20); line.search:SetPoint("RIGHT", -4, 0); line.search:SetText("Search")
+        line.search:SetSize(58, 20); line.search:SetPoint("RIGHT", -4, 0); line.search:SetText(L["Search"])
         line.search:SetScript("OnClick", function() pcall(Search, thisLine) end)
         line.search:Hide()
         line:SetScript("OnEnter", ShowRow)

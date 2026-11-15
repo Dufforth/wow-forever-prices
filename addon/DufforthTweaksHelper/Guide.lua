@@ -14,6 +14,7 @@
 -- "wide" in the data) doesn't hold you up: you kill them while going to other quests. The guide asks
 -- for it only when it must be done: before its turn-in or before the next part of the route.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Guide = {}
 DufforthTweaksHelperGuide = Guide
 
@@ -31,7 +32,8 @@ Guide.STEP = { KIND = S_KIND, QUEST = S_QUEST, ZONE = S_ZONE, X = S_X, Y = S_Y, 
 local G_KIND, G_NAME, G_COUNT, G_X, G_Y, G_SOURCE, G_WIDE = 1, 2, 3, 5, 6, 7, 8
 local G_LOOP, G_LMIN, G_LMAX, G_ELITE = 9, 10, 11, 12
 local G_GUESSED, G_INSTANCE = 13, 14 -- no place in the data (put at the giver) / inside this dungeon (map id)
-local NEAR_SPOT = 4 -- map % apart: two objectives this close are one stop
+local NEAR_SPOT = 10 -- map % apart: objectives this close are one area, one block (was 4; user, 2026-11-14: "guide is
+-- useless if make me do quest 1 by one")
 
 local LOW = 3          -- a quest this many levels below you (or more) is skipped unless it starts a worthwhile chain
 local GRAY = 6         -- a quest this many levels below you gives little: abandon it
@@ -42,7 +44,7 @@ local CLASS_ABOVE = 1  -- and up to this many above (user: a level 30 quest at 2
 local DUNGEON_BELOW, DUNGEON_ABOVE = 2, 5
 
 -- Which route a race starts on (UnitRace's second value).
-Guide.ROUTE_FOR_RACE = { Orc = "Durotar", Troll = "Durotar", Tauren = "Mulgore", Scourge = "Tirisfal Glades", Undead = "Tirisfal Glades" }
+Guide.ROUTE_FOR_RACE = { Orc = L["Durotar"], Troll = L["Durotar"], Tauren = L["Mulgore"], Scourge = "Tirisfal Glades", Undead = "Tirisfal Glades" }
 Guide.RACE_BITS = { Orc = 2, Scourge = 16, Undead = 16, Tauren = 32, Troll = 128 }
 
 local Model = {}
@@ -51,7 +53,8 @@ Model.__index = Model
 function Guide.NewModel(data, routeName, game, saved)
     local route = data.routes[routeName]
     saved.skipped = saved.skipped or {}
-    return setmetatable({ data = data, steps = route and route.steps or {}, game = game, saved = saved }, Model)
+    return setmetatable({ data = data, steps = route and route.steps or {}, game = game, saved = saved,
+        questline = route and route.guide and true or false }, Model)
 end
 
 function Model:Quest(id) return self.data.quests[id] end
@@ -86,6 +89,9 @@ end
 function Model:Worth(id)
     local q, level = self:Quest(id), self.game.level()
     if not q then return false end
+    -- A questline guide you chose (Cozy Sleeping Bag, attunements): every quest counts, whatever your level (user,
+    -- 2026-11-15: at level 20 the level-14 chain was skipped and the guide said "Route finished").
+    if self.questline then return true end
     if q[LEVEL] > level - LOW then return true end
     return self:ChainTop(id) >= level - 1
 end
@@ -123,7 +129,8 @@ function Model:Settled(i, assume)
         if assume and assume.log[id] then return false end
         if g.objectiveDone then
             local goal = self:Goal(i)
-            local finished = goal and g.objectiveDone(id, goal[G_NAME])
+            local q = self:Quest(id)
+            local finished = goal and g.objectiveDone(id, goal[G_NAME], goal, q and q[GOALS])
             if finished ~= nil then return finished end
         end
         return g.complete(id)
@@ -182,6 +189,15 @@ function Model:Goal(i)
     if not step or step[S_KIND] ~= "do" then return nil end
     local q = self:Quest(step[S_QUEST])
     return q and q[GOALS] and q[GOALS][step[S_GOAL] or 1]
+end
+
+-- A quest's title as the game shows it (the client's language), else the route data's English title.
+function Model:Title(id)
+    local g = self.game
+    local title = g and g.questTitle and g.questTitle(id)
+    if title and title ~= "" then return title end
+    local q = self:Quest(id)
+    return q and q[TITLE] or ("#" .. tostring(id))
 end
 
 -- A do step whose monsters are all over the map: done along the way.
@@ -269,10 +285,16 @@ function Model:Nearest(first)
     for i = first, #self.steps do
         local step = self.steps[i]
         if self:SectionOf(i) ~= section then break end
-        if step[S_KIND] == "do" and step[S_ZONE] == zone and step[S_X] and g.inLog(step[S_QUEST])
-            and not self:Wide(i) and not self:Settled(i) then
-            local d = (step[S_X] - px) ^ 2 + (step[S_Y] - py) ^ 2
-            if not bestD or d < bestD then best, bestD = i, d end
+        if step[S_KIND] == "do" and g.inLog(step[S_QUEST]) and not self:Wide(i) and not self:Settled(i) then
+            -- The real place: Questie's for a step our data only guessed (at its giver); a guess alone never counts as
+            -- near (2026-11-15: Ishamuhale, guessed at Camp Taurajo where the user stood, jumped ahead of the route).
+            local goal = self:Goal(i)
+            local guessed = goal and goal[G_GUESSED] == 1 and not self:QuestieFor(i)
+            local z, x, y = self:Place(i)
+            if not guessed and z == zone and x then
+                local d = (x - px) ^ 2 + (y - py) ^ 2
+                if not bestD or d < bestD then best, bestD = i, d end
+            end
         end
     end
     return best
@@ -350,18 +372,76 @@ function Model:Together(i, j)
     if not (a and b) or self.steps[i][S_ZONE] ~= self.steps[j][S_ZONE] then return false end
     local function mob(goal) return goal[G_KIND] == "kill" and goal[G_NAME] or (goal[G_SOURCE] ~= "" and goal[G_SOURCE]) or nil end
     if mob(a) and mob(a) == mob(b) then return true end
+    if a[G_WIDE] == 1 or b[G_WIDE] == 1 then return true end -- all over the zone: done while doing the others
     local si, sj = self.steps[i], self.steps[j]
     return si[S_X] and sj[S_X] and math.abs(si[S_X] - sj[S_X]) <= NEAR_SPOT and math.abs(si[S_Y] - sj[S_Y]) <= NEAR_SPOT or false
 end
 
+-- The earlier open step that step i waits on (user, 2026-11-14: a hand-in showed as doable before its objectives
+-- were done): a hand-in waits on its quest's objective steps, a pick-up on the quest before it in the chain.
+-- Returns that step's index, true when the reason isn't a step of the route, or nil when nothing holds it.
+function Model:WaitsFor(i)
+    local step = self.steps[i]
+    if not step then return nil end
+    local kind, id, g = step[S_KIND], step[S_QUEST], self.game
+    local wanted
+    if kind == "turnin" then
+        if not InLog(g, id) or g.complete(id) then return nil end
+        wanted = function(s) return s[S_KIND] == "do" and s[S_QUEST] == id end
+    elseif kind == "accept" then
+        local q = self:Quest(id)
+        local prev = q and tonumber(q[PREV]) or 0
+        if prev <= 0 or Done(g, prev) then return nil end
+        wanted = function(s) return (s[S_KIND] == "do" or s[S_KIND] == "turnin") and s[S_QUEST] == prev end
+    else
+        return nil
+    end
+    for j = 1, i - 1 do
+        if wanted(self.steps[j]) and not self:Settled(j) then return j end
+    end
+    return kind == "turnin" and true or nil
+end
+
 -- The next n blocks: upcoming steps, with steps you can do as one put together.
-function Model:Blocks(n)
+Guide.TRIP_MAX = 8 -- objectives shown together in the first block
+-- flat: one block per step (user, 2026-11-15: "do not group the steps, show all of them in different rows"); the result's
+-- .trip says how many of the first blocks are this trip (the steps to do before the next hand-in).
+function Model:Blocks(n, flat)
+    if flat then
+        local out, seen = { trip = 0 }, {}
+        local grouped = self:Blocks(n)
+        local function add(i) if not seen[i] then seen[i] = true; out[#out + 1] = { i } end end
+        for _, i in ipairs(grouped[1] or {}) do add(i) end
+        if grouped[1] and self.steps[grouped[1][1]][S_KIND] == "do" then
+            for _, i in ipairs(self:Along()) do add(i) end -- along the way: part of this trip
+        end
+        out.trip = #out
+        -- In step order, so the route reads top to bottom (user, 2026-11-15: rows 390, 373, 368 were impossible to follow);
+        -- the step the arrow points at is marked by the view, wherever it sits.
+        table.sort(out, function(a, b) return a[1] < b[1] end)
+        for k = 2, #grouped do for _, i in ipairs(grouped[k]) do add(i) end end
+        while #out > out.trip + n do table.remove(out) end
+        return out
+    end
     local blocks = {}
-    for _, i in ipairs(self:Upcoming(n * 4)) do
+    for _, i in ipairs(self:Upcoming(n * 4 + Guide.TRIP_MAX)) do
         local last = blocks[#blocks]
-        if last and self:Together(last[1], i) then last[#last + 1] = i
+        -- The first block is the whole trip: every objective until the next hand-in or pick-up (user, 2026-11-14: "i want
+        -- to see all the steps i should be doing before turn in a quest, remember i can do more than one quest at once").
+        local trip = last and #blocks == 1 and self.steps[last[1]][S_KIND] == "do" and self.steps[i][S_KIND] == "do" and #last < Guide.TRIP_MAX
+        if last and (trip or self:Together(last[1], i)) then last[#last + 1] = i
         elseif #blocks < n then blocks[#blocks + 1] = { i }
         else break end
+    end
+    -- Objectives all over the zone you'll do along the way belong to this trip too: in the top block, so even a small box
+    -- shows every quest of the trip (user, 2026-11-14: "always display all the quests I need to do simultaneously").
+    local top = blocks[1]
+    if top and self.steps[top[1]][S_KIND] == "do" then
+        local have = {}
+        for _, b in ipairs(blocks) do for _, i in ipairs(b) do have[i] = true end end
+        for _, i in ipairs(self:Along()) do
+            if not have[i] and #top < Guide.TRIP_MAX + 4 then top[#top + 1] = i; have[i] = true end
+        end
     end
     return blocks
 end
@@ -445,7 +525,9 @@ end
 
 -- Time to cover a distance at a speed (yards a second; standing still counts as running, 7).
 function Guide.Eta(distance, speed)
-    if not speed or speed <= 0 then speed = 7 end
+    -- The game may hand addons a hidden ("secret") speed: comparing it errors and stopped the box refreshing (log,
+    -- 2026-11-14). Checked before any comparison.
+    if type(speed) ~= "number" or (issecretvalue and issecretvalue(speed)) or speed <= 0 then speed = 7 end
     local seconds = math.floor(distance / speed + 0.5)
     return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
 end
@@ -481,9 +563,9 @@ function Model:Note(i)
     if not step or step[S_KIND] ~= "accept" then return nil end
     local q, level = self:Quest(step[S_QUEST]), self.game.level()
     if not q then return nil end
-    if q[MIN] > level then return string.format("Needs level %d: do other quests or grind first.", q[MIN]) end
+    if q[MIN] > level then return string.format(L["Needs level %d: do other quests or grind first."], q[MIN]) end
     if q[LEVEL] <= level - LOW then
-        return string.format("Low, but it starts a chain up to level %d: worth doing.", self:ChainTop(step[S_QUEST]))
+        return string.format(L["Low, but it starts a chain up to level %d: worth doing."], self:ChainTop(step[S_QUEST]))
     end
 end
 
@@ -550,6 +632,83 @@ function Model:DungeonQuests()
     return out
 end
 
+-- ---- Your quest log, not just the route (user, 2026-11-14: Chen's Empty Keg starts from a random drop, so the route
+-- can't plan it; its Savannah Lion Tusks could be done with Prowlers of the Barrens) ----
+Guide.ALSO_NEAR = 8 -- map %: another quest's objective this close to your step is "also here"
+
+local function Unfinished(g, id, goal, goals)
+    if g.complete(id) then return false end
+    if g.objectiveDone then
+        local done = g.objectiveDone(id, goal[G_NAME], goal, goals)
+        if done ~= nil then return not done end
+    end
+    return true
+end
+
+-- Other quests in your log with an objective at step i's spot, on the same monsters, or all over the zone:
+-- { {quest, title, name, kind, source} }.
+function Model:AlsoHere(i)
+    local step, g = self.steps[i], self.game
+    if not (step and g.logIds) then return {} end
+    local zone, x, y, own = step[S_ZONE], step[S_X], step[S_Y], step[S_QUEST]
+    local mine = self:Goal(i)
+    local mob = mine and (mine[G_KIND] == "kill" and mine[G_NAME] or mine[G_SOURCE]) or nil
+    local along = {}
+    for _, k in ipairs(self:Along()) do along[self.steps[k][S_QUEST]] = true end -- already listed "along the way"
+    local out = {}
+    for _, id in ipairs(g.logIds()) do
+        local q = self:Quest(id)
+        if id ~= own and q and type(q[GOALS]) == "table" then
+            for _, goal in ipairs(q[GOALS]) do
+                if goal[4] == zone and Unfinished(g, id, goal, q[GOALS]) then
+                    local near = x and goal[G_X] and math.abs(goal[G_X] - x) <= Guide.ALSO_NEAR and math.abs(goal[G_Y] - y) <= Guide.ALSO_NEAR
+                    local same = mob and mob ~= "" and (goal[G_SOURCE] == mob or (goal[G_KIND] == "kill" and goal[G_NAME] == mob))
+                    local wide = goal[G_WIDE] == 1 and not along[id]
+                    if near or same or wide then
+                        out[#out + 1] = { quest = id, title = self:Title(id), name = goal[G_NAME], kind = goal[G_KIND], source = goal[G_SOURCE], goal = goal, goals = q[GOALS] }
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Quests in your log this route never plans: { {id, title, level, zone, x, y, giver = what to do there} }, the
+-- place being the first open objective, or the hand-in once it's complete.
+function Model:OffRoute()
+    local g = self.game
+    if not g.logIds then return {} end
+    if not self.routeQuests then
+        self.routeQuests = {}
+        for _, st in ipairs(self.steps) do self.routeQuests[st[S_QUEST]] = true end
+    end
+    local out = {}
+    for _, id in ipairs(g.logIds()) do
+        local q = self:Quest(id)
+        if q and not self.routeQuests[id] and not (q[CLASSES] and q[CLASSES] > 0) then
+            local e = { id = id, title = q[TITLE], level = q[LEVEL] }
+            if g.complete(id) then
+                local at = q[TURNIN_AT] or {}
+                e.zone, e.x, e.y, e.giver = at[1], at[2], at[3], L["Turn in to "] .. tostring(q[TURNIN])
+            else
+                for _, goal in ipairs(type(q[GOALS]) == "table" and q[GOALS] or {}) do
+                    if goal[G_X] and Unfinished(g, id, goal, q[GOALS]) then
+                        e.zone, e.x, e.y = goal[4], goal[G_X], goal[G_Y]
+                        e.giver = goal[G_NAME] .. ((goal[G_SOURCE] or "") ~= "" and (L[" from "] .. goal[G_SOURCE]) or "")
+                        break
+                    end
+                end
+            end
+            if not e.zone and g.questieSpot then -- no place in our data: Questie's (user, 2026-11-14)
+                e.zone, e.x, e.y, e.giver = g.questieSpot(id)
+            end
+            out[#out + 1] = e
+        end
+    end
+    return out
+end
+
 -- Quests in your log that went gray (little experience left): worth abandoning.
 function Model:GrayInLog()
     local out, level = {}, self.game.level()
@@ -575,56 +734,155 @@ local ICONS = {
 }
 Guide.ICONS = ICONS
 
+-- With Questie installed, its yellow objective icons, so the box matches Questie's map (user, 2026-11-14: "use same
+-- icons as questie, that should be the yellow one"); without it, the game's own.
+local OWN_ICONS = { kill = ICONS.kill, loot = ICONS.loot, use = ICONS.use, grind = ICONS.grind }
+local QUESTIE_ICONS = { kill = "Interface\\AddOns\\Questie\\Icons\\slay", loot = "Interface\\AddOns\\Questie\\Icons\\loot",
+    use = "Interface\\AddOns\\Questie\\Icons\\object", grind = "Interface\\AddOns\\Questie\\Icons\\slay" }
+function Guide.UseQuestieIcons(on)
+    for kind, path in pairs(on and QUESTIE_ICONS or OWN_ICONS) do ICONS[kind] = path end
+end
+
 -- An icon inside a line of text: as tall as the text and centred on it; game icons are cropped to their art.
 function Guide.Inline(path)
     if not path then return "" end
-    if string.find(path, "\\Icons\\", 1, true) then return "|T" .. path .. ":0:0:0:0:64:64:5:59:5:59|t" end
+    -- The game's square icons are cropped to hide their border; an addon's own (Questie's round ones) are not.
+    if string.find(path, "\\Icons\\", 1, true) and not string.find(path, "\\AddOns\\", 1, true) then
+        return "|T" .. path .. ":0:0:0:0:64:64:5:59:5:59|t"
+    end
     return "|T" .. path .. ":0|t"
 end
 local function Quest(text) return "|cffffd100" .. text .. "|r" end
+
+-- ---- Objectives in any client language (user, 2026-11-14: Spanish clients) ----
+-- The game's objective lines are in the client's language, the route data is English. First by name (English
+-- clients); then, when loose (a non-English client), by kind and order among the quest's objectives, then by count.
+local GAME_KIND = { monster = "kill", item = "collect", object = "use", event = "explore" }
+local function Loose()
+    local loc = DufforthTweaksHelperLocale
+    return loc ~= nil and loc.spanish == true
+end
+Guide.Loose = Loose
+
+-- The index in list (the game's {text, type, numRequired, finished}) of data objective goal, or nil.
+function Guide.MatchObjective(list, goal, goals, loose)
+    if type(list) ~= "table" or type(goal) ~= "table" then return nil end
+    local name = goal[G_NAME]
+    if name and name ~= "" then
+        for k, o in ipairs(list) do
+            if o.text and string.find(o.text, name, 1, true) then return k end
+        end
+    end
+    if loose == nil then loose = Loose() end
+    if not loose then return nil end
+    local rank, same = 0, 0
+    for _, g in ipairs(type(goals) == "table" and goals or {}) do
+        if g[G_KIND] == goal[G_KIND] then
+            same = same + 1
+            if g == goal then rank = same end
+        end
+    end
+    local candidates = {}
+    for k, o in ipairs(list) do
+        if GAME_KIND[o.type] == goal[G_KIND] then candidates[#candidates + 1] = k end
+    end
+    if rank > 0 and #candidates == same then return candidates[rank] end
+    local hit
+    for k, o in ipairs(list) do
+        if o.numRequired and o.numRequired == goal[G_COUNT] and (o.type == nil or GAME_KIND[o.type] == goal[G_KIND]) then
+            if hit then hit = nil; break end
+            hit = k
+        end
+    end
+    if hit then return hit end
+    if type(goals) == "table" and #list == #goals then
+        for k, g in ipairs(goals) do if g == goal then return k end end
+    end
+    return nil
+end
+
+-- The name in a game objective line ("Raptor Head: 3/8", "3/8 Raptor Head", "Cabeza de raptor: 3/8").
+function Guide.ObjectiveName(text)
+    local s = tostring(text or "")
+    s = s:gsub("%s*%d+%s*/%s*%d+%s*", " "):gsub("%s*:%s*$", ""):gsub("^%s*:%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    return s ~= "" and s or nil
+end
 local function Npc(text) return "|cff40ff40" .. text .. "|r" end
 local function Thing(text) return "|cffff8040" .. text .. "|r" end
 
 -- ---- Tips (user, 2026-11-14: one short line on what to expect, from the data) ----
+-- How far above (+) or below (-) the ground the NPC of step i stands, in yards, or nil (user, 2026-11-14: Darsok
+-- Swiftdagger on top of the Crossroads tower; under him the arrow said "You are here" and no NPC was in sight).
+function Model:Lift(i)
+    local step = self.steps[i]
+    if not step then return nil end
+    local kind = step[S_KIND]
+    local q = (kind == "accept" or kind == "turnin") and self:Quest(step[S_QUEST])
+    local at = q and q[kind == "accept" and GIVER_AT or TURNIN_AT]
+    local lift = type(at) == "table" and tonumber(at[4]) or nil
+    if not lift or lift == 0 then return nil end
+    return lift, q[kind == "accept" and GIVER or TURNIN] -- and the NPC's name
+end
+
+function Guide.LiftText(lift)
+    if not lift then return nil end
+    if lift > 0 then
+        return string.format(L["Up high: %d yd above the ground (a tower or upper floor): take the ramp or stairs up"], lift)
+    end
+    return string.format(L["Down low: %d yd below the ground (a cave, cellar or underground): find the way down"], -lift)
+end
+
 function Guide.Tip(model, i)
     local step = model.steps[i]
     if not step then return nil end
     local kind = step[S_KIND]
+    local lift = Guide.LiftText(model:Lift(i))
+    if lift then
+        local rest = Guide.TipOf(model, i, step, kind)
+        return rest and (lift .. ". " .. rest) or lift
+    end
+    return Guide.TipOf(model, i, step, kind)
+end
+
+function Guide.TipOf(model, i, step, kind)
     if kind == "do" then
         local g = model:Goal(i)
         if not g then return nil end
         local parts = {}
         local lo, hi = tonumber(g[G_LMIN]) or 0, tonumber(g[G_LMAX]) or 0
-        if lo > 0 then parts[#parts + 1] = lo == hi and ("level " .. lo) or string.format("level %d-%d", lo, hi) end
-        if g[G_ELITE] == 1 then parts[#parts + 1] = "elite: bring friends" end
+        if lo > 0 then parts[#parts + 1] = lo == hi and (L["lvl "] .. lo) or string.format(L["lvl %d-%d"], lo, hi) end
+        if g[G_ELITE] == 1 then parts[#parts + 1] = L["elite: bring friends"] end
         if g[G_KIND] == "collect" and g[G_SOURCE] and g[G_SOURCE] ~= "" and (g[G_COUNT] or 0) > 1 then
-            parts[#parts + 1] = string.format("about %d kills", g[G_COUNT])
+            parts[#parts + 1] = string.format(L["~%d kills"], g[G_COUNT])
         end
         local loop = model:Loop(i)
-        if loop then parts[#parts + 1] = string.format("circle the %d spots on your map", #loop) end
+        if loop then parts[#parts + 1] = string.format(L["%d spots on the map"], #loop) end
         if g[G_INSTANCE] and g[G_INSTANCE] ~= 0 then
             local dungeon = model.data.extras and model.data.extras.dungeonOf and model.data.extras.dungeonOf[step[S_QUEST]]
-            parts[#parts + 1] = "inside " .. (dungeon or "the dungeon") .. ": bring a group"
+            parts[#parts + 1] = "inside " .. (dungeon or L["the dungeon"]) .. L[": bring a group"]
         end
-        if g[G_GUESSED] == 1 then parts[#parts + 1] = "its place isn't in the data: read the quest text" end
-        if g[G_WIDE] == 1 then parts[#parts + 1] = "they're all over the zone: kill them as you go" end
+        if g[G_GUESSED] == 1 then
+            local q = model:QuestieFor(i)
+            parts[#parts + 1] = q and L["spot from Questie"] or L["spot unknown: read the quest"]
+        end
+        if g[G_WIDE] == 1 then parts[#parts + 1] = L["all over the zone"] end
         if #parts == 0 then return nil end
         local text = table.concat(parts, ", ")
         return string.upper(string.sub(text, 1, 1)) .. string.sub(text, 2)
     elseif kind == "flight" then
-        return "Talk to the flight master once, so you can fly here later"
+        return L["Talk to the flight master once, so you can fly here later"]
     elseif kind == "fly" then
-        return "Faster than walking there"
+        return L["Faster than walking there"]
     elseif kind == "hearth" then
-        return "Saves the walk back; on cooldown, just walk"
+        return L["Saves the walk back; on cooldown, just walk"]
     elseif kind == "farm" then
-        return "Gold, not experience: stay as long as you like, then tick it or just move on"
+        return L["Gold, not experience: stay as long as you like, then tick it or just move on"]
     elseif kind == "home" then
-        return "You'll come back here: the hearthstone brings you"
+        return L["You'll come back here: the hearthstone brings you"]
     elseif kind == "accept" then
         local q = model:Quest(step[S_QUEST])
         if q and q[LEVEL] and q[LEVEL] >= model.game.level() + 3 then
-            return string.format("Level %d quest: hard for you now", q[LEVEL])
+            return string.format(L["Level %d quest: hard for you now"], q[LEVEL])
         end
     end
     return nil
@@ -636,6 +894,78 @@ function Model:Loop(i)
     local loop = g and g[G_LOOP]
     if type(loop) == "table" and #loop >= 2 then return loop end
     return nil
+end
+
+-- ---- Flight time (user, 2026-11-15: "add the fly time remaining when im flying in the guide") ----
+-- The game doesn't say how long a flight takes: a time you flew on that route before, else the distance at 25 yards a
+-- second, paths bending (x1.2), plus 20 s to take off and land.
+function Guide.FlightEstimate(saved, from, to, yards)
+    local known = saved and from and to and saved[from .. "|" .. to]
+    if known then return known end
+    return math.floor((yards or 0) * 1.2 / 25 + 20 + 0.5)
+end
+
+function Guide.FlightLeft(startedAt, total, now)
+    return math.max(0, math.floor(startedAt + total - now + 0.5))
+end
+
+-- ---- The guide log (user, 2026-11-14: "save logs of whats happening in the game and with the app configuration so
+-- you can understand how to solve issues"): lines "time kind: message" in the saved file, newest last. ----
+Guide.LOG_MAX = 500
+
+function Guide.LogAdd(log, kind, message, stamp)
+    log.entries = log.entries or {}
+    local e = log.entries
+    e[#e + 1] = (stamp and (stamp .. " ") or "") .. kind .. ": " .. tostring(message)
+    while #e > Guide.LOG_MAX do table.remove(e, 1) end
+end
+
+-- A state (the arrow, the step, the settings): written only when it changes. True when written.
+function Guide.LogChange(log, key, kind, message, stamp)
+    log.last = log.last or {}
+    if log.last[key] == message then return false end
+    log.last[key] = message
+    Guide.LogAdd(log, kind, message, stamp)
+    return true
+end
+
+-- ---- Step numbers on the world map (user, 2026-11-14) ----
+-- "188-189, 192" for the steps at one spot; long lists end with "+".
+function Guide.StepLabel(steps)
+    local sorted = {}
+    for _, i in ipairs(steps) do sorted[#sorted + 1] = i end
+    table.sort(sorted)
+    local parts, k = {}, 1
+    while k <= #sorted do
+        local j = k
+        while j < #sorted and sorted[j + 1] == sorted[j] + 1 do j = j + 1 end
+        parts[#parts + 1] = j > k and (sorted[k] .. "-" .. sorted[j]) or tostring(sorted[k])
+        k = j + 1
+    end
+    if #parts > 3 then return table.concat(parts, ", ", 1, 3) .. "+" end
+    return table.concat(parts, ", ")
+end
+
+Guide.PIN_NEAR = 1.5 -- map %: steps this close share one pin (the map passes how far pins would touch on screen)
+-- entries = { {step, x, y} } in route order -> { {x, y, steps = {...}, label, title, more} }, one pin per spot.
+-- label: the first step there only (user, 2026-11-14: "249-250+" on the map was unreadable); title: all of them, for the
+-- hover; more: how many other steps are at that pin.
+function Guide.MapPins(entries, nearX, nearY)
+    nearX, nearY = nearX or Guide.PIN_NEAR, nearY or nearX or Guide.PIN_NEAR
+    local pins = {}
+    for _, e in ipairs(entries) do
+        local pin
+        for _, p in ipairs(pins) do
+            if math.abs(p.x - e[2]) <= nearX and math.abs(p.y - e[3]) <= nearY then pin = p; break end
+        end
+        if pin then pin.steps[#pin.steps + 1] = e[1] else pins[#pins + 1] = { x = e[2], y = e[3], steps = { e[1] } } end
+    end
+    for _, p in ipairs(pins) do
+        local first = p.steps[1]
+        for _, i in ipairs(p.steps) do if i < first then first = i end end
+        p.label, p.title, p.more = tostring(first), Guide.StepLabel(p.steps), #p.steps - 1
+    end
+    return pins
 end
 
 local LOOP_NEAR = 3 -- map %: this close to a loop spot, the arrow moves on to the next one
@@ -682,27 +1012,28 @@ function Guide.Describe(model, i, objectives)
         -- Started by a dropped item: loot it, then right-click it (the view offers a button for that).
         if model.game.hasItem and model.game.hasItem(q[ITEM]) then
             d.kind, d.useItem = "use", q[ITEM]
-            d.action = string.format("Right-click %s in your bags: starts %s", Thing(drop[1]), Quest(q[TITLE]))
+            d.action = string.format(L["Right-click %s in your bags: starts %s"], Thing(drop[1]), Quest(model:Title(id)))
         else
             d.kind = "loot"
-            local chance = drop[3] < 100 and string.format(" |cffaaaaaa(%d%% drop)|r", math.floor(drop[3] + 0.5)) or ""
-            d.action = string.format("Loot %s from %s%s: starts %s", Thing(drop[1]), Thing(drop[2]), chance, Quest(q[TITLE]))
+            local chance = drop[3] < 100 and string.format(L[" |cffaaaaaa(%d%% drop)|r"], math.floor(drop[3] + 0.5)) or ""
+            d.action = string.format(L["Loot %s from %s%s: starts %s"], Thing(drop[1]), Thing(drop[2]), chance, Quest(model:Title(id)))
         end
     elseif kind == "accept" and q then
-        d.action = string.format("Talk to %s: accept %s", Npc(q[GIVER]), Quest(q[TITLE]))
+        d.action = string.format(L["Talk to %s: accept %s"], Npc(q[GIVER]), Quest(model:Title(id)))
     elseif kind == "turnin" and q then
-        d.action = string.format("Turn in %s to %s", Quest(q[TITLE]), Npc(q[TURNIN]))
+        d.action = string.format(L["Turn in %s to %s"], Quest(model:Title(id)), Npc(q[TURNIN]))
     elseif kind == "do" and q then
         local index = step[S_GOAL] or 1
         local goal = q[GOALS] and q[GOALS][index]
         local goalKind = goal and goal[G_KIND] or "kill"
         -- The game's line for this objective: its count goes into the action ("Loot Notched Rib 3/5 from ..."),
         -- not a second line that repeats the name (user, 2026-11-13). Green when done.
-        local count = ""
+        local count, shownName = "", nil
         if objectives then
-            local own
-            for k, o in ipairs(objectives) do
-                if goal and o.text and string.find(o.text, goal[G_NAME], 1, true) then own = k end
+            local own = Guide.MatchObjective(objectives, goal, q[GOALS])
+            -- Not found by its English name: show the game's own name for it (a Spanish client).
+            if own and goal and objectives[own].text and not string.find(objectives[own].text, goal[G_NAME] or "", 1, true) then
+                shownName = Guide.ObjectiveName(objectives[own].text)
             end
             own = own or (objectives[index] and index)
             for k, o in ipairs(objectives) do
@@ -718,52 +1049,52 @@ function Guide.Describe(model, i, objectives)
         end
         if goalKind == "collect" then
             d.kind = "loot"
-            local from = goal[G_SOURCE] and goal[G_SOURCE] ~= "" and (" from " .. Thing(goal[G_SOURCE])) or ""
-            d.action = string.format("Loot %s%s%s", Thing(goal[G_NAME]), count, from)
+            local from = goal[G_SOURCE] and goal[G_SOURCE] ~= "" and (L[" from "] .. Thing(goal[G_SOURCE])) or ""
+            d.action = string.format(L["Loot %s%s%s"], Thing(shownName or goal[G_NAME]), count, from)
         elseif goalKind == "use" then
             d.kind = "use"
-            d.action = "Use " .. Thing(goal[G_NAME]) .. count
+            d.action = L["Use "] .. Thing(shownName or goal[G_NAME]) .. count
         elseif goalKind == "explore" then
             d.kind = "explore"
-            d.action = "Explore the marked area" .. count
+            d.action = L["Explore the marked area"] .. count
         else
             d.kind = "kill"
             if goal then
-                d.action = count ~= "" and ("Kill " .. Thing(goal[G_NAME]) .. count) or string.format("Kill %d %s", goal[G_COUNT], Thing(goal[G_NAME]))
+                d.action = count ~= "" and (L["Kill "] .. Thing(shownName or goal[G_NAME]) .. count) or string.format(L["Kill %d %s"], goal[G_COUNT], Thing(goal[G_NAME]))
             else
                 d.action = (step[S_TEXT] or "") .. count
             end
         end
-        d.quest = q[TITLE] -- shown in the block's header
+        d.quest = model:Title(id) -- shown in the block's header
         if goal and goal[G_WIDE] == 1 then d.wide = true end
     elseif kind == "travel" then
-        d.action = "Go to " .. Npc(step[S_ZONE])
+        d.action = L["Go to "] .. Npc(step[S_ZONE])
     elseif kind == "flight" then
-        local who = string.match(step[S_TEXT] or "", "from (.+)$") or "the flight master"
-        d.action = string.format("Talk to %s: get the flight path", Npc(who))
+        local who = string.match(step[S_TEXT] or "", "from (.+)$") or L["the flight master"]
+        d.action = string.format(L["Talk to %s: get the flight path"], Npc(who))
     elseif kind == "fly" then
         local from, to = string.match(step[S_TEXT] or "", "^Fly from (.+) to (.+)$")
         d.kind = "flight"
-        d.action = string.format("Talk to %s: fly to %s", Npc(from or "the flight master"), Npc(to or "?"))
+        d.action = string.format(L["Talk to %s: fly to %s"], Npc(from or L["the flight master"]), Npc(to or "?"))
     elseif kind == "hearth" then
         local dest = step[S_DEST]
-        d.kind, d.useItem, d.useLabel = "hearth", 6948, "Hearthstone"
-        d.action = "Use your Hearthstone" .. (type(dest) == "table" and (": back to " .. Npc(dest[1])) or "")
+        d.kind, d.useItem, d.useLabel = "hearth", 6948, L["Hearthstone"]
+        d.action = L["Use your Hearthstone"] .. (type(dest) == "table" and (L[": back to "] .. Npc(dest[1])) or "")
     elseif kind == "farm" then
         local g = model.game
         local pick, value = Guide.FarmPick(step[S_FARM], g.price)
         d.kind, d.farm = "loot", pick
         if pick then
             local item = g.itemName and g.itemName(pick[1]) or "loot"
-            local worth = value > 0 and g.money and string.format(" |cffaaaaaa(about %s a kill at auction prices)|r", g.money(math.floor(value))) or ""
-            d.action = string.format("Optional: farm %s from %s%s", Thing(item), Thing(pick[2]), worth)
+            local worth = value > 0 and g.money and string.format(L[" |cffaaaaaa(about %s a kill at auction prices)|r"], g.money(math.floor(value))) or ""
+            d.action = string.format(L["Optional: farm %s from %s%s"], Thing(item), Thing(pick[2]), worth)
         else
-            d.action = "Optional: farm here for gold"
+            d.action = L["Optional: farm here for gold"]
         end
     elseif kind == "home" then
-        local who = string.match(step[S_TEXT] or "", "at (.+)$") or "the innkeeper"
+        local who = string.match(step[S_TEXT] or "", "at (.+)$") or L["the innkeeper"]
         d.kind = "home"
-        d.action = string.format("Talk to %s: make this inn your home", Npc(who))
+        d.action = string.format(L["Talk to %s: make this inn your home"], Npc(who))
     else
         d.action = step[S_TEXT]
     end
@@ -771,7 +1102,7 @@ function Guide.Describe(model, i, objectives)
         local cur, max = model.game.xp()
         local target = tonumber(string.match(step[S_TEXT] or "", "level (%d+)")) or step[S_LEVEL]
         if cur and max and max > 0 then
-            d.action = string.format("Grind here to level %d |cffaaaaaa(%d%% into %d, about %d kills to go)|r", target,
+            d.action = string.format(L["Grind here to level %d |cffaaaaaa(%d%% into %d, about %d kills to go)|r"], target,
                 math.floor(cur / max * 100), model.game.level(), Guide.KillsFor(model.game.level(), max - cur))
         end
     end
@@ -826,7 +1157,7 @@ end
 
 function Guide.Duration(seconds)
     seconds = math.floor(seconds or 0)
-    if seconds >= 3600 then return string.format("%dh %02dm", math.floor(seconds / 3600), math.floor(seconds % 3600 / 60)) end
+    if seconds >= 3600 then return string.format(L["%dh %02dm"], math.floor(seconds / 3600), math.floor(seconds % 3600 / 60)) end
     return string.format("%dm", math.max(1, math.floor(seconds / 60 + 0.5)))
 end
 
@@ -859,32 +1190,32 @@ function Guide.Errands(state)
     local r = state.repair
     if r and r.zone == state.zone and ((state.freeSlots and state.freeSlots <= 2) or (state.durability and state.durability <= 0.3)) then
         add({ key = "repair:" .. r.name, kind = "repair", zone = r.zone, x = r.x, y = r.y,
-              action = "Sell junk and repair at " .. Npc(r.name), tip = "Your bags are full or your gear is worn" })
+              action = L["Sell junk and repair at "] .. Npc(r.name), tip = L["Your bags are full or your gear is worn"] })
     end
     local t = state.train
     if t and (t.count or 0) > 0 and t.trainer and t.trainer.zone == state.zone then
         add({ key = "train:" .. (state.level or 0), kind = "train", zone = t.trainer.zone, x = t.trainer.x, y = t.trainer.y,
-              action = string.format("Train %d new spell%s at %s", t.count, t.count == 1 and "" or "s", Npc(t.trainer.name)),
-              tip = t.cost and ("Costs " .. t.cost) or nil })
+              action = string.format(L["Train %d new spell%s at %s"], t.count, t.count == 1 and "" or "s", Npc(t.trainer.name)),
+              tip = t.cost and (L["Costs "] .. t.cost) or nil })
     end
     local food, innHere = state.food, state.innHere
     if food and innHere and innHere.zone == state.zone then
         local lowFood, lowDrink = (food.food or 0) < Guide.FOOD_MIN, food.mana and (food.drink or 0) < Guide.FOOD_MIN
         if lowFood or lowDrink then
-            local what = lowFood and lowDrink and "food and water" or (lowFood and "food" or "water")
+            local what = lowFood and lowDrink and L["food and water"] or (lowFood and "food" or "water")
             add({ key = "food:" .. innHere.name .. ":" .. (state.level or 0), kind = "food", zone = innHere.zone, x = innHere.x, y = innHere.y,
-                  action = string.format("Buy %s at %s", what, Npc(innHere.name)), tip = "You're running low: the innkeeper sells some for your level" })
+                  action = string.format(L["Buy %s at %s"], what, Npc(innHere.name)), tip = L["You're running low: the innkeeper sells some for your level"] })
         end
     end
     local inn = state.inn
     if inn and inn.zone == state.sectionZone and state.homeZone ~= state.sectionZone and (state.sectionLeft or 0) >= Guide.HOME_MIN_STEPS then
         add({ key = "home:" .. inn.zone, kind = "home", zone = inn.zone, x = inn.x, y = inn.y,
-              action = "Set your Hearthstone at " .. Npc(inn.name), tip = "You'll come back here: the Hearthstone saves the walk" })
+              action = L["Set your Hearthstone at "] .. Npc(inn.name), tip = L["You'll come back here: the Hearthstone saves the walk"] })
     end
     local cq = state.classQuest
     if cq and cq.zone == state.zone then
         add({ key = "cq:" .. cq.id, kind = "classquest", zone = cq.zone, x = cq.x, y = cq.y,
-              action = string.format("Talk to %s: accept %s", Npc(cq.giver or "?"), Quest(cq.title or "?")), tip = "Class quest" })
+              action = string.format(L["Talk to %s: accept %s"], Npc(cq.giver or "?"), Quest(cq.title or "?")), tip = L["Class quest"] })
     end
     return out
 end
@@ -914,17 +1245,23 @@ end
 local function Leg(text, zone, x, y) return { text = text, zone = zone, x = x, y = y } end
 local function At(zone, x, y) return string.format("(%s %d, %d)", zone, math.floor(x + 0.5), math.floor(y + 0.5)) end
 
+Guide.NEAR_YARDS = 1500 -- closer than this (about 3.5 minutes on foot), no flight or ship: just run there
+
 -- The legs to step i from where you are: { {text, zone, x, y} }, or nil when you're in its zone.
 function Model:Directions(i)
     local travel, step = self.data.travel, self.steps[i]
     if not (travel and travel.continents and step) then return nil end
     local target, here = step[S_ZONE], self.game.zone()
     if not here or here == "" or here == target then return nil end
+    -- Just across a zone border (user, 2026-11-14: harpies in sight, but "Fly from Devrak"): run, the arrow shows it.
+    local sameLand = travel.continents[target] == nil or travel.continents[here] == nil or travel.continents[target] == travel.continents[here]
+    local yards = sameLand and self.game.yardsTo and self.game.yardsTo(target, step[S_X], step[S_Y])
+    if yards and yards <= Guide.NEAR_YARDS then return nil end
     local legs, from, fromX, fromY = {}, here, nil, nil
     if self.game.hearth then
         local home, ready = self.game.hearth()
         if ready and home == target then
-            return { Leg("Use your Hearthstone: it takes you to " .. home, nil, nil, nil) }
+            return { Leg(string.format(L["Hearthstone to %s"], home), nil, nil, nil) }
         end
     end
     local tc, pc = travel.continents[target], travel.continents[here]
@@ -934,14 +1271,29 @@ function Model:Directions(i)
             for _, way in ipairs({ { t[2], t[3] }, { t[3], t[2] } }) do
                 local a, b = way[1], way[2]
                 if a[5] == pc and b[5] == tc then
-                    local score = (b[2] == target and 3 or 0) + (a[2] == here and 2 or 0) + (t[1] == "zeppelin" and 1 or 0)
+                    local score
+                    local wd = self.game.worldDistance
+                    local hz, hx, hy
+                    if self.game.position then hz, hx, hy = self.game.position() end
+                    local toDock = wd and wd(hz or here, hx, hy, a[2], a[3], a[4])
+                    local fromDock = wd and wd(b[2], b[3], b[4], target, step[S_X], step[S_Y])
+                    if toDock and fromDock then
+                        -- By real distance: walk to the dock plus from the landing to the step (user, 2026-11-15: the
+                        -- Ratchet boat to Booty Bay, then a run up the continent to Hillsbrad).
+                        score = -(toDock + fromDock)
+                    else
+                        score = (b[2] == target and 3 or 0) + (a[2] == here and 2 or 0) + (t[1] == "zeppelin" and 1 or 0)
+                    end
                     if not pick or score > pick.score then pick = { kind = t[1], a = a, b = b, score = score } end
                 end
             end
         end
         if not pick then return nil end
-        legs[#legs + 1] = Leg("Go to the " .. pick.a[1] .. " " .. At(pick.a[2], pick.a[3], pick.a[4]), pick.a[2], pick.a[3], pick.a[4])
-        legs[#legs + 1] = Leg("Take the " .. pick.kind .. " to the " .. pick.b[1] .. " " .. At(pick.b[2], pick.b[3], pick.b[4]), pick.b[2], pick.b[3], pick.b[4])
+        -- Short (user, 2026-11-15: "reduce the amount of text, like go to the Ratchet dock: go to Ratchet"); the arrow
+        -- points at each leg, so no coordinates in the text.
+        local function town(name) return (string.gsub(string.gsub(name or "?", " zeppelin tower$", ""), " dock$", "")) end
+        legs[#legs + 1] = Leg(string.format(pick.kind == "boat" and L["Go to %s (boat)"] or L["Go to %s (zeppelin)"], town(pick.a[1])), pick.a[2], pick.a[3], pick.a[4])
+        legs[#legs + 1] = Leg(string.format(pick.kind == "boat" and L["Boat to %s"] or L["Zeppelin to %s"], town(pick.b[1])), pick.b[2], pick.b[3], pick.b[4])
         from, fromX, fromY = pick.b[2], pick.b[3], pick.b[4]
     end
     if from ~= target then
@@ -952,13 +1304,13 @@ function Model:Directions(i)
             to = nil -- you can't fly to a flight path you don't have yet
         end
         if not to then
-            legs[#legs + 1] = Leg(string.format("Run to %s %d, %d", target, math.floor((step[S_X] or 50) + 0.5), math.floor((step[S_Y] or 50) + 0.5)),
+            legs[#legs + 1] = Leg(string.format(L["Run to %s"], target),
                 target, step[S_X], step[S_Y])
         elseif to and start and start ~= to then
-            legs[#legs + 1] = Leg(string.format("Fly from %s %s to %s (%s)", start[1], At(start[2], start[3], start[4]), to[1], to[2]),
+            legs[#legs + 1] = Leg(string.format(L["Fly to %s"], to[2]),
                 start[2], start[3], start[4])
         elseif to then
-            legs[#legs + 1] = Leg(string.format("Fly to %s (%s) from a flight master", to[1], to[2]), to[2], to[3], to[4])
+            legs[#legs + 1] = Leg(string.format(L["Fly to %s"], to[2]), to[2], to[3], to[4])
         end
     end
     return #legs > 0 and legs or nil
@@ -1008,7 +1360,7 @@ function Model:Pinpoint(i)
     local goal = self:Goal(i)
     if not goal then return false end
     local gk = goal[G_KIND]
-    if goal[G_GUESSED] == 1 then return false end -- no real place to point at
+    if goal[G_GUESSED] == 1 then return self:QuestieFor(i) ~= nil end -- no real place to point at, unless Questie has one
     if gk == "use" or gk == "explore" then return true end
     if (gk == "kill" or gk == "collect") and self:Loop(i) then return true end -- the arrow circles the loop
     if gk == "kill" then return (goal[G_COUNT] or 0) <= 1 end
@@ -1020,5 +1372,24 @@ end
 function Model:Place(i)
     local step = self.steps[i]
     if not step then return nil end
+    local q = self:QuestieFor(i)
+    if q then return q[1], q[2], q[3], self.data.uiMaps[q[1]] end
     return step[S_ZONE], step[S_X], step[S_Y], self.data.uiMaps[step[S_ZONE]]
+end
+
+-- A step whose place isn't in our data (a summoned monster like Echeyakee, an object with no spawn): Questie's place
+-- for it, { zone, x, y, what }, or nil (user, 2026-11-14: "echeyakee does not have place i said use questie").
+-- Asked once per quest (saved in self.questie).
+function Model:QuestieFor(i)
+    local step = self.steps[i]
+    if not (step and step[S_KIND] == "do" and self.game.questieSpot) then return nil end
+    local goal = self:Goal(i)
+    if not (goal and goal[G_GUESSED] == 1) then return nil end
+    self.questie = self.questie or {}
+    local id = step[S_QUEST]
+    if self.questie[id] == nil then
+        local zone, x, y, what = self.game.questieSpot(id)
+        self.questie[id] = (zone and x and y and self.data.uiMaps[zone]) and { zone, x, y, what } or false
+    end
+    return self.questie[id] or nil
 end

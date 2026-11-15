@@ -32,6 +32,8 @@ from route_forever import load_recorded, load_rxp  # noqa: E402
 from route_styles import STYLES, PVP_ZONES, ExplorerScorer, explorer_bands, farm_spots, insert_farm_stops, route_name, safe_bands  # noqa: E402
 from route_planner import Shortcuts  # noqa: E402
 from route_score import score, zone_boxes  # noqa: E402
+from route_zones import hinted_where, quest_zone_hints  # noqa: E402
+from route_height import Heights  # noqa: E402
 from route_travel import service_points, FLIGHT_MASTER  # noqa: E402
 
 DUNGEON_SUFFIX = " (dungeons)"
@@ -100,7 +102,7 @@ def goal_row(g, place):
     return [g.kind, g.name, g.count] + spot + [g.source, int(g.wide), loop, g.levels[0], g.levels[1], int(g.elite), int(g.guessed), g.instance]
 
 
-def serialize(quests, routes, where, ui_maps, commit, travel=None):
+def serialize(quests, routes, where, ui_maps, commit, travel=None, heights=None):
     by_id = {q.id: q for q in quests}
     extras = {"class": [q.id for q in quests if q.classes], "dungeon": [q.id for q in quests if q.kind == "dungeon"],
               "item": [q.id for q in quests if q.start_item and not q.classes and not q.kind]}
@@ -109,11 +111,18 @@ def serialize(quests, routes, where, ui_maps, commit, travel=None):
     def place(point):
         w = where(point)
         return list(w) if w else None
+
+    def npc_place(point):
+        """[zone, x, y] plus how far above (+) or below (-) the ground the NPC stands, when it's a floor or more
+        (user, 2026-11-14: Darsok Swiftdagger on top of the Crossroads tower)."""
+        w = place(point)
+        lift = heights.lift(point) if (w and heights) else 0
+        return w + [lift] if lift else w
     slim = {}
     for qid in sorted(used):
         q = by_id[qid]
-        slim[str(qid)] = [q.title, q.level, q.min_level, q.classes, q.kind, q.prev, q.next_in_chain, q.start_name, place(q.start),
-                          q.end_name, place(q.end), [goal_row(g, place) for g in q.goals],
+        slim[str(qid)] = [q.title, q.level, q.min_level, q.classes, q.kind, q.prev, q.next_in_chain, q.start_name, npc_place(q.start),
+                          q.end_name, npc_place(q.end), [goal_row(g, place) for g in q.goals],
                           q.gear, q.start_item, q.races, list(q.start_drop) or 0]
     return {"source": {"db": build_farm.DB_REPO, "commit": commit}, "uiMaps": ui_maps,
             "columns": {"quest": ["title", "level", "minLevel", "classes", "type", "prev", "nextInChain", "giver", "giverPlace",
@@ -178,6 +187,11 @@ def main():
     quests = [q for q in every if all(g.point is not None for g in q.goals)]
     by_id = {q.id: q for q in every}
     where = make_where(wago, tables)
+    # A quest's objectives in the overlap of two zone maps take the quest's own zone (route_zones.py).
+    zone_of_area = build_farm.area_zones(wago["AreaTable"])
+    zone_of_quest = {int(r["entry"]): zone_of_area.get(int(num(r.get("ZoneOrSort"))))
+                     for r in build_farm.as_dicts(tables["quest_template"]) if int(num(r.get("ZoneOrSort"))) > 0}
+    where = hinted_where(where, boxes, quest_zone_hints(every, zone_of_quest))
     side = lambda f: side_of(factions.get(f))  # noqa: E731
     flight_points, inn_points = service_points(tables, side, FLIGHT_MASTER), service_points(tables, side, INNKEEPER)
     flights = flight_masters(tables, side, where)
@@ -194,13 +208,24 @@ def main():
                 bands = safe_bands(bands)
             elif style == "explorer":
                 bands = explorer_bands(bands)
-            planner = RoutePlanner(quests, where=where, eligibility=eligibility, xp=XpModel(), travel=TravelModel(),
-                                   scorer=ExplorerScorer() if style == "explorer" else HubScorer(),
-                                   zone_plan=ZonePlan(bands, cities=CITIES), shortcuts=Shortcuts(flight_points, inn_points),
-                                   avoid=PVP_ZONES if style == "safe" else ())
-            if style == "explorer":
-                planner.ZONE_CHANGE, planner.STAY = 150, 0.3  # moves on to new zones sooner: more of the world, more flight paths
-            steps, me = planner.plan(start=start_point(quests, zone, race_bit, where), race_bit=race_bit)
+            def make_planner(wait_levels):
+                p = RoutePlanner(quests, where=where, eligibility=eligibility, xp=XpModel(), travel=TravelModel(),
+                                 scorer=ExplorerScorer() if style == "explorer" else HubScorer(),
+                                 zone_plan=ZonePlan(bands, cities=CITIES), shortcuts=Shortcuts(flight_points, inn_points),
+                                 avoid=PVP_ZONES if style == "safe" else ())
+                p.WAIT_LEVELS = wait_levels
+                if style == "explorer":
+                    p.ZONE_CHANGE, p.STAY = 150, 0.3  # moves on to new zones sooner: more of the world, more flight paths
+                return p
+            # Planned with and without waiting for the quests around a far lonely objective (user, 2026-11-14: no long walk
+            # for one quest); the faster plan is kept, so the rule never makes a route slower (Tirisfal was +4.6 h with it).
+            start = start_point(quests, zone, race_bit, where)
+            planner = make_planner(RoutePlanner.WAIT_LEVELS)
+            steps, me = planner.plan(start=start, race_bit=race_bit)
+            plain = make_planner(0)
+            plain_steps, plain_me = plain.plan(start=start, race_bit=race_bit)
+            if plain_me.level >= me.level and plain_me.time < me.time:
+                planner, steps, me = plain, plain_steps, plain_me
             rows = [[s.kind, s.quest, s.zone, s.x, s.y, s.level, s.text, s.goal, s.dest] for s in steps]
             rows = merge_talks(rows, quests)                               # one stop per NPC visit
             rows = insert_class_quests(rows, quests, where, race_bits)     # class quests where the route passes their giver
@@ -216,7 +241,9 @@ def main():
                   f"{planner.hearths_used} hearthstones; scorecard 1-22 (warrior): {card}  (reference RestedXP 12.4 h, Zygor 14.3 h); "
                   f"22-60: {late['hours']} h (reference Zygor Forever 74.0 h, RestedXP Forever 90.6 h)")
     ui_maps = {r["Name_lang"]: int(r["ID"]) for r in wago["UiMap"] if r["Type"] == "3"}
-    data = serialize(quests, routes, where, ui_maps, commit, travel(quests, tables, factions, where))
+    spawns = [(int(num(r["map"])), num(r["position_x"]), num(r["position_y"]), num(r["position_z"]))
+              for table in ("creature", "gameobject") for r in build_farm.as_dicts(tables[table])]
+    data = serialize(quests, routes, where, ui_maps, commit, travel(quests, tables, factions, where), Heights(spawns))
     # Questline guides (attunements, Cozy Sleeping Bag): their own routes, chosen in the addon.
     data["guides"] = []
     for g in guides({q.id: q for q in every}, where):

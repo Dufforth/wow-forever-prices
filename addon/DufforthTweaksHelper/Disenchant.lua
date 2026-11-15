@@ -4,7 +4,8 @@
 -- Forever Prices page. Prices are Blizzard's, bundled with each download (Prices.lua).
 -- Turn it off with /dufforth de off.
 
-local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
+local PREFIX = L["|cff66ccffDufforth Tweaks Helper:|r "]
 local AUCTION_CUT = 0.05
 local OLD_PRICES_SECONDS = 2 * 24 * 3600 -- older bundled prices say how old they are
 local WEAPON, ARMOR = 2, 4
@@ -36,14 +37,14 @@ local EPIC_TABLE = {
 
 -- Names for when the game hasn't loaded a material's details yet.
 local NAMES = {
-    [10940] = "Strange Dust", [10938] = "Lesser Magic Essence", [10939] = "Greater Magic Essence",
-    [10998] = "Lesser Astral Essence", [11082] = "Greater Astral Essence", [11134] = "Lesser Mystic Essence",
-    [11135] = "Greater Mystic Essence", [11174] = "Lesser Nether Essence", [11175] = "Greater Nether Essence",
-    [16202] = "Lesser Eternal Essence", [16203] = "Greater Eternal Essence", [11083] = "Soul Dust",
-    [11137] = "Vision Dust", [11176] = "Dream Dust", [16204] = "Illusion Dust", [10978] = "Small Glimmering Shard",
-    [11084] = "Large Glimmering Shard", [11138] = "Small Glowing Shard", [11139] = "Large Glowing Shard",
-    [11177] = "Small Radiant Shard", [11178] = "Large Radiant Shard", [14343] = "Small Brilliant Shard",
-    [14344] = "Large Brilliant Shard", [20725] = "Nexus Crystal",
+    [10940] = L["Strange Dust"], [10938] = L["Lesser Magic Essence"], [10939] = L["Greater Magic Essence"],
+    [10998] = L["Lesser Astral Essence"], [11082] = L["Greater Astral Essence"], [11134] = L["Lesser Mystic Essence"],
+    [11135] = L["Greater Mystic Essence"], [11174] = L["Lesser Nether Essence"], [11175] = L["Greater Nether Essence"],
+    [16202] = L["Lesser Eternal Essence"], [16203] = L["Greater Eternal Essence"], [11083] = L["Soul Dust"],
+    [11137] = L["Vision Dust"], [11176] = L["Dream Dust"], [16204] = L["Illusion Dust"], [10978] = L["Small Glimmering Shard"],
+    [11084] = L["Large Glimmering Shard"], [11138] = L["Small Glowing Shard"], [11139] = L["Large Glowing Shard"],
+    [11177] = L["Small Radiant Shard"], [11178] = L["Large Radiant Shard"], [14343] = L["Small Brilliant Shard"],
+    [14344] = L["Large Brilliant Shard"], [20725] = L["Nexus Crystal"],
 }
 
 local function FindBand(rows, level)
@@ -114,14 +115,14 @@ end
 local function Money(copper)
     copper = math.floor(copper + 0.5)
     local gold, silver, rest = math.floor(copper / 10000), math.floor(copper % 10000 / 100), copper % 100
-    if gold > 0 then return string.format("|cffffd100%dg|r |cffc7c7cf%ds|r", gold, silver) end
-    if silver > 0 then return string.format("|cffc7c7cf%ds|r |cffeda55f%dc|r", silver, rest) end
+    if gold > 0 then return string.format(L["|cffffd100%dg|r |cffc7c7cf%ds|r"], gold, silver) end
+    if silver > 0 then return string.format(L["|cffc7c7cf%ds|r |cffeda55f%dc|r"], silver, rest) end
     return string.format("|cffeda55f%dc|r", rest)
 end
 
 local function MaterialName(id)
     local name = (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)) or (GetItemInfo and GetItemInfo(id))
-    return name or NAMES[id] or ("Item " .. id)
+    return name or NAMES[id] or (L["Item "] .. id)
 end
 
 -- Your Enchanting skill, or false if you don't have it, or nil if the game can't tell.
@@ -134,9 +135,9 @@ end
 -- (vendor, then auction house, then disenchant).
 -- Returns { key = "vendor" | "ah" | "de", label, value, r, g, b }, or nil when nothing is known.
 local ADVICE = {
-    vendor = { label = "Best: sell to a vendor", r = 0.75, g = 0.75, b = 0.75 },
-    ah = { label = "Best: sell on the auction house", r = 1, g = 0.82, b = 0 },
-    de = { label = "Best: disenchant it", r = 0.3, g = 1, b = 0.4 },
+    vendor = { label = L["Best: sell to a vendor"], r = 0.75, g = 0.75, b = 0.75 },
+    ah = { label = L["Best: sell on the auction house"], r = 1, g = 0.82, b = 0 },
+    de = { label = L["Best: disenchant it"], r = 0.3, g = 1, b = 0.4 },
 }
 local function Advice(deValue, ahNet, vendor)
     local best
@@ -166,10 +167,10 @@ local function TooltipLines(item, market, shipped, now, skill)
     local lacking = need and need > 1 and skill ~= nil and (skill == false or skill < need)
 
     local lines = {}
-    local header = "Disenchants into"
+    local header = L["Disenchants into"]
     local r, g, b = 0.4, 0.8, 1
     if need and need > 1 then
-        header = header .. string.format(" (Enchanting %d)", need)
+        header = header .. string.format(L[" (Enchanting %d)"], need)
         if lacking then r, g, b = 1, 0.35, 0.35 end
     end
     lines[#lines + 1] = { header, nil, r, g, b }
@@ -178,18 +179,18 @@ local function TooltipLines(item, market, shipped, now, skill)
             local amount = o.min == o.max and tostring(o.min) or (o.min .. "-" .. o.max)
             local chance = o.chance >= 0.995 and "" or (string.format("%g%%", math.floor(o.chance * 1000 + 0.5) / 10) .. "  ")
             local price = priceOf(o.id)
-            lines[#lines + 1] = { "  " .. chance .. amount .. "x " .. MaterialName(o.id), price and (Money(price) .. " each") or "no price", 1, 1, 1 }
+            lines[#lines + 1] = { "  " .. chance .. amount .. "x " .. MaterialName(o.id), price and (Money(price) .. L[" each"]) or L["no price"], 1, 1, 1 }
         end
     end
     if value then
         local age = shipped and shipped.at and now - shipped.at or 0
-        local note = age > OLD_PRICES_SECONDS and string.format(" (prices %d days old)", math.floor(age / 86400)) or ""
-        lines[#lines + 1] = { "  Average value" .. note, Money(value), 0.6, 1, 0.6 }
+        local note = age > OLD_PRICES_SECONDS and string.format(L[" (prices %d days old)"], math.floor(age / 86400)) or ""
+        lines[#lines + 1] = { L["  Average value"] .. note, Money(value), 0.6, 1, 0.6 }
     end
     local advice = Advice(value, ahNet, vendor)
     if advice then
         local tag = advice.label
-        if advice.key == "de" and lacking then tag = tag .. " (needs Enchanting " .. need .. ")" end
+        if advice.key == "de" and lacking then tag = tag .. L[" (needs Enchanting "] .. need .. ")" end
         lines[#lines + 1] = { tag, nil, advice.r, advice.g, advice.b }
     end
     return lines, advice
@@ -249,14 +250,14 @@ if TooltipDataProcessor and Enum and Enum.TooltipDataType then
         AddToTooltip(tooltip, id)
     end)
 else
-    for _, name in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
+    for _, name in ipairs({ L["GameTooltip"], L["ItemRefTooltip"], L["ShoppingTooltip1"], L["ShoppingTooltip2"] }) do
         local tooltip = _G[name]
         if tooltip and tooltip.HookScript then
             tooltip:HookScript("OnTooltipSetItem", function(self) AddToTooltip(self, IdFromLink(select(2, self:GetItem()))) end)
         end
     end
 end
-for _, name in ipairs({ "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }) do
+for _, name in ipairs({ L["GameTooltip"], L["ItemRefTooltip"], L["ShoppingTooltip1"], L["ShoppingTooltip2"] }) do
     local tooltip = _G[name]
     if tooltip and tooltip.HookScript then
         tooltip:HookScript("OnTooltipCleared", function(self) self.dufforthDE = nil end)
@@ -273,5 +274,5 @@ function DufforthTweaksHelperDE.Toggle(option)
     else
         DufforthTweaksHelperDB.showDisenchant = not Enabled()
     end
-    DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. "Disenchant advice in tooltips: " .. (Enabled() and "ON" or "OFF") .. ".")
+    DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. L["Disenchant advice in tooltips: "] .. (Enabled() and "ON" or "OFF") .. ".")
 end

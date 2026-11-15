@@ -8,6 +8,7 @@
 -- Candidates: AH gear the price data covers (GearData.lua) at or a bit below your level, and the
 -- gear rewards of quests for your level, side and class that you haven't done (ZoneData.lua).
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Gear = {}
 DufforthTweaksHelperGear = Gear
 
@@ -31,9 +32,9 @@ local SLOTS = { [1] = { 1 }, [2] = { 2 }, [3] = { 3 }, [5] = { 5 }, [20] = { 5 }
     [9] = { 9 }, [10] = { 10 }, [11] = { 11, 12 }, [12] = { 13, 14 }, [16] = { 15 }, [13] = { 16 }, [17] = { 16 },
     [21] = { 16 }, [22] = { 17 }, [14] = { 17 }, [23] = { 17 }, [15] = { 18 }, [25] = { 18 }, [26] = { 18 }, [28] = { 18 } }
 Gear.SLOTS = SLOTS
-local SLOT_NAMES = { [1] = "Head", [2] = "Neck", [3] = "Shoulder", [5] = "Chest", [6] = "Waist", [7] = "Legs", [8] = "Feet",
-    [9] = "Wrist", [10] = "Hands", [11] = "Ring", [12] = "Ring", [13] = "Trinket", [14] = "Trinket", [15] = "Back",
-    [16] = "Main hand", [17] = "Off hand", [18] = "Ranged" }
+local SLOT_NAMES = { [1] = L["Head"], [2] = L["Neck"], [3] = L["Shoulder"], [5] = L["Chest"], [6] = L["Waist"], [7] = L["Legs"], [8] = L["Feet"],
+    [9] = L["Wrist"], [10] = L["Hands"], [11] = L["Ring"], [12] = L["Ring"], [13] = L["Trinket"], [14] = L["Trinket"], [15] = L["Back"],
+    [16] = L["Main hand"], [17] = L["Off hand"], [18] = L["Ranged"] }
 Gear.SLOT_NAMES = SLOT_NAMES
 local EQUIP_LOC = { INVTYPE_HEAD = 1, INVTYPE_NECK = 2, INVTYPE_SHOULDER = 3, INVTYPE_CHEST = 5, INVTYPE_ROBE = 20,
     INVTYPE_WAIST = 6, INVTYPE_LEGS = 7, INVTYPE_FEET = 8, INVTYPE_WRIST = 9, INVTYPE_HAND = 10, INVTYPE_FINGER = 11,
@@ -281,7 +282,7 @@ function Gear.RewardChoices()
                 gain = up[1] and up[1].gain or nil
             end
         end
-        out[i] = { id = id, name = info.name or ("Reward " .. i), gain = gain, price = tonumber(price) or 0 }
+        out[i] = { id = id, name = info.name or (L["Reward "] .. i), gain = gain, price = tonumber(price) or 0 }
     end
     return out
 end
@@ -363,11 +364,11 @@ local QUALITY = { [0] = "9d9d9d", [1] = "ffffff", [2] = "1eff00", [3] = "0070dd"
 local function Money(c) return DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(c) or tostring(c) end
 local function NameOf(id)
     local name, _, quality = (C_Item and C_Item.GetItemInfo or GetItemInfo)(id)
-    return name and ("|cff" .. (QUALITY[quality] or "ffffff") .. name .. "|r") or ("Item " .. id)
+    return name and ("|cff" .. (QUALITY[quality] or "ffffff") .. name .. "|r") or (L["Item "] .. id)
 end
 local function AtAuction()
-    local L = DufforthTweaksHelperLeveling
-    return L and L.Where and L.Where().auction or false
+    local LV = DufforthTweaksHelperLeveling
+    return LV and LV.Where and LV.Where().auction or false
 end
 
 local function PlaceRight(line, searching)
@@ -396,8 +397,8 @@ local function Draw()
             line.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(c.id)) or (GetItemIcon and GetItemIcon(c.id)) or "Interface\\Icons\\INV_Misc_QuestionMark")
             line.name:SetText(NameOf(c.id))
             local from = c.source == "auction" and ("|cffff9933AH|r " .. Money(c.price))
-                or string.format("|cffffd100Quest|r %s (%d, %s)", c.quest.title, c.quest.level, c.quest.zone)
-            line.sub:SetText(string.format("%s, replaces %s. %s", SLOT_NAMES[r.slot], r.current.name, from))
+                or string.format(L["|cffffd100Quest|r %s (%d, %s)"], c.quest.title, c.quest.level, c.quest.zone)
+            line.sub:SetText(string.format(L["%s, replaces %s. %s"], SLOT_NAMES[r.slot], r.current.name, from))
             line.cost:SetText(string.format("|cff40ff40+%.1f|r", r.gain))
             line.detail:SetText("points")
         end
@@ -414,20 +415,20 @@ function Gear.Refresh()
     if not panel or not (panel.IsVisible and panel:IsVisible()) then return end
     local ok, upgrades, waiting = pcall(Gear.Advice)
     if not ok then
-        panel.empty:SetText("|cffff5555The gear advice hit an error:|r " .. tostring(upgrades))
+        panel.empty:SetText(L["|cffff5555The gear advice hit an error:|r "] .. tostring(upgrades))
         return
     end
     local _, className = UnitClass and UnitClass("player")
-    panel.title:SetText(string.format("Gear upgrades for your %s, level %d", className or "class", UnitLevel and UnitLevel("player") or 1))
+    panel.title:SetText(string.format(L["Gear upgrades for your %s, level %d"], className or "class", UnitLevel and UnitLevel("player") or 1))
     rows = {}
     local auction, quest = {}, {}
     for _, u in ipairs(upgrades) do
         if u.candidate.source == "quest" then quest[#quest + 1] = u else auction[#auction + 1] = u end
     end
-    if #quest > 0 then Section("gear:quest", "From quests you can do now", nil, quest) end
-    if #auction > 0 then Section("gear:auction", "From the auction house", nil, auction) end
-    panel.status:SetText(waiting > 0 and string.format("Loading %d items from the game...", waiting) or "")
-    panel.empty:SetText(#rows > 0 and "" or (waiting > 0 and "Loading item data, one moment." or "No upgrades found: your gear beats what the AH and your quests offer at your level."))
+    if #quest > 0 then Section("gear:quest", L["From quests you can do now"], nil, quest) end
+    if #auction > 0 then Section("gear:auction", L["From the auction house"], nil, auction) end
+    panel.status:SetText(waiting > 0 and string.format(L["Loading %d items from the game..."], waiting) or "")
+    panel.empty:SetText(#rows > 0 and "" or (waiting > 0 and L["Loading item data, one moment."] or L["No upgrades found: your gear beats what the AH and your quests offer at your level."]))
     offset = math.min(offset, math.max(0, #rows - Shown()))
     Draw()
 end
@@ -439,23 +440,23 @@ local function ShowRow(line)
     GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
     if GameTooltip.SetItemByID then GameTooltip:SetItemByID(c.id) else GameTooltip:SetText(NameOf(c.id)) end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Better than " .. r.current.name, string.format("+%.1f points", r.gain), 0.8, 0.8, 0.8, 0.25, 1, 0.25)
+    GameTooltip:AddDoubleLine(L["Better than "] .. r.current.name, string.format(L["+%.1f points"], r.gain), 0.8, 0.8, 0.8, 0.25, 1, 0.25)
     if c.source == "quest" then
-        GameTooltip:AddLine(string.format("Reward of \"%s\" (level %d) in %s%s.", c.quest.title, c.quest.level, c.quest.zone,
-            c.quest.giver ~= "" and (", from " .. c.quest.giver) or ""), 1, 0.82, 0, true)
-        GameTooltip:AddLine("Quest data: Classic estimates. Some quests let you pick one reward.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(string.format(L["Reward of \"%s\" (level %d) in %s%s."], c.quest.title, c.quest.level, c.quest.zone,
+            c.quest.giver ~= "" and (L[", from "] .. c.quest.giver) or ""), 1, 0.82, 0, true)
+        GameTooltip:AddLine(L["Quest data: Classic estimates. Some quests let you pick one reward."], 0.6, 0.6, 0.6, true)
     else
-        GameTooltip:AddLine("On the auction house for about " .. Money(c.price) .. ".", 1, 0.6, 0.2, true)
+        GameTooltip:AddLine(L["On the auction house for about "] .. Money(c.price) .. ".", 1, 0.6, 0.2, true)
     end
-    GameTooltip:AddLine("Points: each stat times how much it helps your class, weapon damage per second x 14 attack power, and armor. "
-        .. "Spell damage counts only for the schools your class casts.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine(L["Points: each stat times how much it helps your class, weapon damage per second x 14 attack power, and armor. "]
+        .. L["Spell damage counts only for the schools your class casts."], 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
 local function Search(line)
     local r = line.row
-    local L = DufforthTweaksHelperLeveling
-    if r and not r.header and L and L.SearchAuctionHouse then L.SearchAuctionHouse(r.candidate.id) end
+    local LV = DufforthTweaksHelperLeveling
+    if r and not r.header and LV and LV.SearchAuctionHouse then LV.SearchAuctionHouse(r.candidate.id) end
 end
 
 function Gear.BuildPanel(parent, width)
@@ -464,7 +465,7 @@ function Gear.BuildPanel(parent, width)
     panel.title:SetPoint("TOPLEFT", 8, -4)
     panel.legend = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.legend:SetPoint("TOPLEFT", 8, -22); panel.legend:SetWidth(width - 16); panel.legend:SetJustifyH("LEFT")
-    panel.legend:SetText("Better than what you wear, by points for your class. Hover for the item; at the AH, Search opens it.")
+    panel.legend:SetText(L["Better than what you wear, by points for your class. Hover for the item; at the AH, Search opens it."])
     panel.status = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.status:SetPoint("BOTTOMLEFT", 8, 8)
     panel.empty = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -491,7 +492,7 @@ function Gear.BuildPanel(parent, width)
         for _, f in ipairs({ line.name, line.sub }) do if f.SetWordWrap then f:SetWordWrap(false) end end
         local thisLine = line
         line.search = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
-        line.search:SetSize(58, 20); line.search:SetPoint("RIGHT", -4, 0); line.search:SetText("Search")
+        line.search:SetSize(58, 20); line.search:SetPoint("RIGHT", -4, 0); line.search:SetText(L["Search"])
         line.search:SetScript("OnClick", function() pcall(Search, thisLine) end)
         line.search:Hide()
         line:SetScript("OnEnter", ShowRow)

@@ -103,6 +103,7 @@ DufforthTweaksHelperDB = { nodes = { enabled = true, labels = false, swapEnabled
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 lua.execute(MOCK)
 rawget_w = None
 lua.execute("GetRealmName = function() return 'Realm 4' end; UnitFactionGroup = function() return 'Horde' end")
@@ -212,8 +213,8 @@ def tabs():
 rawget_tab = lua.eval("function(f) return rawget(f, 'isTab') end")
 check("redesign: flat dark window like the guide, not the game's dialog frame (user)",
       menu.template == "BackdropTemplate" and menu.backdrop is not None)
-check("redesign: tabs Disenchant, Leveling, Zone and your class; no Gather or Crafting tab (user)",
-      tabs() == ["Disenchant", "Leveling", "Zone", "Warrior"], tabs())
+check("redesign: tabs Disenchant, Leveling, Zone, Grind and your class; no Gather or Crafting tab (user)",
+      tabs() == ["Disenchant", "Leveling", "Zone", "Grind", "Warrior"], tabs())
 check("redesign: the window can be made narrower and shorter (user: cannot resize smaller)",
       menu.bounds is not None and menu.bounds[1] <= 440 and menu.bounds[2] <= 320, menu.bounds and list(menu.bounds.values()))
 g.DufforthTweaksHelperMenu_Toggle("crafting")
@@ -223,6 +224,8 @@ g.DufforthTweaksHelperMenu_Toggle("disenchant")
 check("/dufforth disenchant opens the Disenchant tab on its settings", g.DufforthTweaksHelperDB.deView == "settings")
 views = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Settings", "Craft to disenchant")]
 check("Disenchant tab: buttons for its two views", sorted(views) == ["Craft to disenchant", "Settings"], views)
+order = [f.text for f in g.ALL.values() if f.kind == "Button" and f.text in ("Settings", "Craft to disenchant")]
+check("Disenchant tab: Craft to disenchant comes before Settings (user, 2026-11-15)", order == ["Craft to disenchant", "Settings"], order)
 g.DufforthTweaksHelperMenu_Toggle("warrior")
 check("/dufforth warrior opens your class's tab on the macro", g.DufforthTweaksHelperDB.menuTab == "Class" and g.DufforthTweaksHelperDB.classView == "macro")
 check("the Warrior tab explains how to use it", any(isinstance(f.text, str) and "How to use it" in f.text for f in g.ALL.values()))

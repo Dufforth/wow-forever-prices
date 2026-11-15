@@ -33,7 +33,10 @@ def wanted_ids():
     consumables = build_addon_consumables.consumable_ids()
     import build_addon_zones
     zone_items = build_addon_zones.zone_item_ids()
-    return sorted(set(MATERIALS) | {int(key) for key in gear} | set(reagents) | set(products) | leveling | consumables | zone_items)
+    import build_addon_grind
+    grind_items = build_addon_grind.grind_item_ids()
+    return sorted(set(MATERIALS) | {int(key) for key in gear} | set(reagents) | set(products) | leveling | consumables | zone_items
+                  | grind_items)
 
 
 def prices_for(items, ids):

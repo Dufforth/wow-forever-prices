@@ -13,12 +13,13 @@
 -- Items that can't be ticked at all: locked (being moved or traded), or above your
 -- Enchanting skill. Items the game won't disenchant never appear. Nothing changes in combat.
 
-local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
+local PREFIX = L["|cff66ccffDufforth Tweaks Helper:|r "]
 local DISENCHANT = 13262
 local BIND_ON_EQUIP = 2
 local AUCTION_CUT = 0.05
 local BAGS = { 0, 1, 2, 3, 4 }
-local QUALITY_NAMES = { [2] = "Uncommon", [3] = "Rare", [4] = "Epic" }
+local QUALITY_NAMES = { [2] = L["Uncommon"], [3] = L["Rare"], [4] = L["Epic"] }
 local ROW_HEIGHT, VISIBLE_ROWS = 24, 10
 
 local function Print(message)
@@ -42,21 +43,21 @@ end
 -- Returns nil (fine), or reason and hard (true: it can't be ticked at all).
 -- item: { id, quality, level, bindType, sellPrice, bound, locked, inSet, ahPrice }
 local function Classify(item, o, skill, value, need)
-    if not need then return "can't be disenchanted", true end
-    if item.locked then return "in use", true end
-    if skill == false then return "you don't have Enchanting", true end
-    if skill and skill < need then return "needs Enchanting " .. need, true end
-    if o.keep[item.id] then return "on your keep list" end
-    if item.bound == nil then return "can't tell if it's bound" end
+    if not need then return L["can't be disenchanted"], true end
+    if item.locked then return L["in use"], true end
+    if skill == false then return L["you don't have Enchanting"], true end
+    if skill and skill < need then return L["needs Enchanting "] .. need, true end
+    if o.keep[item.id] then return L["on your keep list"] end
+    if item.bound == nil then return L["can't tell if it's bound"] end
     if item.bound then return "soulbound" end
-    if item.bindType ~= BIND_ON_EQUIP then return "not Bind on Equip" end
-    if item.quality > o.maxQuality then return "above your quality limit" end
-    if o.maxLevel > 0 and (item.level or 0) > o.maxLevel then return "above your item level limit" end
-    if item.inSet then return "in an equipment set" end
+    if item.bindType ~= BIND_ON_EQUIP then return L["not Bind on Equip"] end
+    if item.quality > o.maxQuality then return L["above your quality limit"] end
+    if o.maxLevel > 0 and (item.level or 0) > o.maxLevel then return L["above your item level limit"] end
+    if item.inSet then return L["in an equipment set"] end
     if o.skipWorthMore and value and item.ahPrice and item.ahPrice * (1 - AUCTION_CUT) > value then
-        return "sells for more on the auction house"
+        return L["sells for more on the auction house"]
     end
-    if o.skipVendor and value and item.sellPrice and item.sellPrice > value then return "a vendor pays more" end
+    if o.skipVendor and value and item.sellPrice and item.sellPrice > value then return L["a vendor pays more"] end
 end
 
 -- ---- Reading your bags ----
@@ -202,10 +203,10 @@ local function DrawRows()
         if row then
             line.row = row
             line.icon:SetTexture(row.item.icon)
-            line.name:SetText(QualityColor(row.item.quality) .. (row.item.name or ("Item " .. row.item.id)) .. "|r")
+            line.name:SetText(QualityColor(row.item.quality) .. (row.item.name or (L["Item "] .. row.item.id)) .. "|r")
             line.check:SetChecked(IsSelected(row))
             line.check:SetEnabled(not row.hard)
-            local value = row.item.value and DufforthTweaksHelperDE.Money(row.item.value) or "no price"
+            local value = row.item.value and DufforthTweaksHelperDE.Money(row.item.value) or L["no price"]
             line.detail:SetText(row.reason and ("|cff999999" .. row.reason .. "|r") or value)
         end
     end
@@ -216,7 +217,7 @@ end
 local function Refresh()
     if not frame or not frame:IsShown() then return end
     if InCombatLockdown and InCombatLockdown() then
-        frame.status:SetText("Paused in combat.")
+        frame.status:SetText(L["Paused in combat."])
         return
     end
     rows = Rows()
@@ -230,11 +231,11 @@ local function Refresh()
     local count = summary.count
     DrawRows()
     if #rows == 0 then
-        frame.status:SetText("Nothing in your bags can be disenchanted.")
+        frame.status:SetText(L["Nothing in your bags can be disenchanted."])
     elseif count == 0 then
-        frame.status:SetText(string.format("0 of %d ticked.", #rows))
+        frame.status:SetText(string.format(L["0 of %d ticked."], #rows))
     else
-        frame.status:SetText(string.format("%d of %d ticked: about %s of materials, about %s. Hover for details.", count, #rows,
+        frame.status:SetText(string.format(L["%d of %d ticked: about %s of materials, about %s. Hover for details."], count, #rows,
             DufforthTweaksHelperDE.Money(summary.value), Duration(summary.seconds)))
     end
     if next then
@@ -242,11 +243,11 @@ local function Refresh()
         castButton:SetAttribute("spell", SpellName())
         castButton:SetAttribute("target-bag", next.item.bag)
         castButton:SetAttribute("target-slot", next.item.bagSlot)
-        castButton:SetText("Disenchant next (" .. count .. ")")
+        castButton:SetText(L["Disenchant next ("] .. count .. ")")
         castButton:Enable()
     else
         castButton:SetAttribute("type", nil)
-        castButton:SetText("Disenchant next")
+        castButton:SetText(L["Disenchant next"])
         castButton:Disable()
     end
 end
@@ -281,14 +282,14 @@ local function BuildRow(index)
         local keep, id = Options().keep, line.row.item.id
         keep[id] = not keep[id] or nil
         choice[id] = nil
-        Print((line.row.item.name or "Item") .. (keep[id] and " is on your keep list." or " is off your keep list."))
+        Print((line.row.item.name or L["Item"]) .. (keep[id] and L[" is on your keep list."] or L[" is off your keep list."]))
         Refresh()
     end)
     line:SetScript("OnEnter", function(self)
         if not self.row then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if GameTooltip.SetBagItem then GameTooltip:SetBagItem(self.row.item.bag, self.row.item.bagSlot) end
-        GameTooltip:AddLine("Right-click: always keep / stop keeping", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(L["Right-click: always keep / stop keeping"], 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     line:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -321,11 +322,11 @@ local function Build()
     tinsert(UISpecialFrames, "DufforthTweaksHelperDEFrame") -- Escape closes it
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     frame.title:SetPoint("TOP", 0, -5)
-    frame.title:SetText("Disenchant list")
+    frame.title:SetText(L["Disenchant list"])
 
-    local all = SmallButton("Tick all", 70, function() SetAll(true) end)
+    local all = SmallButton(L["Tick all"], 70, function() SetAll(true) end)
     all:SetPoint("TOPLEFT", 12, -30)
-    local none = SmallButton("Untick all", 80, function() SetAll(false) end)
+    local none = SmallButton(L["Untick all"], 80, function() SetAll(false) end)
     none:SetPoint("LEFT", all, "RIGHT", 4, 0)
     frame.scrollUp = DufforthTweaksHelper.ArrowButton(frame, "up", function() offset = math.max(0, offset - VISIBLE_ROWS); DrawRows() end)
     frame.scrollUp:SetPoint("TOPRIGHT", -40, -29)
@@ -345,11 +346,11 @@ local function Build()
     frame.statusHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
     local note = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     note:SetPoint("BOTTOMLEFT", 14, 40); note:SetWidth(332); note:SetJustifyH("LEFT")
-    note:SetText("The game allows one disenchant per click: press the button (or its key, under Key Bindings > AddOns) after each cast.")
+    note:SetText(L["The game allows one disenchant per click: press the button (or its key, under Key Bindings > AddOns) after each cast."])
 
     castButton = CreateFrame("Button", "DufforthTweaksHelperDEButton", frame, "SecureActionButtonTemplate,UIPanelButtonTemplate")
     castButton:SetSize(200, 24); castButton:SetPoint("BOTTOM", 0, 12)
-    castButton:SetText("Disenchant next")
+    castButton:SetText(L["Disenchant next"])
     castButton:RegisterForClicks("AnyUp", "AnyDown")
 
     frame:SetScript("OnShow", Refresh)
@@ -368,7 +369,7 @@ end
 
 function DufforthTweaksHelperAutoDE.Toggle()
     if InCombatLockdown and InCombatLockdown() then
-        Print("the disenchant list can't open in combat.")
+        Print(L["the disenchant list can't open in combat."])
         return
     end
     if not frame then Build() end
@@ -391,24 +392,24 @@ function DufforthTweaksHelperAutoDE.ShowSummary(owner)
     local s = summary
     GameTooltip:SetOwner(owner, "ANCHOR_TOP")
     if not s or s.count == 0 then
-        GameTooltip:SetText("Tick items to see the time and the materials you'd get.", 1, 1, 1, 1, true)
+        GameTooltip:SetText(L["Tick items to see the time and the materials you'd get."], 1, 1, 1, 1, true)
         GameTooltip:Show()
         return
     end
     local DE = DufforthTweaksHelperDE
-    GameTooltip:AddLine(string.format("Disenchanting %d items", s.count), 1, 0.82, 0)
-    GameTooltip:AddDoubleLine("Time", "about " .. Duration(s.seconds), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddLine(string.format("%.1f s each: the cast, looting and your next click (learned from your pace).", SecondsPerDE()), 0.6, 0.6, 0.6, true)
-    GameTooltip:AddLine("Materials you can expect (averages)", 0.45, 0.8, 1)
+    GameTooltip:AddLine(string.format(L["Disenchanting %d items"], s.count), 1, 0.82, 0)
+    GameTooltip:AddDoubleLine(L["Time"], L["about "] .. Duration(s.seconds), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddLine(string.format(L["%.1f s each: the cast, looting and your next click (learned from your pace)."], SecondsPerDE()), 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine(L["Materials you can expect (averages)"], 0.45, 0.8, 1)
     for _, m in ipairs(s.mats) do
-        GameTooltip:AddDoubleLine(string.format("    %.1fx %s", m.amount, DE.MaterialName(m.id)), m.value and DE.Money(m.value) or "no price", 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(string.format(L["    %.1fx %s"], m.amount, DE.MaterialName(m.id)), m.value and DE.Money(m.value) or L["no price"], 0.8, 0.8, 0.8, 1, 1, 1)
     end
-    GameTooltip:AddDoubleLine("Total, after the 5% auction cut", DE.Money(s.value), 1, 0.82, 0, 1, 1, 1)
-    if s.unpriced > 0 then GameTooltip:AddLine(string.format("%d items have materials without a price and aren't in the total.", s.unpriced), 1, 0.5, 0.25, true) end
-    GameTooltip:AddLine("Each disenchant is random: real amounts vary.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddDoubleLine(L["Total, after the 5% auction cut"], DE.Money(s.value), 1, 0.82, 0, 1, 1, 1)
+    if s.unpriced > 0 then GameTooltip:AddLine(string.format(L["%d items have materials without a price and aren't in the total."], s.unpriced), 1, 0.5, 0.25, true) end
+    GameTooltip:AddLine(L["Each disenchant is random: real amounts vary."], 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 DufforthTweaksHelperAutoDE.SetAll = SetAll
 
 BINDING_HEADER_DUFFORTHTWEAKSHELPER = "Dufforth Tweaks Helper"
-_G["BINDING_NAME_CLICK DufforthTweaksHelperDEButton:LeftButton"] = "Disenchant the next ticked item"
+_G["BINDING_NAME_CLICK DufforthTweaksHelperDEButton:LeftButton"] = L["Disenchant the next ticked item"]

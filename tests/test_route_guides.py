@@ -57,6 +57,11 @@ class CozySleepingBagTest(unittest.TestCase):
             self.assertIn(s[1], quests, "every step's quest is described")
         self.assertIn("Cozy Sleeping Bag", COZY_SLEEPING_BAG["note"])
 
+    def test_the_quests_are_level_14(self):
+        # User (2026-11-15): "cozy sleeping bag is level 14 not 40".
+        for qid, row in COZY_SLEEPING_BAG["quests"].items():
+            self.assertEqual((row[1], row[2]), (14, 14), qid)
+
     def test_places_without_published_coordinates_have_none(self):
         stonetalon = [s for s in COZY_SLEEPING_BAG["steps"] if s[2] == "Stonetalon Mountains"]
         self.assertTrue(stonetalon and all(s[3] is None for s in stonetalon), "no guessed coordinates")

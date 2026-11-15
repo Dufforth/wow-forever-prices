@@ -7,15 +7,16 @@
 --  * During fights an icon shows what the button will cast next, plus how many enemies are on
 --    you and whether Battle Shout is gone. You still press the button; the addon never casts.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 DufforthTweaksHelperWarrior = DufforthTweaksHelperWarrior or {}
 local W = DufforthTweaksHelperWarrior
 
-local MACRO_NAME = "DTH Warrior"
+local MACRO_NAME = L["DTH Warrior"]
 local MACRO_ICON = "INV_MISC_QUESTIONMARK" -- the question mark shows the spell the macro will cast
 local MACRO_LIMIT = 255
 local SHOUT = "Battle Shout"
 local SHOUT_KEEP_SECONDS = 45 -- leave Battle Shout out of the macro while it has this long left
-local VICTORIOUS = "Victorious" -- the buff a kill that gives XP or honor puts on you (Victory Rush)
+local VICTORIOUS = L["Victorious"] -- the buff a kill that gives XP or honor puts on you (Victory Rush)
 W.MACRO_NAME, W.MACRO_LIMIT = MACRO_NAME, MACRO_LIMIT
 
 -- Stances by spell id; their number on the stance bar depends on which ones you know.
@@ -300,7 +301,7 @@ end
 
 -- Whether you hold a shield: the item in your off hand is armor (class 4) of the shield kind (6).
 function W.HasShield()
-    if IsEquippedItemType and IsEquippedItemType("Shields") then return true end
+    if IsEquippedItemType and IsEquippedItemType(L["Shields"]) then return true end
     local id = GetInventoryItemID and GetInventoryItemID("player", 17)
     if not id then return false end
     local info = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
@@ -353,10 +354,10 @@ function W.BuildLines(known, numbers, options)
                 if text then parts[#parts + 1] = text end
             else
                 -- Off the global cooldown: in a stance where it can't be used the game just rejects it.
-                parts[#parts + 1] = "[nocombat] Charge"
+                parts[#parts + 1] = L["[nocombat] Charge"]
             end
         end
-        if intercept then parts[#parts + 1] = "[nocombat,form:" .. numbers[BERSERKER] .. "] Intercept" end
+        if intercept then parts[#parts + 1] = "[nocombat,form:" .. numbers[BERSERKER] .. L["] Intercept"] end
         if #parts > 0 then out[#out + 1] = "/cast " .. table.concat(parts, ";") end
     end
 
@@ -403,7 +404,7 @@ function W.BuildLines(known, numbers, options)
 
     -- Off the global cooldown again.
     if options.shield and known["Shield Block"] and numbers[DEFENSIVE] then
-        out[#out + 1] = "/cast [form:" .. numbers[DEFENSIVE] .. "] Shield Block"
+        out[#out + 1] = "/cast [form:" .. numbers[DEFENSIVE] .. L["] Shield Block"]
     end
     -- Heroic Strike on every press where no sequence above already uses it (Battle Stance at low level).
     if filler and numbers[BATTLE] and not battleBig then out[#out + 1] = "/cast [form:" .. numbers[BATTLE] .. "] " .. filler end
@@ -439,15 +440,15 @@ end
 
 -- ---- Writing the macro ----
 
-W.state = { status = "Not built yet." }
+W.state = { status = L["Not built yet."] }
 local shoutTimer
 
 -- Rebuilds the macro if anything changed. Returns true when it wrote the macro.
 function W.Update()
     local state = W.state
-    if not W.IsWarrior() then state.status = "Only for warriors."; return false end -- tests check this text
+    if not W.IsWarrior() then state.status = L["Only for warriors."]; return false end -- tests check this text
     local options = DB()
-    if not options.enabled then state.status = "Off."; return false end
+    if not options.enabled then state.status = L["Off."]; return false end
     if Lockdown() then state.pending = true; return false end -- try again when the fight ends
     state.pending = false
 
@@ -485,15 +486,15 @@ function W.Update()
         ok, err = pcall(EditMacro, index, MACRO_NAME, MACRO_ICON, body)
     else
         ok, err = pcall(CreateMacro, MACRO_NAME, MACRO_ICON, body, true)
-        if ok and (not err or err == 0) then ok, err = false, "no free character macro slot" end
+        if ok and (not err or err == 0) then ok, err = false, L["no free character macro slot"] end
     end
     if not ok then
-        state.status = "|cffff5555Couldn't save the macro: " .. tostring(err) .. "|r"
+        state.status = L["|cffff5555Couldn't save the macro: "] .. tostring(err) .. "|r"
         return false
     end
     state.body = body
-    state.status = string.format("Macro %s: %d lines, %d characters%s.", MACRO_NAME, #lines - dropped, #body,
-        dropped > 0 and (", " .. dropped .. " left out to fit") or "")
+    state.status = string.format(L["Macro %s: %d lines, %d characters%s."], MACRO_NAME, #lines - dropped, #body,
+        dropped > 0 and (", " .. dropped .. L[" left out to fit"]) or "")
     return true
 end
 
@@ -501,7 +502,7 @@ end
 function W.SafeUpdate()
     local ok, result = pcall(W.Update)
     if not ok then
-        W.state.status = "|cffff5555Error: " .. tostring(result) .. "|r"
+        W.state.status = L["|cffff5555Error: "] .. tostring(result) .. "|r"
         W.RecordError("update", result)
     end
     local debug = DB().debug
@@ -601,7 +602,7 @@ end
 
 -- While the button holds the after-kill Victory Rush, pressing Victory Rush on its own key would
 -- break the rotation for the rest of that fight, so the icon says not to.
-local VICTORY_WARNING = "|cffffd100Victory Rush is on the button: don't use its key|r"
+local VICTORY_WARNING = L["|cffffd100Victory Rush is on the button: don't use its key|r"]
 function W.VictoryWarning(facts)
     if facts.victoryInMacro and facts.known["Victory Rush"] then return VICTORY_WARNING end
 end
@@ -777,20 +778,20 @@ end
 -- The icon's pick, and a note when the button's next spell can't be cast yet.
 -- Returns spell, ready (bool), note.
 local WHY_NOT_READY = {
-    ["Revenge"] = "needs a block, dodge or parry first",
-    ["Overpower"] = "needs the enemy to dodge first",
-    ["Victory Rush"] = "needs a kill first",
-    ["Execute"] = "needs the enemy under 20% health",
+    ["Revenge"] = L["needs a block, dodge or parry first"],
+    ["Overpower"] = L["needs the enemy to dodge first"],
+    ["Victory Rush"] = L["needs a kill first"],
+    ["Execute"] = L["needs the enemy under 20% health"],
 }
 function W.ButtonPick(lines, facts, ready, now)
     local gcd, off = W.MacroNext(lines, facts, ready, now)
     if gcd and ready(gcd) then return gcd, true end
-    local why = gcd and (WHY_NOT_READY[gcd] or "not ready yet")
+    local why = gcd and (WHY_NOT_READY[gcd] or L["not ready yet"])
     if off then
-        return off, true, gcd and string.format("|cffc0c0c0Then %s (%s)|r", gcd, why) or nil
+        return off, true, gcd and string.format(L["|cffc0c0c0Then %s (%s)|r"], gcd, why) or nil
     end
     if gcd then
-        return gcd, false, string.format("|cffc0c0c0%s %s: this press only auto-attacks|r", gcd, why)
+        return gcd, false, string.format(L["|cffc0c0c0%s %s: this press only auto-attacks|r"], gcd, why)
     end
 end
 
@@ -969,7 +970,7 @@ function W.RefreshButtons()
     end
     for _, overlay in pairs(overlays) do overlay:SetShown(overlay.active and DB().buttonIcon and true or false) end
     local debug = DB().debug
-    debug.buttons = string.format("macro index %s; macro slots %s; matched %s", tostring(index),
+    debug.buttons = string.format(L["macro index %s; macro slots %s; matched %s"], tostring(index),
         table.concat(facts, " "), #matched > 0 and table.concat(matched, " ") or "none")
 end
 
@@ -1022,7 +1023,7 @@ end
 -- Forever blocks reading auras in combat ("Auras cannot be accessed when secret while tainted"), and
 -- an error here once froze the icon on Charge (2026-11-12). So the read is protected, hidden values
 -- are dropped, and once the game blocks it the check rests until the fight ends.
-local CLEANSE = "Shatter Curse"
+local CLEANSE = L["Shatter Curse"]
 local curseBlocked = false
 
 local function ReadCurse()
@@ -1094,9 +1095,9 @@ end
 -- close" when pressed at the wrong distance, 2026-11-13). inRange: the game's range check; close:
 -- within about 10 yards (Charge needs 8 to 25).
 function W.ChargeNote(inRange, close)
-    if inRange then return "|cff40ff40In Charge range|r" end
-    if close then return "|cffff8040Too close to Charge|r" end
-    return "|cffaaaaaaGet closer to Charge|r"
+    if inRange then return L["|cff40ff40In Charge range|r"] end
+    if close then return L["|cffff8040Too close to Charge|r"] end
+    return L["|cffaaaaaaGet closer to Charge|r"]
 end
 
 local lastAlert = 0
@@ -1122,8 +1123,8 @@ local function UpdateHint()
         hint.icon:SetTexture(SpellIcon(interrupt) or "Interface\\Icons\\INV_Misc_QuestionMark")
         hint.icon:SetDesaturated(false)
         hint.spell:SetText("|cffff3030" .. interrupt .. "!|r")
-        hint.notes:SetText(facts.casting and W.Interrupt(facts, SpellReady) and "|cffff3030Enemy casting|r"
-            or interrupt == cleanse and ("|cffc080ff" .. curse .. "|r") or "|cffff3030Own key|r")
+        hint.notes:SetText(facts.casting and W.Interrupt(facts, SpellReady) and L["|cffff3030Enemy casting|r"]
+            or interrupt == cleanse and ("|cffc080ff" .. curse .. "|r") or L["|cffff3030Own key|r"])
         return
     end
     local hostile = UnitExists("target") and UnitCanAttack("player", "target") and not UnitIsDead("target")
@@ -1139,7 +1140,7 @@ local function UpdateHint()
     local notes = {}
     if pickNote then notes[#notes + 1] = pickNote end
     if victoryLeft and victoryLeft ~= math.huge then
-        notes[#notes + 1] = string.format("|cff40ff40Victory Rush %ds|r", math.floor(victoryLeft))
+        notes[#notes + 1] = string.format(L["|cff40ff40Victory Rush %ds|r"], math.floor(victoryLeft))
     end
     -- Guard: a Victory Rush pressed on its own key now would leave the button's Victory Rush line
     -- waiting all fight (the macro can't change in combat), and the rotation would stop.
@@ -1151,8 +1152,8 @@ local function UpdateHint()
         local close = CheckInteractDistance and CheckInteractDistance("target", 3) and true or false
         notes[#notes + 1] = W.ChargeNote(SpellInRange("Charge"), close)
     end
-    if facts.known[SHOUT] and not facts.shoutLeft and facts.inCombat then notes[#notes + 1] = "|cffff8040No Battle Shout|r" end
-    hint.spell:SetText(hint.unlocked and "Drag to move" or (ready and spell or ("|cff909090" .. spell .. "|r")))
+    if facts.known[SHOUT] and not facts.shoutLeft and facts.inCombat then notes[#notes + 1] = L["|cffff8040No Battle Shout|r"] end
+    hint.spell:SetText(hint.unlocked and L["Drag to move"] or (ready and spell or ("|cff909090" .. spell .. "|r")))
     hint.notes:SetText(table.concat(notes, "\n"))
 end
 
@@ -1182,7 +1183,7 @@ local function BuildHint()
     hint:Hide()
     local elapsed = 0
     local ticker = CreateFrame("Frame")
-    local guardedHint, guardedTick = W.Guard("icon", UpdateHint), W.Guard("log tick", function(step) W.LogTick(step) end)
+    local guardedHint, guardedTick = W.Guard("icon", UpdateHint), W.Guard(L["log tick"], function(step) W.LogTick(step) end)
     ticker:SetScript("OnUpdate", function(_, delta)
         elapsed = elapsed + delta
         if elapsed < 0.1 then return end
@@ -1202,7 +1203,7 @@ function W.SetHintUnlocked(on)
 end
 function W.HintUnlocked() return hint and hint.unlocked or false end
 if DufforthTweaksHelper.RegisterMovable then
-    DufforthTweaksHelper.RegisterMovable({ label = "Warrior icon", get = function() return hint end,
+    DufforthTweaksHelper.RegisterMovable({ label = L["Warrior icon"], get = function() return hint end,
         enter = function() W.SetHintUnlocked(true) end, leave = function() W.SetHintUnlocked(false) end })
 end
 
@@ -1335,7 +1336,7 @@ function W.TalentText()
             if not name and type(v) == "string" then name = v
             elseif name and not points and type(v) == "number" and v >= 0 and v <= 61 then points = v end
         end
-        parts[#parts + 1] = (name or ("Tree " .. tab)) .. " " .. (points or "?")
+        parts[#parts + 1] = (name or (L["Tree "] .. tab)) .. " " .. (points or "?")
     end
     return #parts > 0 and table.concat(parts, " / ") or "?"
 end
@@ -1352,7 +1353,7 @@ function W.WeaponSetup()
     local main, off = loc(16), loc(17)
     if main == "INVTYPE_2HWEAPON" then return "2H" end
     if off == "INVTYPE_SHIELD" then return "1H+shield" end
-    if off == "INVTYPE_WEAPON" or off == "INVTYPE_WEAPONOFFHAND" then return "dual wield" end
+    if off == "INVTYPE_WEAPON" or off == "INVTYPE_WEAPONOFFHAND" then return L["dual wield"] end
     return main and "1H" or "none"
 end
 
@@ -1408,7 +1409,7 @@ function W.FightEnd()
     while #fights > FIGHTS_KEPT do table.remove(fights, 1) end
     -- The combat log is closed on Forever; the game's own damage meter may still be readable once
     -- the fight is over. Give it a moment to finish, then try.
-    if C_Timer then C_Timer.After(1.5, W.Guard("damage meter", function() W.AfterFight(f) end)) else W.AfterFight(f) end
+    if C_Timer then C_Timer.After(1.5, W.Guard(L["damage meter"], function() W.AfterFight(f) end)) else W.AfterFight(f) end
 end
 
 -- ---- The game's damage meter (discovery) ----
@@ -1421,7 +1422,7 @@ local function Dump(value, depth, budget)
     if budget.left < 0 then return "..." end
     value = Plain(value)
     local kind = type(value)
-    if kind == "nil" then return "<hidden or nil>" end
+    if kind == "nil" then return L["<hidden or nil>"] end
     if kind ~= "table" then return kind == "function" and "<function>" or value end
     if depth <= 0 then return "<table>" end
     local out = {}
@@ -1464,7 +1465,7 @@ function W.ProbeDamageMeter(fight)
     local sessionTypes = Enum and Enum.DamageMeterSessionType
     local meterTypes = Enum and Enum.DamageMeterType
     if type(sessionTypes) == "table" and type(meterTypes) == "table" then
-        for _, getter in ipairs({ "GetCombatSessionFromType", "GetCombatSessionSourceFromType" }) do
+        for _, getter in ipairs({ L["GetCombatSessionFromType"], L["GetCombatSessionSourceFromType"] }) do
             if type(meter[getter]) == "function" then
                 for sessionName, sessionValue in pairs(sessionTypes) do
                     for meterName, meterValue in pairs(meterTypes) do
@@ -1626,7 +1627,7 @@ local logEvents = CreateFrame("Frame")
 Listen(logEvents, { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SUCCEEDED",
     "UI_ERROR_MESSAGE", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED",
     "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" })
-logEvents:SetScript("OnEvent", W.Guard("fight log", function(_, event, a, b, c, ...)
+logEvents:SetScript("OnEvent", W.Guard(L["fight log"], function(_, event, a, b, c, ...)
     CountEvent(event)
     -- No combat log: Forever forbids addons to register it, and trying shows the game's "blocked from an
     -- action" popup (user, 2026-11-13). W.CombatLog stays for clients that allow it.
@@ -1663,7 +1664,7 @@ Listen(events, { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED"
     "LEARNED_SPELL_IN_TAB", "LEARNED_SPELL_IN_SKILL_LINE", "UPDATE_SHAPESHIFT_FORMS", "UNIT_AURA",
     "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_SHAPESHIFT_FORM", "UPDATE_BONUS_ACTIONBAR",
     "PLAYER_EQUIPMENT_CHANGED", "GROUP_ROSTER_UPDATE" })
-events:SetScript("OnEvent", W.Guard("macro events", function(_, event, unit, updateInfo)
+events:SetScript("OnEvent", W.Guard(L["macro events"], function(_, event, unit, updateInfo)
     if event ~= "UNIT_AURA" then CountEvent(event) end
     if event == "PLAYER_LOGIN" then
         -- Errors start fresh each session, so the saved file shows only the current version's.

@@ -19,6 +19,7 @@ def check(label, cond, detail=""):
 
 def runtime():
     lua = L.LuaRuntime(unpack_returned_tuples=True)
+    for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
     lua.execute((ADDON / "Guide.lua").read_text(encoding="utf-8"))
     lua.execute("""
 G = DufforthTweaksHelperGuide
@@ -115,14 +116,152 @@ check("one step per place: turn-in and the next pick-up at the same NPC share a 
 blk = lua.eval("M2:Blocks(1)[1]")
 check("one step per place: the first block holds both", [blk[k] for k in sorted(blk)] == [3, 4], [blk[k] for k in sorted(blk)])
 check("one step per place: different NPCs don't share", lua.eval("M2:Together(4, 8)") is False)
+# One block for an area's objectives (user, 2026-11-14: "guide is useless if make me do quest 1 by one").
+lua.execute("""
+local function quest(title, mob, x, y, wide) return { title, 5, 1, 0, "", 0, 0, "A", { "Durotar", 50, 50 }, "A", { "Durotar", 50, 50 },
+  { { "kill", mob, 5, "Durotar", x, y, "", wide, {}, 5, 6, 0 } }, {}, 0, 2 } end
+DATA.quests[70] = quest("Boars", "Boar", 45, 65, 0); DATA.quests[71] = quest("Scorpids", "Scorpid", 53, 70, 0)
+DATA.quests[72] = quest("Far", "Raptor", 75, 95, 0); DATA.quests[73] = quest("Everywhere", "Hyena", 80, 20, 1)
+DATA.routes.Area = { races = {}, steps = { { "do", 70, "Durotar", 45, 65, 5, "", 1 }, { "do", 71, "Durotar", 53, 70, 5, "", 1 },
+  { "do", 72, "Durotar", 75, 95, 5, "", 1 }, { "do", 73, "Durotar", 80, 20, 5, "", 1 } } }
+AM = G.NewModel(DATA, "Area", GAME({ level = 5, log = { [70] = true, [71] = true, [72] = true, [73] = true } }), { skipped = {} })
+""")
+check("area: objectives in the same area are one block", lua.eval("AM:Together(1, 2)") is True)
+check("area: one across the zone is not", lua.eval("AM:Together(1, 3)") is False)
+check("area: one all over the zone joins any block", lua.eval("AM:Together(1, 4)") is True)
+# The whole trip in the first block (user, 2026-11-14: "i want to see all the steps i should be doing before turn in a
+# quest, remember i can do more than one quest at the same time").
+lua.execute("""
+DATA.routes.Trip = { races = {}, steps = { { "do", 70, "Durotar", 45, 65, 5, "", 1 }, { "do", 72, "Durotar", 75, 95, 5, "", 1 },
+  { "do", 71, "Durotar", 53, 70, 5, "", 1 }, { "turnin", 70, "Durotar", 50, 50, 6, "" }, { "do", 73, "Durotar", 80, 20, 6, "", 1 } } }
+TM = G.NewModel(DATA, "Trip", GAME({ level = 5, log = { [70] = true, [71] = true, [72] = true, [73] = true } }), { skipped = {} })
+TB = TM:Blocks(2)
+""")
+check("trip: every objective until the next hand-in is in the first block (and the one all over the zone)", lua.eval("#TB[1]") == 4, lua.eval("#TB[1]"))
+check("trip: the hand-in is the next block", lua.eval("TM.steps[TB[2][1]][1]") == "turnin")
+lua.execute("DATA.quests[73][12][1][8] = 1; TM2 = G.NewModel(DATA, 'Trip', GAME({ level = 5, log = { [70] = true, [71] = true, [72] = true, [73] = true } }), { skipped = {} }); TB2 = TM2:Blocks(2)")
+check("trip: objectives all over the zone are in the top block too, so the small box shows the whole trip",
+      any(lua.eval(f"TB2[1][{k}]") == 5 for k in range(1, lua.eval("#TB2[1]") + 1)), [lua.eval(f"TB2[1][{k}]") for k in range(1, lua.eval("#TB2[1]") + 1)])
+# One row per step, not grouped (user, 2026-11-15: "now idk which step i am, do not group the steps, show all of them in
+# different rows"): each trip step is its own block, and the blocks say how many make up the trip.
+lua.execute("FB = TM2:Blocks(3, true)")
+check("rows: the trip's rows are in step order (user, 2026-11-15: 390, 373, 368 was impossible to follow)",
+      [lua.eval(f"FB[{k}][1]") for k in range(1, lua.eval("FB.trip") + 1)] == sorted(lua.eval(f"FB[{k}][1]") for k in range(1, lua.eval("FB.trip") + 1)),
+      [lua.eval(f"FB[{k}][1]") for k in range(1, lua.eval("FB.trip") + 1)])
+lua.execute("TM3 = G.NewModel(DATA, 'Trip', GAME({ level = 5, log = { [70] = true, [71] = true, [72] = true, [73] = true }, zone = 'Durotar', pos = { 'Durotar', 75, 95 } }), { skipped = {} }); FB3 = TM3:Blocks(3, true)")
+order3 = [lua.eval(f"FB3[{k}][1]") for k in range(1, lua.eval("FB3.trip") + 1)]
+check("rows: in step order even when you stand by a later objective", order3 == sorted(order3) and lua.eval("TM3:Current()") == 2, (order3, lua.eval("TM3:Current()")))
+check("rows: one step per block", all(lua.eval(f"#FB[{k}]") == 1 for k in range(1, lua.eval("#FB") + 1)), [lua.eval(f"#FB[{k}]") for k in range(1, lua.eval("#FB") + 1)])
+check("rows: every trip step is there, then the next ones", lua.eval("FB.trip") == 4 and lua.eval("#FB") == 5 and lua.eval("TM2.steps[FB[5][1]][1]") == "turnin", (lua.eval("FB.trip"), lua.eval("#FB")))
+lua.execute("DATA.routes.Trip = nil")
+lua.execute("for id = 70, 73 do DATA.quests[id] = nil end; DATA.routes.Area = nil")
 lua.execute("""
 DATA.quests[1][12] = { { "kill", "Boar", 8, "Durotar", 45, 65, "", 0, { { 44, 64 }, { 50, 60 }, { 47, 70 } }, 3, 4, 0 } }
 DATA.quests[3][12] = { { "collect", "Raptor Head", 12, "The Barrens", 55, 35, "Raptor", 1, {}, 11, 12, 1 } }
 """)
 lua.execute("M3 = G.NewModel(DATA, 'Durotar', GAME({ level = 3 }), { skipped = {} })")
-check("tip: monster levels and the loop", lua.eval("G.Tip(M3, 2)") == "Level 3-4, circle the 3 spots on your map", lua.eval("G.Tip(M3, 2)"))
+# Quests in your log the route doesn't plan (user, 2026-11-14: Chen's Empty Keg starts from a random drop, so it isn't in the
+# route; its Savannah Lion Tusks could be done with Prowlers of the Barrens): "also here" and rows of their own.
+lua.execute("""
+DATA.quests[50] = { "Chen's Empty Keg", 3, 1, 0, "", 0, 0, "Brewmaster Drohn", { "The Barrens", 62, 38 }, "Brewmaster Drohn", { "The Barrens", 62, 38 },
+  { { "collect", "Savannah Lion Tusk", 5, "The Barrens", 57, 36, "Savannah Lion", 0, {}, 11, 12, 0 },
+    { "collect", "Plainstrider Kidney", 12, "The Barrens", 20, 80, "Fleeting Plainstrider", 1, {}, 11, 12, 0 },
+    { "collect", "Thunder Lizard Horn", 5, "The Barrens", 50, 90, "Thunder Lizard", 0, {}, 11, 12, 0 } }, {}, 0, 2 }
+AH = G.NewModel(DATA, 'Durotar', GAME({ level = 4, done = { [1] = true, [2] = true }, log = { [3] = true, [50] = true }, zone = 'The Barrens' }), { skipped = {} })
+ALSO = AH:AlsoHere(9)
+OFF = AH:OffRoute()
+""")
+also = [str(lua.eval(f"ALSO[{k}].name")) for k in range(1, lua.eval("#ALSO") + 1)]
+check("also here: another log quest's objective at the same spot", "Savannah Lion Tusk" in also, also)
+check("also here: one all over the zone too", "Plainstrider Kidney" in also, also)
+check("also here: not one far away", "Thunder Lizard Horn" not in also, also)
+check("also here: not the step's own quest", all(lua.eval(f"ALSO[{k}].quest") != 3 for k in range(1, lua.eval("#ALSO") + 1)))
+check("off route: a log quest the route doesn't have gets a row", lua.eval("#OFF") == 1 and lua.eval("OFF[1].id") == 50, lua.eval("#OFF"))
+check("off route: the arrow goes to an objective while it's open", lua.eval("OFF[1].x") == 57 and "Savannah Lion Tusk" in str(lua.eval("OFF[1].giver")),
+      (lua.eval("OFF[1].x"), lua.eval("OFF[1].giver")))
+lua.execute("AH2 = G.NewModel(DATA, 'Durotar', GAME({ level = 4, log = { [50] = true }, complete = { [50] = true } }), { skipped = {} }); OFF2 = AH2:OffRoute()")
+check("off route: complete, to the NPC to hand it in", lua.eval("OFF2[1].x") == 62 and "Turn in" in str(lua.eval("OFF2[1].giver")), lua.eval("OFF2[1].giver"))
+# No place in our data: ask Questie (user, 2026-11-14: "use the current information that questie is providing").
+lua.execute("""
+DATA.quests[51] = { "Unplaced", 3, 1, 0, "", 0, 0, "Someone", { "The Barrens", 50, 50 }, "Someone", { "The Barrens", 50, 50 },
+  { { "collect", "Odd Thing", 3, "?", nil, nil, "", 0, {}, 0, 0, 0 } }, {}, 0, 2 }
+QG = GAME({ level = 4, log = { [51] = true } })
+QG.questieSpot = function(id) if id == 51 then return 'The Barrens', 44, 33, 'Odd Thing (Questie)' end end
+OFFQ = G.NewModel(DATA, 'Durotar', QG, { skipped = {} }):OffRoute()
+DATA.quests[51] = nil
+""")
+check("off route: no place in our data, Questie's place", lua.eval("OFFQ[1].x") == 44 and "Questie" in str(lua.eval("OFFQ[1].giver")),
+      (lua.eval("OFFQ[1].x"), lua.eval("OFFQ[1].giver")))
+lua.execute("DATA.quests[50] = nil")
+
+# A route step whose place isn't in our data (Echeyakee, summoned with a horn) takes Questie's (user, 2026-11-14:
+# "echeyakee does not have place i said use questie").
+lua.execute("""
+DATA.quests[60] = { "Echeyakee", 16, 12, 0, "", 0, 0, "Sergra Darkthorn", { "The Barrens", 52, 30 }, "Sergra Darkthorn", { "The Barrens", 52, 30 },
+  { { "collect", "Echeyakee's Hide", 1, "The Barrens", 52, 30, "", 0, {}, 0, 0, 0, 1, 0 } }, {}, 0, 2 }
+DATA.routes.Gs = { races = {}, steps = { { "do", 60, "The Barrens", 52, 30, 16, "", 1 } } }
+EG = GAME({ level = 16, log = { [60] = true }, zone = "The Barrens" })
+EG.questieSpot = function(id) if id == 60 then return "The Barrens", 55.4, 17.6, "Echeyakee (Questie)" end end
+EM = G.NewModel(DATA, "Gs", EG, { skipped = {} })
+EM_NONE = G.NewModel(DATA, "Gs", GAME({ level = 16, log = { [60] = true } }), { skipped = {} })
+""")
+check("questie place: a guessed step takes Questie's spot", lua.eval("(select(2, EM:Place(1)))") == 55.4 and lua.eval("(select(3, EM:Place(1)))") == 17.6,
+      lua.eval("(select(2, EM:Place(1)))"))
+check("questie place: so it gets the pin and the arrow", lua.eval("EM:Pinpoint(1)") is True)
+check("questie place: the tip says where it came from", "Questie" in str(lua.eval("G.Tip(EM, 1)")), lua.eval("G.Tip(EM, 1)"))
+check("questie place: without Questie, still the giver and no pin", lua.eval("(select(2, EM_NONE:Place(1)))") == 52 and lua.eval("EM_NONE:Pinpoint(1)") is False)
+# "Nearest first" must use the real place (log, 2026-11-15: Ishamuhale's place was guessed at its giver, where the user stood,
+# so it jumped ahead of the route; the arrow then went to Questie's spot across the map).
+lua.execute("""
+DATA.quests[61] = { "Near", 16, 12, 0, "", 0, 0, "A", { "The Barrens", 50, 50 }, "A", { "The Barrens", 50, 50 },
+  { { "kill", "Boar", 5, "The Barrens", 46, 58, "", 0, {}, 0, 0, 0, 0, 0 } }, {}, 0, 2 }
+DATA.routes.Near = { races = {}, steps = { { "do", 61, "The Barrens", 46, 58, 16, "", 1 }, { "do", 60, "The Barrens", 44.9, 59.1, 16, "", 1 } } }
+local function game(questie)
+  local g = GAME({ level = 16, log = { [60] = true, [61] = true }, zone = "The Barrens", pos = { "The Barrens", 44.9, 59.1 } })
+  if questie then g.questieSpot = function(id) if id == 60 then return "The Barrens", 59.8, 30.6, "Ishamuhale (Questie)" end end end
+  return g
+end
+NQ = G.NewModel(DATA, "Near", game(true), { skipped = {} })
+NG = G.NewModel(DATA, "Near", game(false), { skipped = {} })
+""")
+check("nearest: Questie's far spot doesn't jump ahead", lua.eval("NQ:Nearest(1)") == 1, lua.eval("NQ:Nearest(1)"))
+check("nearest: a guessed spot never counts as near", lua.eval("NG:Nearest(1)") == 1, lua.eval("NG:Nearest(1)"))
+lua.execute("DATA.quests[61] = nil; DATA.routes.Near = nil")
+lua.execute("DATA.quests[60] = nil; DATA.routes.Gs = nil")
+
+# A questline guide you chose: every quest counts, whatever your level (user, 2026-11-15: Cozy Sleeping Bag at level 20 said
+# "Route finished": its level-14 quests counted as not worth it).
+lua.execute("""
+DATA.quests[62] = { "Low Chain", 14, 14, 0, "", 0, 0, "Note", { "The Barrens", 46, 74 }, "Plank", { "Westfall", 50, 50 }, {}, {}, 0, 0 }
+DATA.routes.Line = { races = {}, guide = true, steps = { { "accept", 62, "The Barrens", 46, 74, 14, "" }, { "turnin", 62, "Westfall", 50, 50, 20, "" } } }
+DATA.routes.Lvl = { races = {}, steps = { { "accept", 62, "The Barrens", 46, 74, 14, "" } } }
+LG = G.NewModel(DATA, "Line", GAME({ level = 20 }), { skipped = {} })
+LL = G.NewModel(DATA, "Lvl", GAME({ level = 20 }), { skipped = {} })
+""")
+check("questline guide: a low quest is still a step for you", lua.eval("LG:Current()") == 1, lua.eval("LG:Current()"))
+check("leveling route: a low quest is still left out", lua.eval("LL:Current()") is None, lua.eval("LL:Current()"))
+lua.execute("DATA.quests[62] = nil; DATA.routes.Line = nil; DATA.routes.Lvl = nil")
+
+# Steps that wait on an earlier one (user, 2026-11-14: "Turn in Prowlers of the Barrens" showed as doable while step
+# 231, the claws, wasn't done).
+lua.execute("WM = G.NewModel(DATA, 'Durotar', GAME({ level = 3, log = { [1] = true } }), { skipped = {} })")
+check("waits: a hand-in waits on its quest's open objective step", lua.eval("WM:WaitsFor(3)") == 2, lua.eval("WM:WaitsFor(3)"))
+check("waits: a pick-up waits on the quest before it (its first open step)", lua.eval("WM:WaitsFor(4)") == 2, lua.eval("WM:WaitsFor(4)"))
+check("waits: the objective step itself doesn't wait", lua.eval("WM:WaitsFor(2)") is None)
+lua.execute("WM2 = G.NewModel(DATA, 'Durotar', GAME({ level = 3, log = { [1] = true }, complete = { [1] = true } }), { skipped = {} })")
+check("waits: objectives done, the hand-in is open", lua.eval("WM2:WaitsFor(3)") is None)
+
+# An NPC up high (user, 2026-11-14: Darsok Swiftdagger on top of the Crossroads tower; under him: "You are here").
+lua.execute("DATA.quests[3][9] = { 'The Barrens', 52, 30, 28 }; DATA.quests[3][11] = { 'The Barrens', 52, 30, -15 }")
+check("height: the giver's height for an accept step", lua.eval("(M3:Lift(8))") == 28, lua.eval("(M3:Lift(8))"))
+check("height: the turn-in's for a turnin step, below is negative", lua.eval("(M3:Lift(10))") == -15)
+check("height: none for other steps", lua.eval("M3:Lift(9)") is None and lua.eval("M3:Lift(1)") is None)
+check("height: the tip says to go up", "28 yd above" in str(lua.eval("G.Tip(M3, 8)")), lua.eval("G.Tip(M3, 8)"))
+check("height: and to go down", "15 yd below" in str(lua.eval("G.Tip(M3, 10)")), lua.eval("G.Tip(M3, 10)"))
+lua.execute("DATA.quests[3][9] = { 'The Barrens', 52, 30 }; DATA.quests[3][11] = { 'The Barrens', 52, 30 }")
+check("tip: monster levels and the loop", lua.eval("G.Tip(M3, 2)") == "Lvl 3-4, 3 spots on the map", lua.eval("G.Tip(M3, 2)"))
 check("tip: elite, kills, along the way", lua.eval("G.Tip(M3, 9)") ==
-      "Level 11-12, elite: bring friends, about 12 kills, they're all over the zone: kill them as you go", lua.eval("G.Tip(M3, 9)"))
+      "Lvl 11-12, elite: bring friends, ~12 kills, all over the zone", lua.eval("G.Tip(M3, 9)"))
 check("tip: in the step's description", lua.eval("G.Describe(M3, 2).tip") == lua.eval("G.Tip(M3, 2)"))
 check("loop: a kill area with spots gets the arrow", lua.eval("M3:Pinpoint(2)") is True and lua.eval("#M3:Loop(2)") == 3)
 check("loop: the arrow moves to the next spot when you reach one", lua.eval("G.NextLoopSpot(M3:Loop(2), 1, 44.5, 64.5)") == 2)
@@ -311,6 +450,10 @@ check("arrow: facing west, north is to the right", abs(rel + math.pi / 2) < 1e-9
 rel, _ = bearing(0, 0, -10, 0, 0)
 check("arrow: behind you", abs(abs(rel) - math.pi) < 1e-9, rel)
 check("arrow: time to get there at your speed", lua.eval("G.Eta(70, 7)") == "0:10" and lua.eval("G.Eta(700, 7)") == "1:40", lua.eval("G.Eta(700, 7)"))
+# The game can hand addons a hidden ("secret") speed that can't be compared (log, 2026-11-14: the box stopped refreshing).
+lua.execute("issecretvalue = function(v) return v == 99 end")
+check("arrow: a hidden speed counts as running speed, no error", lua.eval("G.Eta(70, 99)") == "0:10", lua.eval("G.Eta(70, 99)"))
+lua.execute("issecretvalue = nil")
 check("arrow: standing still counts as running speed", lua.eval("G.Eta(70, 0)") == "0:10")
 
 # Progress in the current section, like the bar under the step.
@@ -362,7 +505,7 @@ check("objective: a finished objective moves the guide on", lua.eval("W:Current(
 lua.execute("WIDE({ log = { [10] = true, [11] = true, [14] = true } })")
 blocks = lua.eval("W:Blocks(2)")
 first = [int(blocks[1][k]) for k in sorted(blocks[1])]
-check("group: two quests on the same monster are one block", first == [5, 6], first)
+check("group: two quests on the same monster are one block (plus the along-the-way objective of the trip)", first[:2] == [5, 6], first)
 check("group: the next block after it", int(blocks[2][1]) == 7, blocks[2][1])
 
 # Directions (user, 2026-11-13): a step on the other continent says which ship to take and where to fly.
@@ -379,17 +522,35 @@ def legs(zone):
     d = lua.eval("F:Directions(1)")
     return [str(d[k].text) for k in sorted(d)] if d else []
 far = legs("Durotar")
-check("directions: other continent, the zeppelin first", len(far) == 3 and "Orgrimmar zeppelin tower" in far[0] and "Durotar" in far[0], far)
-check("directions: which zeppelin to take", "zeppelin" in far[1] and "Undercity" in far[1], far)
-check("directions: then fly to the flight point near the step", "Michael Garrett" in far[2] and "Zarise" in far[2], far)
+check("directions: other continent, the zeppelin first", len(far) == 3 and far[0] == "Go to Orgrimmar (zeppelin)", far)
+check("directions: which zeppelin to take", far[1] == "Zeppelin to Undercity", far)
+check("directions: then fly to the flight point near the step", far[2] == "Fly to Hillsbrad Foothills" and lua.eval("F:Directions(1)[3].zone") == "Undercity", far)
 near = legs("Tirisfal Glades")
-check("directions: same continent, fly from the nearest city", len(near) == 1 and "Michael Garrett" in near[0] and "Zarise" in near[0], near)
+check("directions: same continent, fly from the nearest city", len(near) == 1 and near[0] == "Fly to Hillsbrad Foothills", near)
 check("directions: none when you are in the step's zone", legs("Hillsbrad Foothills") == [])
 lua.execute("FAR('Tirisfal Glades'); F.game.flightKnown = function(zone) return zone ~= 'Hillsbrad Foothills' end")
 d = lua.eval("F:Directions(1)")
 run_leg = [str(d[k].text) for k in sorted(d)] if d else []
 check("directions: a flight path you don't have yet: run there (user, screenshot)", len(run_leg) == 1 and "Run to" in run_leg[0]
       and "Hillsbrad Foothills" in run_leg[0] and "Fly" not in run_leg[0], run_leg)
+# A step just across a zone border (user, 2026-11-14 screenshot: harpies next to them, but "Fly from Devrak"):
+# close by in yards, no flight, the arrow points at the step itself.
+lua.execute("FAR('Tirisfal Glades'); F.game.yardsTo = function() return 400 end")
+check("directions: a step a short run away needs no flight", lua.eval("F:Directions(1)") is None)
+lua.execute("FAR('Tirisfal Glades'); F.game.yardsTo = function() return 5000 end")
+check("directions: far away, still the flight", "Fly" in str(lua.eval("F:Directions(1)[1].text")))
+# By real distance (user, 2026-11-15 screenshot: Barrens to Hillsbrad by boat to Booty Bay, then a run up the whole continent).
+lua.execute("""
+DATA.travel.transports[2] = { "boat", { "Ratchet dock", "The Barrens", 63.7, 38.6, 1 }, { "Booty Bay dock", "Stranglethorn Vale", 25.9, 73.1, 0 } }
+DATA.travel.continents["Stranglethorn Vale"] = 0
+local W = { ["The Barrens"] = { 900, 300 }, Durotar = { 1000, 0 }, ["Tirisfal Glades"] = { 0, 0 }, ["Stranglethorn Vale"] = { 200, 2000 }, ["Hillsbrad Foothills"] = { 100, 300 } }
+local function pos(z, x, y) local w = W[z] or { 0, 0 } return w[1] + (x or 50), w[2] + (y or 50) end
+FAR('The Barrens')
+F.game.worldDistance = function(z1, x1, y1, z2, x2, y2) local a, b = pos(z1, x1, y1); local c, d = pos(z2, x2, y2); return math.sqrt((a - c) ^ 2 + (b - d) ^ 2) end
+""")
+via = [str(lua.eval(f"F:Directions(1)[{k}].text")) for k in range(1, lua.eval("#F:Directions(1)") + 1)]
+check("directions: the zeppelin to Undercity, not the boat to Booty Bay, for Hillsbrad", any("zeppelin" in v.lower() for v in via) and not any("Booty Bay" in v for v in via), via)
+lua.execute("table.remove(DATA.travel.transports, 2)")
 lua.execute("FAR('Durotar')")
 check("directions: each leg has a place for the arrow", lua.eval("F:Directions(1)[1].zone") == "Durotar" and lua.eval("F:Directions(1)[1].x") == 50.8)
 lua.execute("DATA.travel = nil")
@@ -479,9 +640,46 @@ lua.execute("DATA.quests[60][12][2][3] = 6")
 check("icons: swords for kill, a bag for loot, a gear for use, centred game icons (user: line them up)",
       "DualWield" in lua.eval("G.ICONS.kill") and "Bag" in lua.eval("G.ICONS.loot") and "Gear" in lua.eval("G.ICONS.use"))
 check("icons: inline game icons are cropped and as tall as the text", lua.eval("G.Inline(G.ICONS.kill)").endswith(":0:0:0:0:64:64:5:59:5:59|t"))
+# With Questie installed, its yellow objective icons, so the guide matches its map (user, 2026-11-14 screenshot: "use same
+# icons as questie, that should be the yellow one").
+lua.execute("G.UseQuestieIcons(true)")
+check("icons: Questie's gear for use, sword for kill, bag for loot", r"Questie\Icons\object" in lua.eval("G.ICONS.use")
+      and r"Questie\Icons\slay" in lua.eval("G.ICONS.kill") and r"Questie\Icons\loot" in lua.eval("G.ICONS.loot"), lua.eval("G.ICONS.use"))
+check("icons: Questie's are not cropped (round, with their own edge)", lua.eval("G.Inline(G.ICONS.use)").endswith(":0|t"), lua.eval("G.Inline(G.ICONS.use)"))
+lua.execute("G.UseQuestieIcons(false)")
+check("icons: without Questie, the game's own again", "INV_Misc_Gear_01" in lua.eval("G.ICONS.use"))
 
 # ---- The step box (GuideUI.lua): view and controller, with stand-in frames and game ----
+# Step numbers on the world map (user, 2026-11-14: "see in the map the step number in each specific place"):
+# the guide's own numbers, steps at the same spot share one pin ("188-189").
+lua.execute("PINS = G.MapPins({ {188, 52, 32}, {189, 52.5, 32.2}, {190, 47, 40}, {192, 52.2, 31.9}, {195, 10, 10} })")
+check("map pins: steps at one spot share a pin", lua.eval("#PINS") == 3, lua.eval("#PINS"))
+check("map pins: one number per pin, the first step there (user: '249-250+' was unreadable)", lua.eval("PINS[1].label") == "188", lua.eval("PINS[1].label"))
+check("map pins: the hover title lists them all", lua.eval("PINS[1].title") == "188-189, 192", lua.eval("PINS[1].title"))
+check("map pins: more than one step there is counted", lua.eval("PINS[1].more") == 2 and lua.eval("PINS[2].more") == 0)
+# Pins that would touch on screen merge (at Ratchet two pins sat on each other): the distance comes in map %.
+lua.execute("WIDE = G.MapPins({ {249, 60, 40}, {251, 63, 41}, {260, 80, 80} }, 4, 4)")
+check("map pins: close on screen, one pin", lua.eval("#WIDE") == 2 and lua.eval("WIDE[1].title") == "249, 251", lua.eval("WIDE[1].title"))
+check("map pins: a single step shows its own number", lua.eval("PINS[2].label") == "190" and lua.eval("PINS[3].label") == "195")
+check("map pins: the pin keeps its steps for the hover and the click", lua.eval("PINS[1].steps[1]") == 188 and lua.eval("#PINS[1].steps") == 3)
+check("map pins: many steps at one spot stay short", lua.eval("G.StepLabel({3, 5, 7, 9, 11})") == "3, 5, 7+", lua.eval("G.StepLabel({3, 5, 7, 9, 11})"))
+
+# Flight time (user, 2026-11-15: "add the fly time remaining when im flying in the guide").
+check("flight: a time you flew before wins", lua.eval("G.FlightEstimate({ ['A|B'] = 95 }, 'A', 'B', 5000)") == 95)
+check("flight: otherwise from the distance (25 yd/s, paths bend, take-off)", lua.eval("G.FlightEstimate({}, 'A', 'B', 2500)") == 140,
+      lua.eval("G.FlightEstimate({}, 'A', 'B', 2500)"))
+check("flight: time left counts down and stops at 0", lua.eval("G.FlightLeft(100, 90, 130)") == 60 and lua.eval("G.FlightLeft(100, 90, 300)") == 0)
+
+# The guide log (user, 2026-11-14: "save logs of whats happening in the game and with the app configuration").
+lua.execute("LOG1 = {}; G.LogAdd(LOG1, 'step', 'step 5', '11-14 17:00:00')")
+check("log: a line with time, kind and message", lua.eval("LOG1.entries[1]") == "11-14 17:00:00 step: step 5", lua.eval("LOG1.entries[1]"))
+lua.execute("SAVED_MAX = G.LOG_MAX; G.LOG_MAX = 3; for k = 1, 5 do G.LogAdd(LOG1, 'x', tostring(k)) end; G.LOG_MAX = SAVED_MAX")
+check("log: keeps only the newest lines", lua.eval("#LOG1.entries") == 3 and lua.eval("LOG1.entries[3]").endswith("x: 5"), lua.eval("LOG1.entries[3]"))
+lua.execute("LOG2 = {}; A1 = G.LogChange(LOG2, 'arrow', 'arrow', 'off'); A2 = G.LogChange(LOG2, 'arrow', 'arrow', 'off'); A3 = G.LogChange(LOG2, 'arrow', 'arrow', 'on')")
+check("log: a state is written only when it changes", lua.eval("A1") is True and lua.eval("A2") is False and lua.eval("A3") is True and lua.eval("#LOG2.entries") == 2)
+
 ui = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): ui.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 ui.execute(r"""
 ALL, PINS = {}, {}
 local function object(kind)
@@ -549,6 +747,16 @@ ui.execute("box = DufforthTweaksHelperGuideBox; box.skip.scripts.OnClick(box.ski
 check("box: Skip goes to the next step", "Step 1" not in str(box.title.text), box.title.text)
 ui.execute("box.back.scripts.OnClick(box.back)")
 check("box: Back returns", "Step 1|r" in str(box.title.text), box.title.text)
+# A step that waits on the current one is grayed, with a gray "?" (user, 2026-11-14 screenshot: step 232 looked doable).
+ui.execute("SAVED_LOG = LOG; LOG = { [1] = true }; GU.Refresh()")
+b2 = box.blocks[2]
+check("waiting: the next block says which step comes first", "after step 2" in str(b2.header.text), b2.header.text)
+check("waiting: a gray question mark, gray text", "IncompleteQuestIcon" in str(b2.action.text) and "|cff888888" in str(b2.action.text)
+      and "ActiveQuestIcon" not in str(b2.action.text), b2.action.text)
+ui.execute("COMPLETE[1] = true; GU.Refresh()")
+check("waiting: once it's done, the block is normal again", "after step" not in str(box.blocks[1].header.text) and "after step" not in str(box.blocks[2].header.text or ""),
+      (box.blocks[1].header.text, box.blocks[2].header.text))
+ui.execute("COMPLETE[1] = nil; LOG = SAVED_LOG; GU.Refresh()")
 ui.execute("LOG = { [1] = true }; GU.Refresh()")
 check("adapter: a quest in your log moves the guide to its objective", "Kill 8 Boar" in str(box.step.text), box.step.text)
 check("pin: killing across an area clears the pin and the arrow has no target", ui.eval("CLEARED") >= 1 and ui.eval("GU.target") is None,
@@ -633,6 +841,7 @@ ui.execute("box.list.scripts.OnMouseWheel(box.list, 1)")
 check("list: and back up", nums()[0] == first, nums())
 
 # A check box on each row: mark a step done (you did it without the guide), or undo it.
+ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 420, 900); box.grip.scripts.OnMouseUp(box.grip)")
 ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
 ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
 row5 = next(r for r in box.rows.values() if r.shown and not r.isHeader and int(r.num.text) == 5)
@@ -706,6 +915,162 @@ check("box: whole-route percent only in the bar's hover, not on screen (user: to
       "route" not in str(box.progress.label.text).lower() and "Whole route" in str(box.progress.routeText)
       and ui.eval("rawget(DufforthTweaksHelperGuideBox, 'routeLine')") is None, (box.progress.label.text, box.progress.routeText))
 
+# Resizing never overlaps the bar's texts (user, 2026-11-14 screenshot: "12-15 The Barrens" under "Level up in 7h 12m"):
+# with little room, the less important parts go first (zone %, then the guide name, then "Level up in").
+ui.execute("""
+GU.TextWidth = function(_, t) return #((t or ''):gsub('|c%x%x%x%x%x%x%x%x', ''):gsub('|r', '')) * 6 end
+SAVED_PACE = GU.PaceText
+GU.PaceText = function(long) return long and 'Next level in about 7h 12m.' or 'Level up in 7h 12m' end
+function BAR_FITS()
+  local p = DufforthTweaksHelperGuideBox.progress
+  local w = GU.TextWidth(nil, p.label.text) + GU.TextWidth(nil, p.pace.text) + 12
+  return w <= GU.barWidth, w, GU.barWidth
+end
+""")
+for width in (290, 340, 420, 600):
+    ui.execute(f"box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, {width}, 520); box.grip.scripts.OnMouseUp(box.grip)")
+    fits = ui.eval("{BAR_FITS()}")
+    check(f"bar: at {width} wide the texts don't overlap", fits[1] is True, (fits[2], fits[3], box.progress.label.text, box.progress.pace.text))
+check("bar: wide, everything shows", "zone" in str(box.progress.label.text) and "Level up" in str(box.progress.pace.text),
+      (box.progress.label.text, box.progress.pace.text))
+ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 290, 520); box.grip.scripts.OnMouseUp(box.grip)")
+check("bar: narrow, the zone part still shows", "1-3 Durotar" in str(box.progress.label.text) or "Durotar" in str(box.progress.label.text),
+      box.progress.label.text)
+ui.execute("GU.PaceText = SAVED_PACE; GU.TextWidth = nil; box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 420, 520); box.grip.scripts.OnMouseUp(box.grip)")
+
+# Questie's data as a fallback place (user, 2026-11-14), through its loader; nothing breaks without Questie.
+check("questie: none installed, no answer", ui.eval("GU.QuestieSpot(900)") is None)
+ui.execute("""
+QDB = { GetQuest = function(id) if id == 900 then return { ObjectiveData = { { Type = "item", Id = 4, Text = "Savannah Lion Tusk" } } } end end,
+  QueryItemSingle = function(id, key) if id == 4 and key == "npcDrops" then return { 77 } end end,
+  QueryNPCSingle = function(id, key) if id == 77 and key == "spawns" then return { [17] = { { 40, 20 }, { 70, 70 } } } end end,
+  QueryObjectSingle = function() return nil end }
+QZ = { GetUiMapIdByAreaId = function(_, area) return area == 17 and 1413 or nil end }
+QuestieLoader = { ImportModule = function(_, name) return ({ QuestieDB = QDB, ZoneDB = QZ })[name] end }
+""")
+qs = ui.eval("{GU.QuestieSpot(900)}")
+check("questie: an item objective's drop spot, by zone name", qs and qs[1] == "The Barrens" and qs[2] == 40 and "Savannah Lion Tusk" in str(qs[4]), qs and list(qs.values()))
+ui.execute("QDB.GetQuest = function() error('changed') end")
+check("questie: an error inside Questie is no answer, not a broken guide", ui.eval("GU.QuestieSpot(900)") is None)
+ui.execute("QuestieLoader = nil")
+
+# Step numbers on the world map (user, 2026-11-14).
+ui.execute("""
+MAPCANVAS = CreateFrame("Frame"); MAPCANVAS.GetWidth = function() return 1000 end; MAPCANVAS.GetHeight = function() return 660 end
+WorldMapFrame = CreateFrame("Frame"); WorldMapFrame.GetCanvas = function() return MAPCANVAS end
+WorldMapFrame.GetMapID = function() return DufforthTweaksHelperGuideData.uiMaps["Durotar"] end
+WorldMapFrame.IsShown = function() return true end
+GU.mapDrawnFor = nil; GU.DrawMapLines()
+""")
+pins = ui.eval("GU.mapPins")
+labels = [str(pins[k].label) for k in sorted(pins)] if pins else []
+cur = ui.eval("DufforthTweaksHelperGuideBox.stepNum.text")
+check("map: a pin with the step number at each place", len(labels) > 0 and all(l[0].isdigit() for l in labels), labels)
+check("map: the current step has its pin", any(str(cur) in l.replace(" ", "").replace("-", ",").split(",") or l.startswith(str(cur)) for l in labels), (cur, labels))
+check("map: what was drawn is saved for reading after /reload", ui.eval("DufforthTweaksHelperDB.guide.mapDebug.pins") == len(labels)
+      and ui.eval("DufforthTweaksHelperDB.guide.mapDebug.level") <= 9000, ui.eval("DufforthTweaksHelperDB.guide.mapDebug.pins"))
+ui.execute("SAVED_DRAW = GU.DrawMapLines; GU.DrawMapLines = function() error('boom') end; GU.SafeDrawMap(); GU.DrawMapLines = SAVED_DRAW")
+check("map: a drawing error is kept, not lost", "boom" in str(ui.eval("DufforthTweaksHelperDB.guide.mapError")))
+ui.execute("GU.SafeDrawMap()")
+check("map: and cleared once it draws again", ui.eval("DufforthTweaksHelperDB.guide.mapError") is None)
+ui.execute("GU.mapCheckDue = true; GU.SafeDrawMap()")
+log_lines = lambda: [str(v) for k, v in sorted(ui.eval("DufforthTweaksHelperDB.guideLog.entries").items())]
+check("log: the map check says whether the pins are on screen", any("map: map " in l and "pin1" in l and "visible=" in l for l in log_lines()),
+      [l for l in log_lines() if "map" in l][-3:])
+# Through HereBeDragons when it's loaded (Questie ships it; user: "why im not seeing the quest number steps in the map").
+ui.execute("""
+HBD_ADDED = {}
+local hbd = { AddWorldMapIconMap = function(_, ref, icon, map, x, y) HBD_ADDED[#HBD_ADDED + 1] = { icon = icon, map = map, x = x, y = y } end,
+  RemoveAllWorldMapIcons = function() HBD_ADDED = {} end }
+LibStub = function(name, silent) if name == "HereBeDragons-Pins-2.0" then return hbd end end
+GU.DrawMapLines()
+""")
+check("map: pins go through HereBeDragons, one per place, with map and spot", ui.eval("#HBD_ADDED") == len(labels)
+      and ui.eval("HBD_ADDED[1].map") == ui.eval("DufforthTweaksHelperGuideData.uiMaps['Durotar']") and 0 < ui.eval("HBD_ADDED[1].x") < 1,
+      ui.eval("#HBD_ADDED"))
+check("map: the pin shows its step number", str(ui.eval("HBD_ADDED[1].icon.num.text")) in labels, ui.eval("HBD_ADDED[1].icon.num.text"))
+# Only the number, outlined, no black circle, and at most 10 steps (user, 2026-11-14: "i cannot see what is behind").
+check("map: at most the next 10 steps", ui.eval("GU.MAP_STEPS") == 10)
+check("map: no circle behind the number", ui.eval("HBD_ADDED[1].icon.ring.shown") is False and ui.eval("HBD_ADDED[1].icon.fill.shown") is False)
+check("map: the number is outlined so it reads on any map", "OUTLINE" in str(ui.eval("HBD_ADDED[1].icon.num.fontFlags")), ui.eval("HBD_ADDED[1].icon.num.fontFlags"))
+ui.execute("LibStub = nil; GU.DrawMapLines()")
+ui.execute("WorldMapFrame.GetMapID = function() return 999999 end; GU.DrawMapLines()")
+check("map: none on a map with no steps", ui.eval("#GU.mapPins") == 0)
+ui.execute("WorldMapFrame = nil")
+
+# A step whose quest has an item to use: an icon and a hint on its card (user, 2026-11-15: "an icon that suggests use the item
+# on the quest objective").
+ui.execute("""
+C_QuestLog.GetLogIndexForQuestID = function(id) if id == 2 then return 7 end end
+GetQuestLogSpecialItemInfo = function(index) if index == 7 then return "|cffffffff|Hitem:5056::::::::|h[Root Sampler]|h|r", "Interface\Icons\INV_Misc_Root", 1 end end
+""")
+it = ui.eval("{GU.QuestItemFor(2)}")
+check("quest item: the quest's own item from the game", it and it[1] == 5056 and "Root" in str(it[2]), it and list(it.values()))
+check("quest item: none for a quest without one", ui.eval("GU.QuestItemFor(1)") is None)
+hint = str(ui.eval("GU.UseItemHint(2)"))
+check("quest item: the hint shows the icon and says to use it on the objective", "INV_Misc_Root" in hint and "Root Sampler" in hint and "Use" in hint, hint)
+ui.execute("C_QuestLog.GetLogIndexForQuestID = nil; GetQuestLogSpecialItemInfo = nil")
+
+# Click a step card: the pin and the arrow go there; right-click: options (user, 2026-11-15).
+ui.execute("GU.BackToStep(); CARD = DufforthTweaksHelperGuideBox.blocks[2]; CARD_STEP = CARD.group[1]; CARD.scripts.OnMouseUp(CARD, 'LeftButton')")
+check("step click: the arrow goes to that step", ui.eval("GU.override and GU.override.step") == ui.eval("CARD_STEP"), ui.eval("GU.override and GU.override.step"))
+check("step click: and the game's map pin", abs(ui.eval("PINS[#PINS].x * 100") - ui.eval("(select(2, GU.model:Place(CARD_STEP)))")) < 1e-6,
+      (ui.eval("PINS[#PINS].x * 100"), ui.eval("(select(2, GU.model:Place(CARD_STEP)))")))
+ui.execute("GU.BackToStep(); CARD.scripts.OnMouseUp(CARD, 'RightButton')")
+menu = ui.eval("GU.stepMenu")
+labels = [str(r.text) for k, r in sorted(menu.rows.items()) if r.shown] if menu else []
+check("step right-click: a menu of options", menu is not None and menu.shown and any("pin" in l.lower() for l in labels)
+      and any("done" in l.lower() for l in labels) and any("continue" in l.lower() for l in labels), labels)
+ui.execute("for _, r in pairs(GU.stepMenu.rows) do if r.shown and string.find(string.lower(r.text or ''), 'done') then r.scripts.OnClick(r) break end end")
+check("step right-click: Mark done marks it", ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[CARD_STEP]") is True)
+# Like the main Menu (user, 2026-11-15: "right click on the steps is persistent"; "focus on text, not on the button"):
+# slim text rows, and it closes a moment after the mouse leaves.
+ui.execute("CARD.scripts.OnMouseUp(CARD, 'RightButton')")
+row1 = ui.eval("GU.stepMenu.rows[1]")
+check("step menu: text rows, no filled button", ui.eval("rawget(GU.stepMenu.rows[1], 'bg')") is None and ui.eval("GU.stepMenu.rows[1].label.text") is not None,
+      ui.eval("GU.stepMenu.rows[1].label.text"))
+ui.execute("GU.stepMenu.scripts.OnUpdate(GU.stepMenu, 1.0)")
+check("step menu: closes after the mouse leaves it", ui.eval("GU.stepMenu.shown") is False)
+ui.execute("GU.model:ToggleStep(CARD_STEP); GU.BackToStep()")
+
+# Auto flight asks first (user, 2026-11-15: "make me confirm if i want to fly when you are auto using the fly path").
+ui.execute("""
+TAKEN = nil; POPUP = nil
+TakeTaxiNode = function(i) TAKEN = i end
+StaticPopupDialogs = {}
+StaticPopup_Show = function(which, text1, text2, data) POPUP = { which = which, text = text1, data = data } return {} end
+GU.OfferFlight(3, "Crossroads, The Barrens")
+""")
+check("auto flight: a Yes/No window, not a flight", ui.eval("TAKEN") is None and ui.eval("POPUP and POPUP.which") == "DUFFORTH_GUIDE_FLY"
+      and "Crossroads" in str(ui.eval("POPUP.text")), ui.eval("POPUP and POPUP.text"))
+ui.execute("StaticPopupDialogs.DUFFORTH_GUIDE_FLY.OnAccept(nil, POPUP.data)")
+check("auto flight: Yes takes that flight", ui.eval("TAKEN") == 3)
+# While flying: the time left in the box, learned from each real flight.
+ui.execute("""
+NOW = 1000; GetTime = function() return NOW end
+ONTAXI = true; UnitOnTaxi = function() return ONTAXI end
+GU.FlightStarted("Thunder Bluff", "Crossroads", 120)
+NOW = 1030; GU.FlightCheck()
+""")
+check("flying: the box says when you land", "1:30" in str(ui.eval("GU.FlightText()")), ui.eval("GU.FlightText()"))
+ui.execute("NOW = 1105; ONTAXI = false; GU.FlightCheck()")
+check("flying: landed, the real time is kept for next time", ui.eval("DufforthTweaksHelperDB.guide.flightTimes['Thunder Bluff|Crossroads']") == 105)
+check("flying: and the text goes away", ui.eval("GU.FlightText()") is None)
+ui.execute("GetTime = nil; UnitOnTaxi = nil")
+
+# Errands don't take the arrow from your step (log, 2026-11-15: "Buy water at Innkeeper Byula" pulled the arrow off
+# Ishamuhale; user: "waypoint is pointing wrong place"). A click on the errand row points it there.
+ui.execute("""
+SAVED_ERRANDS = GU.Errands
+FAKE_ERRAND = { key = "food:x", kind = "food", zone = "Durotar", x = 12, y = 34, action = "Buy water at Innkeeper" }
+GU.Errands = function() return { FAKE_ERRAND } end
+GU.override = nil; GU.Refresh()
+""")
+check("errands: the arrow stays on your step", "Buy water" not in str(ui.eval("GU.target and GU.target.text")), ui.eval("GU.target and GU.target.text"))
+ui.execute("GU.ErrandClicked(FAKE_ERRAND)")
+check("errands: a click on the errand points the arrow there", "Buy water" in str(ui.eval("GU.target and GU.target.text")), ui.eval("GU.target and GU.target.text"))
+ui.execute("GU.Errands = SAVED_ERRANDS; GU.BackToStep()")
+
 # The Start quest button: one click uses the quest's item (Blizzard allows using items only from a click).
 ui.execute("SAVED_Q1 = DufforthTweaksHelperGuideData.quests[1]; local q = {} for k, v in pairs(SAVED_Q1) do q[k] = v end "
            "q[14] = 600; q[16] = { 'Old Letter', 'Boar', 10 }; DufforthTweaksHelperGuideData.quests[1] = q; "
@@ -729,6 +1094,28 @@ check("extras: the class quest is a row that says so", cls and "Class quest" in 
 ui.execute(f"box.extraRows[{cls[0] if cls else 1}].scripts.OnClick(box.extraRows[{cls[0] if cls else 1}])")
 check("extras: a click points the arrow at its giver", ui.eval("GU.target and GU.target.zone") == "Orgrimmar" and "Trainer" in str(ui.eval("GU.target.text")),
       ui.eval("GU.target and GU.target.zone"))
+# Back to your step (user, 2026-11-14: "when i want to go back to my current step waypoint is not changing").
+check("extras: the game's map pin goes to the quest too, and stays there", ui.eval("PINS[#PINS].map") == 1454, ui.eval("PINS[#PINS].map"))
+check("extras: a bar says the arrow is on the quest, with a way back", box.viewBar.shown and "Arrow on" in str(box.viewBar.label.text)
+      and not box.viewBar.go.shown, box.viewBar.label.text)
+ui.execute("box.viewBar.back.scripts.OnClick(box.viewBar.back)")
+check("extras: back to my step: the arrow is on your step again", ui.eval("GU.override") is None and ui.eval("GU.target and GU.target.zone") != "Orgrimmar",
+      ui.eval("GU.target and GU.target.zone"))
+check("extras: and so is the game's map pin", ui.eval("PINS[#PINS].map") != 1454, ui.eval("PINS[#PINS].map"))
+check("extras: the bar goes away", not box.viewBar.shown)
+# Any click about your step brings it back too (user, 2026-11-14: "clicking step 255 waypoint is not coming back").
+CLS = cls[0] if cls else 1
+ui.execute("""function DEEPCOPY(t) if type(t) ~= 'table' then return t end local o = {} for k, v in pairs(t) do o[k] = DEEPCOPY(v) end return o end
+SAVED_GUIDE_DB = DEEPCOPY(DufforthTweaksHelperDB.guide)""")
+for name, click_lua in (("the map pin button", "box.pin.scripts.OnClick(box.pin)"), ("Best", "box.best.scripts.OnClick(box.best)"),
+                        ("the step arrows", "box.nextSection.scripts.OnClick(box.nextSection)"), ("Skip", "box.skip.scripts.OnClick(box.skip)"),
+                        ("Back", "box.back.scripts.OnClick(box.back)")):
+    ui.execute(f"box.extraRows[{CLS}].scripts.OnClick(box.extraRows[{CLS}])")
+    ui.execute(click_lua)
+    check(f"extras: {name} leaves the class quest", ui.eval("GU.override") is None and ui.eval("GU.target and GU.target.zone") != "Orgrimmar"
+          and ui.eval("PINS[#PINS].map") != 1454, (ui.eval("GU.target and GU.target.zone"), ui.eval("PINS[#PINS].map")))
+ui.execute("for k in pairs(DufforthTweaksHelperDB.guide) do DufforthTweaksHelperDB.guide[k] = nil end "
+           "for k, v in pairs(SAVED_GUIDE_DB) do DufforthTweaksHelperDB.guide[k] = v end GU.BackToStep()")
 dun = [k for k, t in extra_rows() if "dungeon quest" in t]
 check("extras: dungeon quests are a row to open", bool(dun) and not any("Ragefire Chasm:" in t for _, t in extra_rows()), extra_rows())
 ui.execute(f"box.extraRows[{dun[0] if dun else 1}].scripts.OnClick(box.extraRows[{dun[0] if dun else 1}])")
@@ -855,13 +1242,39 @@ ui.execute("PLAYER.facing = math.pi / 2; GU.UpdateArrow()")
 check("arrow: turns as you turn", abs(arrow.angle + math.pi / 2) < 1e-6, arrow.angle)
 ui.execute("PLAYER.y = 0.60; GU.UpdateArrow()")
 check("arrow: says when you are there", "here" in str(arrow.dist.text).lower(), arrow.dist.text)
+ui.execute("GU.target.lift = 28; GU.UpdateArrow()")
+check("arrow: under an NPC up high, says to go up, not 'You are here' (user screenshot)",
+      "go up" in str(arrow.dist.text).lower() and "28" in str(arrow.dist.text) and "here" not in str(arrow.dist.text).lower(), arrow.dist.text)
+check("arrow: and a big up arrow, so it's still a waypoint (user: 'there is no waypoint')", arrow.climb.shown and "Up" in str(arrow.climb.tex),
+      (arrow.climb.shown, arrow.climb.tex))
+ui.execute("GU.target.npc = 'Darsok Swiftdagger'; SAVED_UN = UnitName; UnitName = function(u) return u == 'target' and 'Darsok Swiftdagger' or nil end; GU.UpdateArrow()")
+check("arrow: up there with the NPC targeted, you are here", "here" in str(arrow.dist.text).lower(), arrow.dist.text)
+ui.execute("UnitName = SAVED_UN; GU.target.npc = nil")
+ui.execute("GU.target.lift = -15; GU.UpdateArrow()")
+check("arrow: over one down below, says to go down", "go down" in str(arrow.dist.text).lower(), arrow.dist.text)
+check("arrow: a down arrow below", arrow.climb.shown and "Down" in str(arrow.climb.tex), arrow.climb.tex)
+ui.execute("GU.target.lift = nil; GU.UpdateArrow()")
+check("arrow: no climb arrow on the ground", not arrow.climb.shown)
 ui.execute("SAVED_WP = C_Map.GetWorldPosFromMapPos; C_Map.GetWorldPosFromMapPos = nil; GU.UpdateArrow()")
 check("arrow: hides when the game can't place you", arrow.shown is False)
 ui.execute("C_Map.GetWorldPosFromMapPos = SAVED_WP; PLAYER.y, PLAYER.facing = 0.70, 0; GU.UpdateArrow()")
+ui.execute("local a = DufforthTweaksHelperGuideArrow; if rawget(a.scripts, 'OnMouseUp') then a.scripts.OnMouseUp(a, 'RightButton') end")
+check("arrow: a right-click doesn't hide it (user: the arrow got turned off by accident, 'no waypoint')", arrow.shown is True
+      and ui.eval("DufforthTweaksHelperDB.guide.arrow") is not False)
 ui.execute("GU.SetArrowShown(false)")
 check("arrow: can be turned off, and remembers", arrow.shown is False and ui.eval("DufforthTweaksHelperDB.guide.arrow") is False)
 ui.execute("GU.SetArrowShown(true)")
 check("arrow: and on again", arrow.shown is True)
+ui.execute("DufforthTweaksHelperDB.guide.arrow, DufforthTweaksHelperDB.guide.arrowV = false, nil; GU.Refresh()")
+check("arrow: turned off by the old right-click: on again once after the update", arrow.shown is True
+      and ui.eval("DufforthTweaksHelperDB.guide.arrowV") == 1)
+ui.execute("GU.SetArrowShown(false); GU.Refresh()")
+check("arrow: off from the Menu after that stays off", arrow.shown is False)
+lines = [str(v) for k, v in sorted(ui.eval("DufforthTweaksHelperDB.guideLog.entries").items())]
+check("log: says the arrow is off and why", any("arrow: hidden: turned off" in l for l in lines), lines[-3:])
+check("log: the step, where the arrow points and the settings", any(l.startswith("step: ") for l in lines) and any(l.startswith("target: ") for l in lines)
+      and any(l.startswith("settings: ") and "arrow=" in l for l in lines), lines[-6:])
+ui.execute("GU.SetArrowShown(true)")
 check("route: chosen by race (Orc: Durotar)", ui.eval("GU.RouteName()") == "Durotar")
 ui.execute("UnitRace = function() return 'Tauren', 'Tauren' end")
 check("route: Tauren start in Mulgore", ui.eval("GU.RouteName()") == "Mulgore")

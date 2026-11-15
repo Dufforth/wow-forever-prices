@@ -57,6 +57,7 @@ DufforthTweaksHelperPrices = { at = 1000, ["forever.normal.horde.us"] = {
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 lua.execute(MOCK)
 for name in ("Core.lua", "Disenchant.lua"):
     lua.execute(source(name))
@@ -122,6 +123,32 @@ lua.execute("GetProfessions = function() return 1, 2 end; GetProfessionInfo = fu
 prof = g.DufforthTweaksHelper.Professions()
 check("profession skill includes bonuses", prof.Tailoring == 155 and prof.Enchanting == 80)
 check("Enchanting skill for the tooltips", g.DufforthTweaksHelperDE.EnchantingSkill() == 80)
+
+# Materials under each item, each with a Search button (user, 2026-11-15: "craft to de tab does not have the search button and
+# i dont see the mats needed under each item").
+lua.execute("""
+DR = DufforthTweaksHelperCrafting.DisplayRows({ { product = 10, name = "Gloves", parts = { { id = 2, count = 3 }, { id = 4, count = 1 } } },
+  { product = 11, name = "Boots", parts = { { id = 2, count = 5 } } } })
+""")
+check("craft view: the item, then each of its materials", lua.eval("#DR") == 5 and lua.eval("DR[1].result.product") == 10
+      and lua.eval("DR[2].part.id") == 2 and lua.eval("DR[3].part.id") == 4 and lua.eval("DR[4].result.product") == 11)
+check("craft view: a material row knows its item", lua.eval("DR[2].of.product") == 10 and lua.eval("DR[5].of.product") == 11)
+check("craft view: what to search for: the item, or the material and how many",
+      lua.eval("(DufforthTweaksHelperCrafting.SearchItem(DR[1]))") == 10 and lua.eval("(select(2, DufforthTweaksHelperCrafting.SearchItem(DR[2])))") == 3)
+
+# What you have next to each material, and a Craft button (user, 2026-11-15).
+check("craft view: what you have, green when it's enough", "have 5" in lua.eval("DufforthTweaksHelperCrafting.HaveText(5, 2)") and "40ff40" in lua.eval("DufforthTweaksHelperCrafting.HaveText(5, 2)"))
+check("craft view: red when it's short", "have 1" in lua.eval("DufforthTweaksHelperCrafting.HaveText(1, 3)") and "ff5555" in lua.eval("DufforthTweaksHelperCrafting.HaveText(1, 3)"))
+lua.execute("""
+CRAFTED = 0
+DufforthTweaksHelperLeveling = DufforthTweaksHelperLeveling or {}
+DufforthTweaksHelperLeveling.FindOpenRecipe = function(spell, name) if spell == 77 then return { available = 3, craft = function(n) CRAFTED = CRAFTED + n end } end end
+CR = DufforthTweaksHelperCrafting.CraftFor({ spell = 77, name = "Gloves" })
+""")
+check("craft view: the recipe in the open profession window, how many you can make", lua.eval("CR.available") == 3)
+lua.execute("CR.craft(1)")
+check("craft view: Craft makes one", lua.eval("CRAFTED") == 1)
+check("craft view: no profession window, no Craft", lua.eval("DufforthTweaksHelperCrafting.CraftFor({ spell = 9, name = 'x' })") is None)
 
 if fails:
     sys.exit(f"{len(fails)} failed")

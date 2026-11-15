@@ -78,6 +78,7 @@ PRICES = { [1] = 10, [2] = 1, [504] = 200, [900] = 3000 }
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 lua.execute(MOCK)
 lua.execute(DATA)
 for name in ("Crafting.lua", "Leveling.lua"):
@@ -174,6 +175,7 @@ check("profession windows (and Enchanting's craft window) are watched", lua.eval
 
 # Real data: the generated file loads and plans every profession without errors.
 real = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): real.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 real.execute(MOCK)
 real.execute('DufforthTweaksHelperProfessions = { "Alchemy", "Blacksmithing", "Cooking", "Enchanting", "Engineering", "First Aid", "Leatherworking", "Mining", "Tailoring" }')
 real.execute('DufforthTweaksHelperVendor = {}; DufforthTweaksHelperMaterialCrafts = {}')
@@ -251,6 +253,7 @@ end
 function HOVER(f) f.scripts.OnEnter(f); return table.concat(TIP, "\n") end
 """
 ui_lua = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): ui_lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 ui_lua.execute(MOCK)
 ui_lua.execute(UI)
 for name in ("Core.lua", "Prices.lua", "Crafts.lua", "Disenchant.lua", "Crafting.lua", "LevelingData.lua", "Leveling.lua"):

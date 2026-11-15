@@ -11,6 +11,7 @@
 -- current step with distance and time. Each new step gets a map pin. Quest, level and zone events
 -- refresh it.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local UI = {}
 DufforthTweaksHelperGuideUI = UI
 
@@ -21,6 +22,8 @@ local function DB()
     if g.shown == nil then g.shown = true end
     if g.showDone == nil then g.showDone = true end
     if g.listV ~= 2 then g.showDone, g.listV = true, 2 end -- 4.28: the list shows the steps behind you (user)
+    -- 4.37.4: a right-click on the arrow used to hide it, often by accident ("no waypoint"); turn it back on once.
+    if g.arrowV ~= 1 then g.arrow, g.arrowV = nil, 1 end
     if g.showNext == nil then g.showNext = true end
     if g.arrow == nil then g.arrow = true end
     -- 4.22.0 saved the size the game restored from an older, smaller box: start fresh once.
@@ -59,7 +62,7 @@ function UI.GameAdapter()
         done = function(id) return C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and C_QuestLog.IsQuestFlaggedCompleted(id) and true or false end,
         inLog = function(id) return inLog[id] == true end,
         complete = function(id) return C_QuestLog and C_QuestLog.IsComplete and C_QuestLog.IsComplete(id) and true or false end,
-        zone = function() return (GetRealZoneText and GetRealZoneText()) or "" end,
+        zone = function() return DufforthTweaksHelperLocale.ZoneName() end,
         -- The game's progress lines for a quest in your log: { {text, finished} }.
         objectives = function(id)
             if not inLog[id] or not (C_QuestLog and C_QuestLog.GetQuestObjectives) then return nil end
@@ -67,14 +70,22 @@ function UI.GameAdapter()
             return ok and type(list) == "table" and #list > 0 and list or nil
         end,
         -- One objective by its name in the game's line ("6/12 Raptor Head"): true/false, nil if not found.
-        objectiveDone = function(id, name)
+        -- Matched by name, or on a Spanish client by kind, order and count (Guide.MatchObjective).
+        objectiveDone = function(id, name, goal, goals)
             if not inLog[id] or not name or not (C_QuestLog and C_QuestLog.GetQuestObjectives) then return nil end
             local ok, list = pcall(C_QuestLog.GetQuestObjectives, id)
             if not ok or type(list) ~= "table" then return nil end
-            for _, o in ipairs(list) do
-                if o.text and string.find(o.text, name, 1, true) then return o.finished and true or false end
-            end
+            local k = DufforthTweaksHelperGuide.MatchObjective(list, goal or { [2] = name }, goals)
+            if k then return list[k].finished and true or false end
             return nil
+        end,
+        -- The quest's title in the client's language (Spanish clients only; English uses the route data).
+        questTitle = function(id)
+            local loc = DufforthTweaksHelperLocale
+            if not (loc and loc.spanish and C_QuestLog) then return nil end
+            local title = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(id)
+            if (not title or title == "") and C_QuestLog.GetQuestInfo then title = C_QuestLog.GetQuestInfo(id) end
+            return type(title) == "string" and title ~= "" and title or nil
         end,
         -- A flight path you have: you talked to that flight master, or you know as many paths in its zone
         -- as it has Horde flight masters (the flight map names a path's zone, not its flight master).
@@ -110,6 +121,12 @@ function UI.GameAdapter()
         end,
         -- Your hearthstone: the zone it takes you to, and whether it's ready.
         hearth = function() return UI.Hearth() end,
+        -- Questie's place for a quest our data can't place (user, 2026-11-14).
+        questieSpot = function(id) return UI.QuestieSpot(id) end,
+        -- Yards from you to a zone spot, nil if unknown or on another continent.
+        yardsTo = function(zone, x, y) return UI.YardsTo and UI.YardsTo(zone, x, y) or nil end,
+        -- Yards between two zone spots on the same continent (nil otherwise): picks the right boat or zeppelin.
+        worldDistance = function(z1, x1, y1, z2, x2, y2) return UI.WorldDistance and UI.WorldDistance(z1, x1, y1, z2, x2, y2) or nil end,
         -- Where you stand: zone name and map % (the nearest open objective comes first).
         position = function()
             local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
@@ -119,7 +136,7 @@ function UI.GameAdapter()
             local x, y
             if pos.GetXY then x, y = pos:GetXY() else x, y = pos.x, pos.y end
             if not x then return nil end
-            return info.name, x * 100, y * 100
+            return DufforthTweaksHelperLocale.MapZone(map) or DufforthTweaksHelperLocale.EnglishZone(info.name), x * 100, y * 100
         end,
         logIds = LogIds,
     }
@@ -132,6 +149,7 @@ function UI.Hearth()
     local home = DB().homeZone
     if not home and GetBindLocation then
         local bind = GetBindLocation()
+        bind = DufforthTweaksHelperLocale.EnglishZone(bind)
         if CAPITALS[bind] then home = bind end
     end
     if not home then return nil end
@@ -235,11 +253,34 @@ end
 -- At a flight master with Auto on: fly to the one nearest your next step (user, 2026-11-14). Shift skips it.
 local function WorldOf(map, x, y)
     if not (map and C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return nil end
-    local ok, _, pos = pcall(C_Map.GetWorldPosFromMapPos, map, CreateVector2D(x, y))
+    local ok, continent, pos = pcall(C_Map.GetWorldPosFromMapPos, map, CreateVector2D(x, y))
     if not ok or not pos then return nil end
     local a, b
     if pos.GetXY then a, b = pos:GetXY() else a, b = pos.x, pos.y end
-    return a and { a, b } or nil
+    return a and { a, b, continent } or nil
+end
+
+function UI.WorldDistance(z1, x1, y1, z2, x2, y2)
+    local maps = UI.model and UI.model.data and UI.model.data.uiMaps
+    if not (maps and maps[z1] and maps[z2]) then return nil end
+    local a = WorldOf(maps[z1], (x1 or 50) / 100, (y1 or 50) / 100)
+    local b = WorldOf(maps[z2], (x2 or 50) / 100, (y2 or 50) / 100)
+    if not (a and b) or a[3] ~= b[3] then return nil end
+    return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2)
+end
+
+-- Yards from you to a spot (zone, map %), nil when unknown or on another continent.
+function UI.YardsTo(zone, x, y)
+    local maps = UI.model and UI.model.data and UI.model.data.uiMaps
+    if not (maps and maps[zone] and x and y and C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
+    local here = C_Map.GetBestMapForUnit("player")
+    local pos = here and C_Map.GetPlayerMapPosition(here, "player")
+    if not pos then return nil end
+    local px, py
+    if pos.GetXY then px, py = pos:GetXY() else px, py = pos.x, pos.y end
+    local a, b = px and WorldOf(here, px, py), WorldOf(maps[zone], x / 100, y / 100)
+    if not (a and b) or a[3] ~= b[3] then return nil end
+    return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2)
 end
 
 function UI.AutoFly()
@@ -254,7 +295,7 @@ function UI.AutoFly()
     local taxiMap = GetTaxiMapID and GetTaxiMapID()
     local nodes = {}
     for i = 1, NumTaxiNodes() do
-        local n = { index = i, name = TaxiNodeName(i), type = TaxiNodeGetType(i) }
+        local n = { index = i, name = DufforthTweaksHelperLocale.EnglishNode(TaxiNodeName(i)), type = TaxiNodeGetType(i) }
         if want and taxiMap and TaxiNodePosition then
             local x, y = TaxiNodePosition(i)
             local w = x and WorldOf(taxiMap, x, y)
@@ -263,11 +304,173 @@ function UI.AutoFly()
         nodes[#nodes + 1] = n
     end
     local pick = DufforthTweaksHelperGuide.PickTaxiNode(nodes, fm[2])
-    if pick then TakeTaxiNode(pick) end
+    if pick then UI.OfferFlight(pick, TaxiNodeName(pick)) end
 end
 
--- ---- Route lines on the world map (user, 2026-11-14) ----
+-- Ask before flying (user, 2026-11-15: "make me confirm if i want to fly when you are auto using the fly path"): a
+-- Yes/No window on screen; Yes takes the flight (a click, so the game allows it).
+function UI.OfferFlight(index, name)
+    if not (StaticPopupDialogs and StaticPopup_Show) then return end
+    StaticPopupDialogs.DUFFORTH_GUIDE_FLY = StaticPopupDialogs.DUFFORTH_GUIDE_FLY or {
+        text = L["Guide: fly to %s?"], button1 = YES or L["Yes"], button2 = NO or L["No"],
+        OnAccept = function(_, data) if data and TakeTaxiNode then TakeTaxiNode(data) end end,
+        timeout = 0, whileDead = false, hideOnEscape = true, preferredIndex = 3,
+    }
+    StaticPopup_Show("DUFFORTH_GUIDE_FLY", name or "?", nil, index)
+end
+
+-- ---- Flight time left (user, 2026-11-15) ----
+-- TakeTaxiNode (yours or the guide's) starts a timer; while you're on the flight path the box says when you land, and
+-- each real flight's time is kept per route (DB().flightTimes["from|to"]) for the next estimate.
+function UI.FlightStarted(from, to, estimate)
+    UI.flight = { from = from, to = to, total = estimate or 60, startedAt = GetTime and GetTime() or 0, seenOnTaxi = false }
+    if C_Timer and C_Timer.NewTicker and not UI.flightTicker then
+        UI.flightTicker = C_Timer.NewTicker(1, function() pcall(UI.FlightCheck) end)
+    end
+end
+
+function UI.FlightText()
+    local fl = UI.flight
+    if not fl then return nil end
+    local left = DufforthTweaksHelperGuide.FlightLeft(fl.startedAt, fl.total, GetTime and GetTime() or 0)
+    return string.format(L["Flying to %s: landing in %d:%02d"], fl.to or "?", math.floor(left / 60), left % 60)
+end
+
+function UI.FlightCheck()
+    local fl = UI.flight
+    if not fl then return end
+    local onTaxi = UnitOnTaxi and UnitOnTaxi("player")
+    local now = GetTime and GetTime() or 0
+    if onTaxi then fl.seenOnTaxi = true
+    elseif fl.seenOnTaxi or now - fl.startedAt > 15 then
+        -- Landed (or the flight never started): keep the real time of a full flight.
+        if fl.seenOnTaxi and fl.from and fl.to then
+            DB().flightTimes = DB().flightTimes or {}
+            DB().flightTimes[fl.from .. "|" .. fl.to] = math.floor(now - fl.startedAt + 0.5)
+        end
+        UI.flight = nil
+        if UI.flightTicker and UI.flightTicker.Cancel then UI.flightTicker:Cancel() end
+        UI.flightTicker = nil
+    end
+    local f = DufforthTweaksHelperGuideBox -- (the box's local is declared further down)
+    if f and f.progress and f.progress.pace then
+        f.progress.pace:SetText(UI.flight and UI.FlightText() or (UI.PaceText(false) or ""))
+    end
+end
+
+-- Every flight you take: from the node you stand at to the one you picked, with the best estimate.
+if hooksecurefunc and TakeTaxiNode then
+    hooksecurefunc("TakeTaxiNode", function(index)
+        pcall(function()
+            local from
+            for i = 1, (NumTaxiNodes and NumTaxiNodes() or 0) do
+                if TaxiNodeGetType(i) == "CURRENT" then from = TaxiNodeName(i) end
+            end
+            local to = TaxiNodeName(index)
+            local yards
+            local map = GetTaxiMapID and GetTaxiMapID()
+            if map and TaxiNodePosition then
+                local here
+                for i = 1, NumTaxiNodes() do if TaxiNodeGetType(i) == "CURRENT" then here = i end end
+                local ax, ay = TaxiNodePosition(here or index)
+                local bx, by = TaxiNodePosition(index)
+                local a, b = ax and WorldOf(map, ax, ay), bx and WorldOf(map, bx, by)
+                if a and b then yards = math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2) end
+            end
+            UI.FlightStarted(from, to, DufforthTweaksHelperGuide.FlightEstimate(DB().flightTimes, from, to, yards))
+        end)
+    end)
+end
+
+-- ---- The guide log (user, 2026-11-14): what happens in game and the settings, in the saved file
+-- (DufforthTweaksHelperDB.guideLog), so problems can be solved from facts. Read with tools/read_guide_log.py. ----
+local function LogBook()
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    DufforthTweaksHelperDB.guideLog = DufforthTweaksHelperDB.guideLog or {}
+    return DufforthTweaksHelperDB.guideLog
+end
+local function Stamp() return date and date("%m-%d %H:%M:%S") or nil end
+function UI.Log(kind, message) pcall(DufforthTweaksHelperGuide.LogAdd, LogBook(), kind, message, Stamp()) end
+function UI.LogChange(key, kind, message) pcall(DufforthTweaksHelperGuide.LogChange, LogBook(), key, kind, message, Stamp()) end
+local function Plain(text) return (tostring(text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "")) end
+UI.Plain = Plain
+
+-- Every guide setting with a plain value, sorted: "arrow=true collapsed=false ...".
+function UI.SettingsLine()
+    local keys = {}
+    for k, v in pairs(DB()) do
+        local t = type(v)
+        if t == "boolean" or t == "number" or t == "string" then keys[#keys + 1] = k end
+    end
+    table.sort(keys)
+    local parts = {}
+    for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. tostring(DB()[k]) end
+    return table.concat(parts, " ")
+end
+
+function UI.LogLogin()
+    local version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("DufforthTweaksHelper", L["Version"]))
+        or (GetAddOnMetadata and GetAddOnMetadata("DufforthTweaksHelper", L["Version"])) or "?"
+    local build = GetBuildInfo and select(2, GetBuildInfo()) or "?"
+    local _, race = UnitRace and UnitRace("player")
+    local _, class = UnitClass and UnitClass("player")
+    UI.Log("login", string.format(L["addon %s, game build %s, %s %s level %s, zone %s, route %s"], version, tostring(build), tostring(race),
+        tostring(class), tostring(UnitLevel and UnitLevel("player")), tostring(GetRealZoneText and GetRealZoneText()), tostring(UI.RouteName())))
+    UI.Log("settings", UI.SettingsLine())
+    -- Forever's quest log size: the routes are planned for 40 (2026-11-14); this confirms it.
+    local okm, max = pcall(function() return C_QuestLog and C_QuestLog.GetMaxNumQuestsCanAccept and C_QuestLog.GetMaxNumQuestsCanAccept() end)
+    UI.Log("questlog", "holds " .. tostring(okm and max or "?") .. " quests (routes planned for 40)")
+end
+
+-- ---- Route lines and step numbers on the world map (user, 2026-11-14) ----
+-- Each place of the steps ahead gets a round pin with the guide's own step number ("188-189" when several steps
+-- are at one spot; user: "see in the map the step number in each specific place"). The current step is gold. Hover:
+-- what to do there; click: shows that step in the box. Lines join the first places in route order.
+UI.MAP_STEPS = 10 -- steps ahead with pins (user, 2026-11-14: "only the next 10 steps at max")
+UI.PIN_PX = 26 -- pins closer than this on screen become one
+UI.MAP_LINES = 10 -- pins joined by the route line
 local mapLines
+local ROUND = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+
+local function MapPin(frame, k, pool)
+    pool = pool or mapLines.dots
+    local pin = pool[k]
+    if pin then return pin end
+    pin = CreateFrame("Button", nil, frame)
+    pin.ring = pin:CreateTexture(nil, "BACKGROUND"); pin.ring:SetAllPoints()
+    pin.fill = pin:CreateTexture(nil, "ARTWORK")
+    pin.fill:SetPoint("TOPLEFT", 2, -2); pin.fill:SetPoint("BOTTOMRIGHT", -2, 2)
+    pin.num = pin:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); pin.num:SetPoint("CENTER", 0, 0)
+    -- Only the number, with a dark outline so it reads on any map; no circle behind it (user, 2026-11-14: "putting the
+    -- number in a black circle is too much, I cannot see what is behind").
+    local font, size = pin.num:GetFont()
+    if font then pin.num:SetFont(font, (size or 12) + 2, "OUTLINE") end
+    rawset(pin.num, "fontFlags", "OUTLINE")
+    pin:SetScript("OnEnter", function(self)
+        local model = UI.model
+        if not (model and GameTooltip and self.steps) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText((#self.steps > 1 and L["Steps "] or L["Step "]) .. (self.title or self.label or ""), 1, 0.82, 0)
+        for n, i in ipairs(self.steps) do
+            if n > 5 then GameTooltip:AddLine(string.format(L["and %d more"], #self.steps - 5), 0.7, 0.7, 0.7); break end
+            local d = DufforthTweaksHelperGuide.Describe(model, i)
+            GameTooltip:AddLine(string.format("%d. %s", i, d and d.action or "?"), 1, 1, 1, true)
+        end
+        GameTooltip:AddLine(L["Click: show this step in the guide"], 0.5, 0.8, 1)
+        GameTooltip:Show()
+    end)
+    pin:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    pin:SetScript("OnClick", function(self) if self.steps then UI.ViewStep(self.steps[1]) end end)
+    pool[k] = pin
+    return pin
+end
+
+local function Shape(pin, wide, current)
+    -- Just the number: gold for your current step, white for the others (no circle: it hid the map).
+    pin.ring:Hide(); pin.fill:Hide()
+    pin.num:SetTextColor(current and 1 or 1, current and 0.82 or 1, current and 0 or 1)
+end
+
 function UI.DrawMapLines()
     if not (WorldMapFrame and WorldMapFrame.GetMapID and WorldMapFrame.GetCanvas) then return end
     local canvas = WorldMapFrame:GetCanvas()
@@ -278,48 +481,210 @@ function UI.DrawMapLines()
         mapLines = { frame = frame, lines = {}, dots = {} }
     end
     local frame = mapLines.frame
-    frame:SetFrameLevel((canvas.GetFrameLevel and canvas:GetFrameLevel() or 0) + 50)
+    -- Above the map's own layers (the zone highlight drew over the pins and dimmed them; user screenshot).
+    -- Capped: the game allows levels up to 10000, and with 4.37.4's +1000 the pins vanished (user, 2026-11-14).
+    local base = tonumber(canvas.GetFrameLevel and (canvas:GetFrameLevel())) or 0
+    local level = math.min(base + 500, 9000)
+    frame:SetFrameLevel(level)
     for _, l in ipairs(mapLines.lines) do l:Hide() end
     for _, d in ipairs(mapLines.dots) do d:Hide() end
+    mapLines.hbdDots = mapLines.hbdDots or {}
+    for _, d in ipairs(mapLines.hbdDots) do d:Hide() end
+    -- Pins through HereBeDragons when it's loaded (Questie ships it, and Questie's map icons show for the user while our
+    -- own layer's pins did not; user, 2026-11-14: "why im not seeing the quest number steps in the map").
+    local hbd = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
+    if hbd then pcall(hbd.RemoveAllWorldMapIcons, hbd, UI) end
+    UI.mapPinsVia = hbd and "HereBeDragons" or "own layer"
+    UI.mapPins = {}
     local model = UI.model
     if not model or DB().mapLines == false or not DB().shown then return end
-    local mapID, points = WorldMapFrame:GetMapID(), {}
-    for _, i in ipairs(model:Upcoming(8)) do
-        local zone, x, y, map = model:Place(i)
-        if map == mapID and x and y then points[#points + 1] = { x / 100, y / 100 } end
+    local mapID, entries = WorldMapFrame:GetMapID(), {}
+    local current = model:Current()
+    for _, i in ipairs(model:Upcoming(UI.MAP_STEPS)) do
+        local _, x, y, map = model:Place(i)
+        if map == mapID and x and y then entries[#entries + 1] = { i, x, y } end
     end
     local w, h = canvas:GetWidth(), canvas:GetHeight()
-    for k, p in ipairs(points) do
-        local dot = mapLines.dots[k]
-        if not dot then
-            dot = CreateFrame("Frame", nil, frame); dot:SetSize(18, 18)
-            dot.bg = dot:CreateTexture(nil, "ARTWORK"); dot.bg:SetAllPoints()
-            dot.bg:SetTexture("Interface\\Minimap\\ObjectIconsAtlas"); dot.bg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
-            dot.num = dot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); dot.num:SetPoint("CENTER")
-            mapLines.dots[k] = dot
+    -- Same size on screen at any zoom.
+    local scale = WorldMapFrame.GetCanvasScale and tonumber((WorldMapFrame:GetCanvasScale())) or 1
+    scale = (scale and scale > 0) and 1 / scale or 1
+    -- Pins that would touch on screen become one (at Ratchet two sat on each other).
+    local near = UI.PIN_PX * scale
+    local pins = DufforthTweaksHelperGuide.MapPins(entries, w > 0 and near / w * 100 or nil, h > 0 and near / h * 100 or nil)
+    UI.mapPins = pins
+    -- What was drawn, saved for reading the file after /reload when pins don't show.
+    DB().mapDebug = { map = mapID, steps = #entries, pins = #pins, w = w, h = h, scale = scale, level = level,
+        canvasLevel = base, at = date and date("%H:%M:%S") or nil }
+    UI.mapCheckDue = true
+    for k, p in ipairs(pins) do
+        local pin = hbd and MapPin(UIParent, k, mapLines.hbdDots) or MapPin(frame, k)
+        local isCurrent = false
+        for _, i in ipairs(p.steps) do if i == current then isCurrent = true end end
+        pin.steps, pin.label, pin.title = p.steps, p.label, p.title
+        pin.num:SetText(p.label)
+        local textW = tonumber(pin.num.GetStringWidth and (pin.num:GetStringWidth())) or 0
+        pin:SetSize(math.max(16, textW + 4), 18) -- as big as the number: hover and click on it
+        Shape(pin, false, isCurrent)
+        if hbd then
+            -- HereBeDragons places, scales and shows it on this map (the map's own pin system).
+            if pin.SetScale then pin:SetScale(1) end
+            local ok = pcall(hbd.AddWorldMapIconMap, hbd, UI, pin, mapID, p.x / 100, p.y / 100)
+            if ok then pin:Show() end
+        else
+            if pin.SetScale then pin:SetScale(scale) end
+            pin:SetFrameLevel((tonumber((frame:GetFrameLevel())) or 0) + (isCurrent and 20 or 10))
+            pin:ClearAllPoints(); pin:SetPoint("CENTER", frame, "TOPLEFT", p.x / 100 * w / scale, -p.y / 100 * h / scale)
+            pin:Show()
         end
-        dot:ClearAllPoints(); dot:SetPoint("CENTER", frame, "TOPLEFT", p[1] * w, -p[2] * h)
-        dot.num:SetText(k); dot:Show()
-        if k > 1 and frame.CreateLine then
+        if k > 1 and k <= UI.MAP_LINES and frame.CreateLine then
             local line = mapLines.lines[k - 1]
             if not line then
-                line = frame:CreateLine(nil, "OVERLAY"); line:SetThickness(3); line:SetColorTexture(1, 0.82, 0, 0.8)
+                line = frame:CreateLine(nil, "OVERLAY")
+                if line then line:SetThickness(3); line:SetColorTexture(1, 0.82, 0, 0.8) end
                 mapLines.lines[k - 1] = line
             end
-            local a = points[k - 1]
-            line:SetStartPoint("TOPLEFT", frame, a[1] * w, -a[2] * h)
-            line:SetEndPoint("TOPLEFT", frame, p[1] * w, -p[2] * h)
-            line:Show()
+            local a = pins[k - 1]
+            if line then
+                line:SetStartPoint("TOPLEFT", frame, a.x / 100 * w, -a.y / 100 * h)
+                line:SetEndPoint("TOPLEFT", frame, p.x / 100 * w, -p.y / 100 * h)
+                line:Show()
+            end
         end
     end
 end
+-- Is what we drew really on screen? Logged a moment after drawing (user, 2026-11-14: "I dont see any step number in
+-- the map": the file said 4 pins were drawn).
+function UI.MapCheckLine()
+    local function S(v) return tostring(v) end -- tostring with no value errors (a method returning nothing)
+    local f = mapLines and mapLines.frame
+    if not f then return L["no pin layer"] end
+    local function num(v) v = tonumber(v); return v and string.format("%.0f", v) or "nil" end
+    local function vis(o) return o and o.IsVisible and S(o:IsVisible()) or "?" end
+    local parts = { string.format(L["layer visible=%s shown=%s size=%sx%s scale=%s level=%s alpha=%s"], vis(f), S(f.IsShown and f:IsShown()),
+        num(f.GetWidth and f:GetWidth()), num(f.GetHeight and f:GetHeight()), S(f.GetEffectiveScale and f:GetEffectiveScale()),
+        S(f.GetFrameLevel and f:GetFrameLevel()), S(f.GetEffectiveAlpha and f:GetEffectiveAlpha())) }
+    local canvas = WorldMapFrame and WorldMapFrame.GetCanvas and WorldMapFrame:GetCanvas()
+    if canvas then
+        parts[#parts + 1] = string.format(L["canvas visible=%s size=%sx%s strata=%s"], vis(canvas), num(canvas:GetWidth()), num(canvas:GetHeight()),
+            S(canvas.GetFrameStrata and canvas:GetFrameStrata()))
+    end
+    parts[#parts + 1] = "pins via " .. S(UI.mapPinsVia)
+    local pin = (UI.mapPinsVia == "HereBeDragons" and mapLines.hbdDots and mapLines.hbdDots[1]) or mapLines.dots[1]
+    if pin then
+        local x, y
+        if pin.GetCenter then x, y = pin:GetCenter() end
+        parts[#parts + 1] = string.format(L["pin1 \"%s\" visible=%s shown=%s center=%s,%s size=%sx%s scale=%s strata=%s"], S(pin.num and pin.num.GetText and pin.num:GetText()),
+            vis(pin), S(pin.IsShown and pin:IsShown()), num(x), num(y), num(pin.GetWidth and pin:GetWidth()), num(pin.GetHeight and pin:GetHeight()),
+            S(pin.GetEffectiveScale and pin:GetEffectiveScale()), S(pin.GetFrameStrata and pin:GetFrameStrata()))
+    end
+    local d = DB().mapDebug or {}
+    return string.format(L["map %s: %s steps, %s pins; "], S(d.map), S(d.steps), S(d.pins)) .. table.concat(parts, "; ")
+end
+
+-- Drawing errors are kept (DB().mapError and the log), not lost in a silent pcall.
+function UI.SafeDrawMap()
+    local ok, err = pcall(UI.DrawMapLines)
+    if not ok then DB().mapError = tostring(err); UI.Log("error", "map: " .. tostring(err)) elseif DB().mapError then DB().mapError = nil end
+    if UI.mapCheckDue then
+        UI.mapCheckDue = false
+        local function check() local okc, line = pcall(UI.MapCheckLine); UI.LogChange("map", "map", okc and line or (L["check failed: "] .. tostring(line))) end
+        if C_Timer then C_Timer.After(0.5, check) else check() end
+    end
+end
 if WorldMapFrame then
-    if WorldMapFrame.HookScript then WorldMapFrame:HookScript("OnShow", function() pcall(UI.DrawMapLines) end) end
-    if hooksecurefunc and WorldMapFrame.OnMapChanged then hooksecurefunc(WorldMapFrame, "OnMapChanged", function() pcall(UI.DrawMapLines) end) end
+    if WorldMapFrame.HookScript then WorldMapFrame:HookScript("OnShow", function() UI.SafeDrawMap() end) end
+    local scroll = WorldMapFrame.ScrollContainer
+    if scroll and scroll.HookScript and C_Timer then -- zooming changes which pins touch
+        scroll:HookScript("OnMouseWheel", function() C_Timer.After(0.15, function() UI.SafeDrawMap() end) end)
+    end
+    if hooksecurefunc and WorldMapFrame.OnMapChanged then hooksecurefunc(WorldMapFrame, "OnMapChanged", function() UI.SafeDrawMap() end) end
 end
 
 -- ---- Forever's own quests, from your quest log (user, 2026-11-14) ----
 -- Forever's public data has only their numbers, so their names, progress and places come from the game.
+-- ---- Questie's data (user, 2026-11-14: "use the current information that questie is providing") ----
+-- Questie (12.8, with a Forever edition) knows where each quest's monsters, objects and item drops are. Read through
+-- its loader, every call in pcall: if Questie is missing or changes, the guide just has no answer.
+local function QuestieModules()
+    if not (QuestieLoader and QuestieLoader.ImportModule) then return nil end
+    local ok, db = pcall(QuestieLoader.ImportModule, QuestieLoader, L["QuestieDB"])
+    local okz, zones = pcall(QuestieLoader.ImportModule, QuestieLoader, L["ZoneDB"])
+    if not (ok and type(db) == "table" and db.GetQuest and okz and type(zones) == "table" and zones.GetUiMapIdByAreaId) then return nil end
+    return db, zones
+end
+
+local function ZoneNameOf(uiMap)
+    for name, id in pairs(DufforthTweaksHelperGuideData and DufforthTweaksHelperGuideData.uiMaps or {}) do
+        if id == uiMap then return name end
+    end
+    local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(uiMap)
+    return info and info.name
+end
+
+-- Questie spawns { [areaId] = { {x, y}, ... } } -> the spot nearest you (on your map first): { zone, x, y, d }.
+local function NearestSpawn(zones, spawns, best)
+    if type(spawns) ~= "table" then return best end
+    local here = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    local pos = here and C_Map.GetPlayerMapPosition and C_Map.GetPlayerMapPosition(here, "player")
+    local px, py
+    if pos then if pos.GetXY then px, py = pos:GetXY() else px, py = pos.x, pos.y end end
+    for areaId, list in pairs(spawns) do
+        local okm, ui = pcall(zones.GetUiMapIdByAreaId, zones, areaId)
+        local zone = okm and ui and ZoneNameOf(ui)
+        if zone and type(list) == "table" then
+            for _, p in ipairs(list) do
+                if type(p) == "table" and p[1] and p[2] then
+                    local d = (ui == here and px) and ((p[1] - px * 100) ^ 2 + (p[2] - py * 100) ^ 2) or 1e6
+                    if not best or d < best.d then best = { zone = zone, x = p[1], y = p[2], d = d } end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Where quest id's first unfinished objective is, by Questie: zone, x, y, what; nil when Questie can't tell.
+function UI.QuestieSpot(id)
+    local db, zones = QuestieModules()
+    if not db then return nil end
+    local ok, quest = pcall(db.GetQuest, id)
+    if not ok or type(quest) ~= "table" then return nil end
+    local log = {}
+    local okl, lines = pcall(C_QuestLog.GetQuestObjectives, id)
+    for _, o in ipairs(okl and type(lines) == "table" and lines or {}) do log[#log + 1] = o end
+    local function finished(text)
+        for _, o in ipairs(log) do
+            if text and o.text and string.find(o.text, text, 1, true) then return o.finished end
+        end
+        return false
+    end
+    local function query(f, key, objId)
+        local okq, v = pcall(f, objId, key)
+        return okq and v or nil
+    end
+    for _, o in ipairs(quest.ObjectiveData or {}) do
+        if not finished(o.Text) then
+            local best
+            if o.Type == "monster" then
+                best = NearestSpawn(zones, query(db.QueryNPCSingle, "spawns", o.Id))
+            elseif o.Type == "object" then
+                best = NearestSpawn(zones, query(db.QueryObjectSingle, "spawns", o.Id))
+            elseif o.Type == "item" then
+                for n, npc in ipairs(query(db.QueryItemSingle, "npcDrops", o.Id) or {}) do
+                    if n > 6 then break end
+                    best = NearestSpawn(zones, query(db.QueryNPCSingle, "spawns", npc), best)
+                end
+                for n, obj in ipairs(query(db.QueryItemSingle, "objectDrops", o.Id) or {}) do
+                    if n > 6 then break end
+                    best = NearestSpawn(zones, query(db.QueryObjectSingle, "spawns", obj), best)
+                end
+            end
+            if best then return best.zone, best.x, best.y, (o.Text or L["its objective"]) .. " (Questie)" end
+        end
+    end
+    return nil
+end
+
 function UI.ForeverQuests(model)
     local out = {}
     if not (C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo) then return out end
@@ -340,8 +705,14 @@ function UI.ForeverQuests(model)
                 if have then progress[#progress + 1] = have .. "/" .. need end
             end
             local spot = spots[q.questID]
-            out[#out + 1] = { id = q.questID, title = q.title or ("Quest " .. q.questID), progress = table.concat(progress, " "),
+            local entry = { id = q.questID, title = q.title or (L["Quest "] .. q.questID), progress = table.concat(progress, " "),
                 map = spot and map, x = spot and spot.x and spot.x * 100, y = spot and spot.y and spot.y * 100, zone = info and info.name }
+            if not entry.x then -- not on your map: Questie may know where it is
+                local zone, x, y = UI.QuestieSpot(q.questID)
+                local uiMap = zone and model.data.uiMaps[zone]
+                if uiMap then entry.map, entry.x, entry.y, entry.zone = uiMap, x, y, zone end
+            end
+            out[#out + 1] = entry
         end
     end
     return out
@@ -355,17 +726,28 @@ function UI.TrackXP()
     DufforthTweaksHelperGuide.TrackXP(t, GetTime and GetTime() or 0, UnitLevel("player"), tonumber(UnitXP("player")) or 0, tonumber(UnitXPMax("player")) or 0)
 end
 
+-- How wide a text draws in this font string (its own width set aside for the measure).
+function UI.MeasureText(fs, text)
+    if not (fs and fs.GetStringWidth) then return 0 end
+    local old = fs.GetText and fs:GetText()
+    if fs.SetWidth then fs:SetWidth(0) end
+    fs:SetText(text)
+    local w = tonumber((fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or (fs:GetStringWidth())) or 0
+    fs:SetText(old or "")
+    return w
+end
+
 function UI.PaceText(long)
     local G = DufforthTweaksHelperGuide
     local s = G.TrackSummary(DB().tracker or {})
     if not long then
-        return s.toLevel and ("Level up in " .. G.Duration(s.toLevel)) or ""
+        return s.toLevel and (L["Level up in "] .. G.Duration(s.toLevel)) or ""
     end
     local lines = {}
-    if s.perHour then lines[#lines + 1] = string.format("Experience: %d an hour.", s.perHour) end
-    if s.toLevel then lines[#lines + 1] = "Next level in about " .. G.Duration(s.toLevel) .. " at this pace." end
-    if s.lastLevel then lines[#lines + 1] = string.format("Level %d took %s of play.", s.lastLevel.level, G.Duration(s.lastLevel.seconds)) end
-    if #lines == 0 then return "Your leveling pace shows after a few minutes of play." end
+    if s.perHour then lines[#lines + 1] = string.format(L["Experience: %d an hour."], s.perHour) end
+    if s.toLevel then lines[#lines + 1] = L["Next level in about "] .. G.Duration(s.toLevel) .. L[" at this pace."] end
+    if s.lastLevel then lines[#lines + 1] = string.format(L["Level %d took %s of play."], s.lastLevel.level, G.Duration(s.lastLevel.seconds)) end
+    if #lines == 0 then return L["Your leveling pace shows after a few minutes of play."] end
     return table.concat(lines, "\n")
 end
 
@@ -377,7 +759,7 @@ function UI.LearnFlights()
     if NumTaxiNodes and TaxiNodeName then
         for i = 1, NumTaxiNodes() or 0 do
             local kind = TaxiNodeGetType and TaxiNodeGetType(i)
-            if kind == "CURRENT" or kind == "REACHABLE" then known.names[TaxiNodeName(i)] = true end
+            if kind == "CURRENT" or kind == "REACHABLE" then known.names[DufforthTweaksHelperLocale.EnglishNode(TaxiNodeName(i))] = true end
         end
     end
     local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
@@ -385,7 +767,7 @@ function UI.LearnFlights()
     local info = map and C_Map.GetMapInfo and C_Map.GetMapInfo(map)
     local x, y
     if pos then if pos.GetXY then x, y = pos:GetXY() else x, y = pos.x, pos.y end end
-    if x and info and info.name then known.spots[#known.spots + 1] = { info.name, x * 100, y * 100 } end
+    if x and info and info.name then known.spots[#known.spots + 1] = { DufforthTweaksHelperLocale.MapZone(map) or DufforthTweaksHelperLocale.EnglishZone(info.name), x * 100, y * 100 } end
 end
 
 -- The route you follow: a questline guide you picked, or the leveling route for your race.
@@ -400,7 +782,7 @@ end
 function UI.RaceRoute()
     local race
     if UnitRace then _, race = UnitRace("player") end
-    local name = DufforthTweaksHelperGuide.ROUTE_FOR_RACE[race] or "Durotar"
+    local name = DufforthTweaksHelperGuide.ROUTE_FOR_RACE[race] or L["Durotar"]
     local data = DufforthTweaksHelperGuideData
     local routes = data and data.routes or {}
     -- Style (user, 2026-11-14): Speed (fastest), Safe (no quests in world-PvP zones), Explorer (more zones and flight
@@ -415,12 +797,12 @@ end
 
 local pinned -- the step the map pin is on (declared before the menu functions that clear it)
 UI.STYLES = { "speed", "safe", "explorer" }
-UI.STYLE_SUFFIX = { speed = "", safe = " - Safe", explorer = " - Explorer" }
-UI.STYLE_LABEL = { speed = "Speed", safe = "Safe", explorer = "Explorer" }
+UI.STYLE_SUFFIX = { speed = "", safe = L[" - Safe"], explorer = L[" - Explorer"] }
+UI.STYLE_LABEL = { speed = L["Speed"], safe = L["Safe"], explorer = L["Explorer"] }
 UI.STYLE_TIP = {
-    speed = "The fastest way to 60.",
-    safe = "Leaves out quests in the zones known for world PvP (Stranglethorn, Hillsbrad, Ashenvale, Arathi, Alterac). A bit slower.",
-    explorer = "More zones and their flight paths, quests with gear or gold rewards, and an optional gold-farming stop in each zone.",
+    speed = L["The fastest way to 60."],
+    safe = L["Leaves out quests in the zones known for world PvP (Stranglethorn, Hillsbrad, Ashenvale, Arathi, Alterac). A bit slower."],
+    explorer = L["More zones and their flight paths, quests with gear or gold rewards, and an optional gold-farming stop in each zone."],
 }
 
 function UI.SetStyle(dir)
@@ -438,8 +820,8 @@ function UI.GuideLabel()
     local picked = DB().guideName
     local data = DufforthTweaksHelperGuideData
     if picked and data and data.routes and data.routes[picked] then return picked end
-    local name = UI.STYLE_LABEL[DB().style or "speed"] or "Speed"
-    return name .. (DB().withDungeons and " + dungeons" or "")
+    local name = UI.STYLE_LABEL[DB().style or "speed"] or L["Speed"]
+    return name .. (DB().withDungeons and L[" + dungeons"] or "")
 end
 
 -- After switching guides: what's different, and from which level the routes part (user, 2026-11-14: "when I
@@ -461,9 +843,9 @@ function UI.NoteSwitch(before, after)
     local routes = DufforthTweaksHelperGuideData and DufforthTweaksHelperGuideData.routes or {}
     local level, zone = UI.FirstDifference(routes[before], routes[after])
     local tip = UI.STYLE_TIP[DB().style or "speed"] or ""
-    local diff = level and string.format("Same steps as before until level %d (%s); from there it differs.", level, zone or "?")
-        or "Same route as before."
-    UI.switchNote = { text = "|cffffd100" .. UI.GuideLabel() .. " guide.|r " .. tip .. " " .. diff, ["until"] = (GetTime and GetTime() or 0) + 12 }
+    local diff = level and string.format(L["Same steps as before until level %d (%s); from there it differs."], level, zone or "?")
+        or L["Same route as before."]
+    UI.switchNote = { text = "|cffffd100" .. UI.GuideLabel() .. L[" guide.|r "] .. tip .. " " .. diff, ["until"] = (GetTime and GetTime() or 0) + 12 }
     if C_Timer then C_Timer.After(12.1, function() pcall(UI.Refresh) end) end
 end
 
@@ -538,14 +920,15 @@ local ERRAND_H = 20 -- an errand row (train, hearthstone, repair, class quest)
 local MENU_ROWS, MENU_MIN_W, MENU_MAX_W = 16, 220, 320 -- the Guides menu
 local TOOLS_W, MENU_ROW = 210, 22 -- the Menu panel and one of its rows
 local WIDTH, HEIGHT, MIN_W, MIN_H, MAX_W, MAX_H = 340, 440, 290, 70, 800, 1000 -- 290: the strip fits Steps, Best, the pin, Menu and _
+local WAIT_ICON = "Interface\\GossipFrame\\IncompleteQuestIcon" -- the game's gray question mark
 local DONE_MARK, WAIT_MARK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t ", "|TInterface\\RaidFrame\\ReadyCheck-Waiting:0|t "
 local WHITE = "Interface\\Buttons\\WHITE8x8"
 -- What you do, shown as a colored stripe and label beside the text (text stays on a neutral dark
 -- background: user, 2026-11-13, colored bands made names hard to read). Colors pass 4.5:1 on the bands.
 local KIND = {
     kill = { 1, 0.42, 0.42, "KILL" }, grind = { 1, 0.42, 0.42, "GRIND" }, loot = { 1, 0.66, 0.3, "LOOT" },
-    use = { 0.35, 0.85, 0.9, "USE" }, explore = { 0.35, 0.85, 0.9, "EXPLORE" }, accept = { 1, 0.82, 0, "PICK UP" },
-    turnin = { 0.4, 0.92, 0.45, "TURN IN" }, travel = { 0.5, 0.7, 1, "TRAVEL" }, flight = { 0.5, 0.7, 1, "FLIGHT PATH" },
+    use = { 0.35, 0.85, 0.9, "USE" }, explore = { 0.35, 0.85, 0.9, "EXPLORE" }, accept = { 1, 0.82, 0, L["PICK UP"] },
+    turnin = { 0.4, 0.92, 0.45, L["TURN IN"] }, travel = { 0.5, 0.7, 1, "TRAVEL" }, flight = { 0.5, 0.7, 1, L["FLIGHT PATH"] },
 }
 local BAND_CURRENT, BAND_NEXT = { 0.12, 0.12, 0.14 }, { 0.08, 0.08, 0.09 } -- dark, so names read clearly (user)
 -- A clean narrow font with a shadow (the game's own Arial Narrow).
@@ -571,9 +954,10 @@ local function Flat(parent, text, width, height, icon)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(width, height or 18)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints(); b.bg:SetColorTexture(0.22, 0.22, 0.24, 0.95)
+    -- Light buttons, the text stands out (user, 2026-11-15: "buttons too thick... focus on text, not on the button").
+    b.bg:SetAllPoints(); b.bg:SetColorTexture(1, 1, 1, 0.06)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints(); b.hl:SetColorTexture(1, 1, 1, 0.15)
+    b.hl:SetAllPoints(); b.hl:SetColorTexture(1, 1, 1, 0.12)
     if icon then
         b.icon = b:CreateTexture(nil, "ARTWORK")
         b.icon:SetPoint("CENTER"); b.icon:SetSize((height or 18) - 2, (height or 18) - 2); b.icon:SetTexture(icon)
@@ -587,7 +971,7 @@ end
 local function SetOn(b, on)
     local mark = rawget(b, "check") -- a check box row in the Menu
     if mark then mark:SetShown(on and true or false); return end
-    if on then b.bg:SetColorTexture(0.12, 0.45, 0.2, 0.95) else b.bg:SetColorTexture(0.22, 0.22, 0.24, 0.95) end
+    if on then b.bg:SetColorTexture(0.12, 0.45, 0.2, 0.7) else b.bg:SetColorTexture(1, 1, 1, 0.06) end
 end
 
 local function Tip(b, text)
@@ -658,9 +1042,16 @@ local function Block(parent)
         UI.Refresh()
     end)
     b.check:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText("Mark this step done (you did it already). Undo it with its check box in the list.", 1, 1, 1, 1, true); GameTooltip:Show()
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText(L["Mark this step done (you did it already). Undo it with its check box in the list."], 1, 1, 1, 1, true); GameTooltip:Show()
     end)
     b.check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Click: the pin and the arrow on this step; right-click: its options (user, 2026-11-15).
+    if b.EnableMouse then b:EnableMouse(true) end
+    b:SetScript("OnMouseUp", function(self, button)
+        local i = self.group and self.group[1]
+        if not i then return end
+        if button == "RightButton" then UI.StepMenu(i, self) else UI.PinStep(i) end
+    end)
     return b
 end
 
@@ -680,7 +1071,7 @@ local function Row(parent)
     r.check.mark = r.check:CreateTexture(nil, "OVERLAY"); r.check.mark:SetAllPoints(); r.check.mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
     r.check:SetScript("OnClick", function() if r.step then UI.ToggleStep(r.step) end end)
     r.check:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText("Mark this step done (you did it already), or click again to undo.", 1, 1, 1, 1, true); GameTooltip:Show()
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText(L["Mark this step done (you did it already), or click again to undo."], 1, 1, 1, 1, true); GameTooltip:Show()
     end)
     r.check:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- Click a step: the box shows it (back or ahead), with the arrow on it (user, 2026-11-14).
@@ -690,8 +1081,8 @@ local function Row(parent)
     r:SetScript("OnEnter", function(self)
         if not self.step or self.isHeader then return end
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Step " .. self.step, 1, 0.82, 0)
-        GameTooltip:AddLine("Click: show this step in the guide, with the arrow on it. From there you can go back to your step or continue from this one.", 1, 1, 1, true)
+        GameTooltip:SetText(L["Step "] .. self.step, 1, 0.82, 0)
+        GameTooltip:AddLine(L["Click: show this step in the guide, with the arrow on it. From there you can go back to your step or continue from this one."], 1, 1, 1, true)
         GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -769,13 +1160,13 @@ local function Box()
     f.skip = Flat(f, nil, 22, 18, "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up"); f.skip:SetPoint("LEFT", f.stepNum, "RIGHT", 6, 0)
     -- The other buttons live in one Menu, so a narrow box never overlaps them (user, 2026-11-13).
     f.hide = Flat(f, "_", 20, 18); f.hide:SetPoint("TOPRIGHT", -4, -4) -- minimize to the round icon
-    f.menuButton = Flat(f, "Menu", 44, 18); f.menuButton:SetPoint("RIGHT", f.hide, "LEFT", -4, 0)
+    f.menuButton = Flat(f, L["Menu"], 44, 18); f.menuButton:SetPoint("RIGHT", f.hide, "LEFT", -4, 0)
     -- One-click actions stay buttons on the strip, next to Menu (user, 2026-11-14: in the menu they looked like
     -- more menus): the map pin and the best step for you.
     f.pin = Flat(f, nil, 20, 18, "Interface\\Icons\\INV_Misc_Map_01"); f.pin:SetPoint("RIGHT", f.menuButton, "LEFT", -4, 0)
-    f.best = Flat(f, "Best", 36, 18); f.best:SetPoint("RIGHT", f.pin, "LEFT", -4, 0)
+    f.best = Flat(f, L["Best"], 36, 18); f.best:SetPoint("RIGHT", f.pin, "LEFT", -4, 0)
     -- Every step of this part of the route: what you did, where you are, what's next (user, 2026-11-14).
-    f.stepsButton = Flat(f, "Steps", 40, 18); f.stepsButton:SetPoint("RIGHT", f.best, "LEFT", -4, 0)
+    f.stepsButton = Flat(f, L["Steps"], 40, 18); f.stepsButton:SetPoint("RIGHT", f.best, "LEFT", -4, 0)
     f.stepsButton:SetScript("OnClick", function()
         DB().listOpen = not DB().listOpen
         UI.follow, UI.scrolled = true, false
@@ -787,9 +1178,9 @@ local function Box()
     f.viewBar.bg = f.viewBar:CreateTexture(nil, "BACKGROUND"); f.viewBar.bg:SetAllPoints(); f.viewBar.bg:SetColorTexture(0.12, 0.2, 0.32, 1)
     f.viewBar.label = Font(f.viewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 11)
     f.viewBar.label:SetPoint("LEFT", 6, 0)
-    f.viewBar.back = Flat(f.viewBar, "Back to my step", 96, 18); f.viewBar.back:SetPoint("RIGHT", -2, 0)
-    f.viewBar.go = Flat(f.viewBar, "Continue from here", 116, 18); f.viewBar.go:SetPoint("RIGHT", f.viewBar.back, "LEFT", -4, 0)
-    f.viewBar.back:SetScript("OnClick", function() UI.ViewStep(nil) end)
+    f.viewBar.back = Flat(f.viewBar, L["Back to my step"], 96, 18); f.viewBar.back:SetPoint("RIGHT", -2, 0)
+    f.viewBar.go = Flat(f.viewBar, L["Continue from here"], 116, 18); f.viewBar.go:SetPoint("RIGHT", f.viewBar.back, "LEFT", -4, 0)
+    f.viewBar.back:SetScript("OnClick", function() UI.BackToStep() end)
     f.viewBar.go:SetScript("OnClick", function() UI.ContinueFrom(UI.viewing) end)
     f.viewBar:Hide()
     -- The Menu panel (user, 2026-11-14: "menu is really bad"): three titled sections, plain rows, check boxes
@@ -844,17 +1235,17 @@ local function Box()
         return b
     end
 
-    Section("Guide")
-    f.styleButton = MenuRow("value", "Guide style")
+    Section(L["Guide"])
+    f.styleButton = MenuRow("value", L["Guide style"])
     f.styleButton.down:SetScript("OnClick", function() UI.SetStyle(-1) end)
     f.styleButton.up:SetScript("OnClick", function() UI.SetStyle(1) end)
     f.styleButton:SetScript("OnClick", function() UI.SetStyle(1) end)
-    Tip(f.styleButton, function() return UI.STYLE_TIP[DB().style or "speed"] .. " Include dungeons below adds dungeon quests to any style." end)
+    Tip(f.styleButton, function() return UI.STYLE_TIP[DB().style or "speed"] .. L[" Include dungeons below adds dungeon quests to any style."] end)
     -- Guides: the leveling route or a questline guide (attunements, Cozy Sleeping Bag).
-    f.guides = MenuRow("action", "Guides and zones")
-    f.arrowToggle = MenuRow("toggle", "Waypoint arrow")
-    f.linesToggle = MenuRow("toggle", "Route lines on the map")
-    f.dungeonRoute = MenuRow("toggle", "Include dungeons")
+    f.guides = MenuRow("action", L["Guides and zones"])
+    f.arrowToggle = MenuRow("toggle", L["Waypoint arrow"])
+    f.linesToggle = MenuRow("toggle", L["Route lines on the map"])
+    f.dungeonRoute = MenuRow("toggle", L["Include dungeons"])
     f.dungeonRoute:SetScript("OnClick", function()
         local before = UI.RouteName()
         DB().withDungeons = not DB().withDungeons
@@ -862,22 +1253,22 @@ local function Box()
         UI.NoteSwitch(before, UI.RouteName())
         UI.Refresh()
     end)
-    Tip(f.dungeonRoute, "Use the route that also takes dungeon quests (Wailing Caverns, Shadowfang Keep...). For players who group; solo players leave it off.")
-    Section("Automation")
-    f.autoToggle = MenuRow("toggle", "Auto accept and hand in")
-    f.vendorToggle = MenuRow("toggle", "Sell junk and repair")
+    Tip(f.dungeonRoute, L["Use the route that also takes dungeon quests (Wailing Caverns, Shadowfang Keep...). For players who group; solo players leave it off."])
+    Section(L["Automation"])
+    f.autoToggle = MenuRow("toggle", L["Auto accept and hand in"])
+    f.vendorToggle = MenuRow("toggle", L["Sell junk and repair"])
     f.vendorToggle:SetScript("OnClick", function()
         local q = DufforthTweaksHelperQuestAuto
         if q then q.SetVendorEnabled(not q.VendorEnabled()) end
         SetOn(f.vendorToggle, q and q.VendorEnabled())
     end)
     -- Look of the box (user, 2026-11-14): size, opacity, text size, hidden in combat or dungeons.
-    Section("Look")
-    f.scaleButton = MenuRow("value", "Size")
-    f.alphaButton = MenuRow("value", "Opacity")
-    f.fontButton = MenuRow("value", "Text size")
-    f.combatToggle = MenuRow("toggle", "Hide in combat")
-    f.dungeonToggle = MenuRow("toggle", "Hide in dungeons")
+    Section(L["Look"])
+    f.scaleButton = MenuRow("value", L["Size"])
+    f.alphaButton = MenuRow("value", L["Opacity"])
+    f.fontButton = MenuRow("value", L["Text size"])
+    f.combatToggle = MenuRow("toggle", L["Hide in combat"])
+    f.dungeonToggle = MenuRow("toggle", L["Hide in dungeons"])
     f.tools:SetHeight(-y + 6)
     local function Stepper(b, key, list, default, after)
         local function go(dir)
@@ -895,17 +1286,17 @@ local function Box()
     f.combatToggle:SetScript("OnClick", function() DB().hideInCombat = not DB().hideInCombat; UI.ApplyLook() end)
     f.dungeonToggle:SetScript("OnClick", function() DB().hideInDungeons = not DB().hideInDungeons; UI.ApplyLook() end)
     f.linesToggle:SetScript("OnClick", function() DB().mapLines = DB().mapLines == false; UI.ApplyLook(); UI.DrawMapLines() end)
-    Tip(f.scaleButton, "The size of the guide box and its bar.")
-    Tip(f.alphaButton, "How see-through the guide box is.")
-    Tip(f.fontButton, "The size of the text in the guide box.")
-    Tip(f.combatToggle, "Fades the guide box out while you fight.")
-    Tip(f.dungeonToggle, "Fades the guide box out inside dungeons and raids.")
-    Tip(f.linesToggle, "Draws the next steps on the world map with numbered dots and lines.")
-    Tip(f.vendorToggle, "At a vendor: sells your gray items and repairs your gear by itself. Hold Shift while opening the vendor to skip it once.")
+    Tip(f.scaleButton, L["The size of the guide box and its bar."])
+    Tip(f.alphaButton, L["How see-through the guide box is."])
+    Tip(f.fontButton, L["The size of the text in the guide box."])
+    Tip(f.combatToggle, L["Fades the guide box out while you fight."])
+    Tip(f.dungeonToggle, L["Fades the guide box out inside dungeons and raids."])
+    Tip(f.linesToggle, L["Draws the next steps on the world map with numbered dots and lines."])
+    Tip(f.vendorToggle, L["At a vendor: sells your gray items and repairs your gear by itself. Hold Shift while opening the vendor to skip it once."])
     f.menuButton:SetScript("OnClick", function()
         if f.tools:IsShown() then f.tools:Hide() else f.guideMenu:Hide(); f.tools:Show() end
     end)
-    Tip(f.menuButton, "Guides, best step, auto quests, arrow and map pin.")
+    Tip(f.menuButton, L["Guides, best step, auto quests, arrow and map pin."])
     f.guideMenu = CreateFrame("Frame", nil, f, "BackdropTemplate")
     f.guideMenu:SetPoint("TOPRIGHT", f.menuButton, "BOTTOMRIGHT", 0, -2); f.guideMenu:SetSize(230, 20) -- re-anchored as a fly-out
     f.guideMenu:SetFrameStrata("DIALOG")
@@ -967,7 +1358,7 @@ local function Box()
         end
     end)
     f.best:SetScript("OnClick", function() f.tools:Hide(); UI.GoRecommended() end)
-    Tip(f.best, "Go to the best step for you now: the first open step in the part of the route that still gives you experience at your level, going by the quests you have done.")
+    Tip(f.best, L["Go to the best step for you now: the first open step in the part of the route that still gives you experience at your level, going by the quests you have done."])
     f.routePct = Font(f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), 11); f.routePct:SetTextColor(0.65, 0.65, 0.65)
     f.routePct:SetPoint("LEFT", f.skip, "RIGHT", 8, 0)
 
@@ -988,14 +1379,14 @@ local function Box()
             UI.override = nil
             UI.Refresh()
         end)
-        Tip(r.skip, "Done or not needed: hide this errand.")
+        Tip(r.skip, L["Done or not needed: hide this errand."])
         r:SetScript("OnClick", function() UI.ErrandClicked(r.errand) end)
         r:SetScript("OnEnter", function(self)
             if not self.errand then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(self.errand.action, 1, 1, 1, 1, true)
             if self.errand.tip then GameTooltip:AddLine(self.errand.tip, 0.7, 0.7, 0.7, true) end
-            GameTooltip:AddLine("Click: point the arrow there.", 0.5, 0.8, 1, true)
+            GameTooltip:AddLine(L["Click: point the arrow there."], 0.5, 0.8, 1, true)
             GameTooltip:Show()
         end)
         r:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1020,9 +1411,9 @@ local function Box()
     f.useItem.bg:SetAllPoints(); f.useItem.bg:SetColorTexture(0.12, 0.45, 0.2, 0.95)
     f.useItem.hl = f.useItem:CreateTexture(nil, "HIGHLIGHT")
     f.useItem.hl:SetAllPoints(); f.useItem.hl:SetColorTexture(1, 1, 1, 0.15)
-    f.useItem:SetNormalFontObject("GameFontHighlightSmall"); f.useItem:SetText("Start quest")
+    f.useItem:SetNormalFontObject("GameFontHighlightSmall"); f.useItem:SetText(L["Start quest"])
     f.useItem:Hide()
-    Tip(f.useItem, "Use the item: its quest window opens (and is accepted when Auto is on).")
+    Tip(f.useItem, L["Use the item: its quest window opens (and is accepted when Auto is on)."])
     f.blocks[1].band:SetColorTexture(BAND_CURRENT[1], BAND_CURRENT[2], BAND_CURRENT[3], 1)
     f.along = Font(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 12) -- along the way
     f.along:SetJustifyH("LEFT")
@@ -1032,13 +1423,14 @@ local function Box()
     f.progress.bg = f.progress:CreateTexture(nil, "BACKGROUND")
     f.progress.bg:SetAllPoints(); f.progress.bg:SetColorTexture(0, 0, 0, 0.6)
     f.progress.label = Font(f.progress:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 11)
-    f.progress.label:SetPoint("CENTER")
+    f.progress.label:SetPoint("LEFT", 4, 0); f.progress.label:SetJustifyH("LEFT")
+    if f.progress.label.SetWordWrap then f.progress.label:SetWordWrap(false) end
     if f.progress.EnableMouse then f.progress:EnableMouse(true) end
     -- The whole-route percent only in the hover: always on screen it was noise (user, 2026-11-13).
     f.progress.pace = Font(f.progress:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 10)
     f.progress.pace:SetPoint("RIGHT", -4, 0); f.progress.pace:SetJustifyH("RIGHT")
     Tip(f.progress, function()
-        return "Zone: how much of this part of the route (levels and zone) is done.\n" .. (f.progress.routeText or "")
+        return L["Zone: how much of this part of the route (levels and zone) is done.\n"] .. (f.progress.routeText or "")
             .. (UI.PaceText and ("\n" .. UI.PaceText(true)) or "")
     end)
     f.note = Font(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 12) -- (unused since 4.27: extra rows)
@@ -1073,8 +1465,8 @@ local function Box()
     if f.bar.label.SetWordWrap then f.bar.label:SetWordWrap(false) end
     f.nextSection = Flat(f.bar, nil, 18, 18, "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up"); f.nextSection:SetPoint("RIGHT", -2, 0)
     f.prevSection = Flat(f.bar, nil, 18, 18, "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up"); f.prevSection:SetPoint("RIGHT", f.nextSection, "LEFT", -2, 0)
-    f.nextToggle = Flat(f.bar, "Next", 34, 18); f.nextToggle:SetPoint("RIGHT", f.prevSection, "LEFT", -5, 0)
-    f.doneToggle = Flat(f.bar, "Done", 34, 18); f.doneToggle:SetPoint("RIGHT", f.nextToggle, "LEFT", -2, 0)
+    f.nextToggle = Flat(f.bar, L["Next"], 34, 18); f.nextToggle:SetPoint("RIGHT", f.prevSection, "LEFT", -5, 0)
+    f.doneToggle = Flat(f.bar, L["Done"], 34, 18); f.doneToggle:SetPoint("RIGHT", f.nextToggle, "LEFT", -2, 0)
     f.bar.label:SetPoint("RIGHT", f.doneToggle, "LEFT", -4, 0)
 
     -- The section's steps.
@@ -1086,9 +1478,11 @@ local function Box()
     f.empty:SetPoint("TOPLEFT", 4, -4); f.empty:SetJustifyH("LEFT")
 
     local function Follow() UI.follow, UI.scrolled = true, false; UI.Refresh() end
-    f.skip:SetScript("OnClick", function() UI.model:Skip(); pinned = nil; UI.Refresh() end)
-    f.back:SetScript("OnClick", function() UI.model:Back(); pinned = nil; UI.Refresh() end)
-    f.pin:SetScript("OnClick", function() f.tools:Hide(); pinned = nil; local i = UI.model:Current(); if i then Pin(UI.model, i) end end)
+    -- Every click about your step leaves a quest you clicked (user, 2026-11-14: the map pin button moved the game's
+    -- pin, but the arrow stayed on the class quest).
+    f.skip:SetScript("OnClick", function() UI.model:Skip(); UI.override = nil; pinned = nil; UI.Refresh() end)
+    f.back:SetScript("OnClick", function() UI.model:Back(); UI.override = nil; pinned = nil; UI.Refresh() end)
+    f.pin:SetScript("OnClick", function() f.tools:Hide(); UI.BackToStep() end)
     f.hide:SetScript("OnClick", function() UI.SetCollapsed(true) end)
     f.arrowToggle:SetScript("OnClick", function() UI.SetArrowShown(not DB().arrow) end)
     f.autoToggle:SetScript("OnClick", function()
@@ -1098,29 +1492,29 @@ local function Box()
     end)
     f.doneToggle:SetScript("OnClick", function() DB().showDone = not DB().showDone; Follow() end)
     f.nextToggle:SetScript("OnClick", function() DB().showNext = not DB().showNext; Follow() end)
-    f.prevSection:SetScript("OnClick", function() UI.Browse(-1) end)
-    f.nextSection:SetScript("OnClick", function() UI.Browse(1) end)
+    f.prevSection:SetScript("OnClick", function() UI.override = nil; UI.Browse(-1) end)
+    f.nextSection:SetScript("OnClick", function() UI.override = nil; UI.Browse(1) end)
     f.list:SetScript("OnMouseWheel", function(_, delta) UI.Scroll(-delta) end)
 
-    Tip(f.back, "Back: bring back the step you skipped last.")
-    Tip(f.skip, "Skip this step (and, for a pick-up, that quest's steps).")
-    Tip(f.pin, "Put a pin on your map at this step.")
-    Tip(f.arrowToggle, function() return DB().arrow and "Hide the waypoint arrow." or "Show the waypoint arrow." end)
-    Tip(f.hide, "Minimize: the guide shrinks to its round icon. Click the icon, or the minimap button, to open it again.")
+    Tip(f.back, L["Back: bring back the step you skipped last."])
+    Tip(f.skip, L["Skip this step (and, for a pick-up, that quest's steps)."])
+    Tip(f.pin, L["Put a pin on your map at this step."])
+    Tip(f.arrowToggle, function() return DB().arrow and L["Hide the waypoint arrow."] or L["Show the waypoint arrow."] end)
+    Tip(f.hide, L["Minimize: the guide shrinks to its round icon. Click the icon, or the minimap button, to open it again."])
     Tip(f.autoToggle, function()
         local on = DufforthTweaksHelperQuestAuto and DufforthTweaksHelperQuestAuto.Enabled()
-        return (on and "Auto quests on: " or "Auto quests off: ") .. "accepts quests that fit and hands in finished ones; a choice of rewards waits for you. Hold Shift to do one yourself."
+        return (on and L["Auto quests on: "] or L["Auto quests off: "]) .. L["accepts quests that fit and hands in finished ones; a choice of rewards waits for you. Hold Shift to do one yourself."]
     end)
-    Tip(f.doneToggle, function() return DB().showDone and "Hide the steps behind you." or "Show the steps behind you (checked)." end)
+    Tip(f.doneToggle, function() return DB().showDone and L["Hide the steps behind you."] or L["Show the steps behind you (checked)."] end)
     -- Rows: a check box marks a step done by hand.
-    Tip(f.nextToggle, function() return DB().showNext and "Hide the steps ahead (keep only the current one)." or "Show the steps ahead." end)
-    Tip(f.prevSection, "Previous part of the route. A new step brings you back to yours.")
-    Tip(f.nextSection, "Next part of the route. A new step brings you back to yours.")
-    Tip(f.grip, "Drag to resize.")
+    Tip(f.nextToggle, function() return DB().showNext and L["Hide the steps ahead (keep only the current one)."] or L["Show the steps ahead."] end)
+    Tip(f.prevSection, L["Previous part of the route. A new step brings you back to yours."])
+    Tip(f.nextSection, L["Next part of the route. A new step brings you back to yours."])
+    Tip(f.grip, L["Drag to resize."])
 
     box = f
     if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
-        DufforthTweaksHelper.RegisterMovable({ label = "Leveling guide", get = function() return box end,
+        DufforthTweaksHelper.RegisterMovable({ label = L["Leveling guide"], get = function() return box end,
             enter = function(b) b:Show() end, leave = function() UI.Refresh() end })
     end
     return f
@@ -1130,11 +1524,11 @@ end
 local function Extras(model)
     local parts = {}
     local class = model:ClassQuests()[1]
-    if class then parts[#parts + 1] = string.format("|cffc080ffClass quest:|r %s (%s)", class.title, class.giver) end
+    if class then parts[#parts + 1] = string.format(L["|cffc080ffClass quest:|r %s (%s)"], class.title, class.giver) end
     local dungeons = model:DungeonQuests()
-    if #dungeons > 0 then parts[#parts + 1] = string.format("|cff73bfff%d dungeon quest%s to pick up|r", #dungeons, #dungeons == 1 and "" or "s") end
+    if #dungeons > 0 then parts[#parts + 1] = string.format(L["|cff73bfff%d dungeon quest%s to pick up|r"], #dungeons, #dungeons == 1 and "" or "s") end
     local gray = model:GrayInLog()
-    if #gray > 0 then parts[#parts + 1] = string.format("|cff9d9d9dAbandon %d gray quest%s|r", #gray, #gray == 1 and "" or "s") end
+    if #gray > 0 then parts[#parts + 1] = string.format(L["|cff9d9d9dAbandon %d gray quest%s|r"], #gray, #gray == 1 and "" or "s") end
     return table.concat(parts, "  ")
 end
 
@@ -1189,8 +1583,8 @@ local function Header(model, group, first)
     local d = DufforthTweaksHelperGuide.Describe(model, i)
     local quest = d and d.quest and ("  |cffd0d0d0" .. d.quest .. "|r") or ""
     local _, x, y = model:Place(i)
-    local at = x and string.format("  |cff888888%d, %d|r", math.floor(x + 0.5), math.floor(y + 0.5)) or ""
-    return string.format(first and "|cffffd100Step %s|r%s%s" or "|cffaaaaaaStep %s|r%s%s", number, quest, at)
+    local at = x and string.format(L["  |cff888888%d, %d|r"], math.floor(x + 0.5), math.floor(y + 0.5)) or ""
+    return string.format(first and L["|cffffd100Step %s|r%s%s"] or L["|cffaaaaaaStep %s|r%s%s"], number, quest, at)
 end
 
 -- The blocks; the first always, the others only while they fit (a small box shows only your step).
@@ -1234,23 +1628,23 @@ end
 function UI.BuildBar(f)
     local bar = CreateFrame("Frame", "DufforthTweaksHelperGuideBar", UIParent)
     bar:SetSize(BAR_SIZE, BAR_SIZE); bar:SetPoint("CENTER", UIParent, "CENTER") -- placed by UI.PlaceSecure
-    bar.target = BarButton(bar, "DufforthTweaksHelperGuideTarget")
+    bar.target = BarButton(bar, L["DufforthTweaksHelperGuideTarget"])
     bar.target:SetPoint("TOPLEFT")
     bar.target.icon:SetTexture("Interface\\Icons\\Ability_Hunter_SniperShot")
     bar.target:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Target " .. (self.who or "?"), 1, 1, 1)
-        GameTooltip:AddLine("Works when it's close enough to see.", 0.7, 0.7, 0.7, true)
+        GameTooltip:SetText(L["Target "] .. (self.who or "?"), 1, 1, 1)
+        GameTooltip:AddLine(L["Works when it's close enough to see."], 0.7, 0.7, 0.7, true)
         GameTooltip:Show()
     end)
     bar.target:SetScript("OnLeave", function() GameTooltip:Hide() end)
     bar.items = {}
     for k = 1, BAR_ITEMS do
-        local b = BarButton(bar, "DufforthTweaksHelperGuideItem" .. k)
+        local b = BarButton(bar, L["DufforthTweaksHelperGuideItem"] .. k)
         b:SetPoint("TOPLEFT", bar.target, "BOTTOMLEFT", 0, -4 - (k - 1) * (BAR_SIZE + 4))
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            if self.itemID and GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.itemID) else GameTooltip:SetText("Quest item") end
+            if self.itemID and GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.itemID) else GameTooltip:SetText(L["Quest item"]) end
             GameTooltip:Show()
         end)
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1276,6 +1670,25 @@ function UI.TargetName(model, i)
 end
 
 -- Usable quest items in your bags (quest class with a use effect).
+-- A quest's own item to use on its objective (the game's quest log knows it): itemID, icon, name; nil when none.
+function UI.QuestItemFor(questID)
+    if not (questID and C_QuestLog and C_QuestLog.GetLogIndexForQuestID and GetQuestLogSpecialItemInfo) then return nil end
+    local okI, index = pcall(C_QuestLog.GetLogIndexForQuestID, questID)
+    if not (okI and index) then return nil end
+    local ok, link, icon = pcall(GetQuestLogSpecialItemInfo, index)
+    if not (ok and link) then return nil end
+    local id = tonumber(string.match(link, "item:(%d+)"))
+    local name = string.match(link, "%[(.-)%]") or "?"
+    return id, icon, name
+end
+
+-- The hint on a step card (user, 2026-11-15: "an icon that suggests use the item on the quest objective").
+function UI.UseItemHint(questID)
+    local id, icon, name = UI.QuestItemFor(questID)
+    if not id then return nil end
+    return string.format(L["|T%s:16|t |cffffd100Use %s|r on the objective (its button is next to the guide)"], tostring(icon or "Interface\\Icons\\INV_Misc_QuestionMark"), name)
+end
+
 function UI.QuestItems()
     local out, seen = {}, {}
     if not (C_Container and C_Container.GetContainerNumSlots) then return out end
@@ -1324,6 +1737,11 @@ function UI.UpdateBar(f, model, current)
         bar.target:Hide()
     end
     local items = DB().shown and UI.QuestItems() or {}
+    local step = current and model.steps[current]
+    local wanted = step and UI.QuestItemFor(step[2])
+    if wanted then -- the item for the step you're on comes first
+        for k, it in ipairs(items) do if it.id == wanted then table.remove(items, k); table.insert(items, 1, it); break end end
+    end
     for k, b in ipairs(bar.items) do
         local it = items[k]
         b.itemID = it and it.id
@@ -1340,27 +1758,50 @@ end
 
 local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
     local inner, fits = w - 2 * PAD - 12, true
-    for k = 1, ACTIVE do
+    -- One card per step (user, 2026-11-15); the trip's cards are always drawn, the next ones while they fit.
+    local trip = math.max(1, blocks.trip or 1)
+    for k = 1, math.max(ACTIVE, #blocks, #f.blocks) do
+        f.blocks[k] = f.blocks[k] or Block(f)
         local b, group = f.blocks[k], blocks[k]
         if group then
             local action, lines, note, kind = GroupText(model, group, adapter)
             local c = KIND[kind] or KIND.travel
-            b.accent:SetColorTexture(c[1], c[2], c[3], 1)
             b.group = group
-            b.header:SetText(Header(model, group, k == 1))
+            local isCurrent = group[1] == model:Current() or (k == 1 and not blocks.trip)
+            b.header:SetText(Header(model, group, isCurrent))
+            local band = isCurrent and BAND_CURRENT or BAND_NEXT
+            b.band:SetColorTexture(band[1], band[2], band[3], 1)
+            -- Waits on an earlier step (user, 2026-11-14: a hand-in looked doable before its objectives): gray, with a
+            -- gray question mark and which step comes first.
+            local waits = k > 1 and model:WaitsFor(group[1])
+            -- Not for a pick-up right after handing in to the same NPC (one talk, two rows).
+            local prev = blocks[k - 1] and blocks[k - 1][#blocks[k - 1]]
+            if waits and prev and waits == prev and model:TalkTo(prev) and model:TalkTo(prev) == model:TalkTo(group[1]) then waits = nil end
+            if waits then
+                c = { 0.45, 0.45, 0.45 }
+                b.header:SetText(b.header:GetText() .. (type(waits) == "number" and string.format(L["  |cff888888after step %d|r"], waits)
+                    or L["  |cff888888after its objectives|r"]))
+                action = "|T" .. WAIT_ICON .. L[":0|t |cff888888"] .. (Plain(action):gsub("^%s+", ""):gsub("\n%s+", "\n")) .. "|r"
+                lines = lines ~= "" and ("|cff888888" .. Plain(lines) .. "|r") or lines
+            end
+            b.accent:SetColorTexture(c[1], c[2], c[3], 1)
             local advice = note and ("|cffffd100" .. note .. "|r") or ""
-            local legs = k == 1 and model:Directions(group[1])
+            local st = model.steps[group[1]]
+            local useHint = st and st[1] == "do" and UI.UseItemHint(st[2])
+            if useHint then advice = useHint .. (advice ~= "" and ("\n" .. advice) or "") end
+            local legs = isCurrent and model:Directions(group[1])
             if legs then
-                local parts = { "|cff80b3ffHow to get there:|r" }
-                for n, leg in ipairs(legs) do parts[#parts + 1] = string.format("%d. %s", n, leg.text) end
-                advice = advice .. (advice ~= "" and "\n" or "") .. table.concat(parts, "\n")
+                -- One line (user, 2026-11-15: less text): "Route: Go to Orgrimmar (zeppelin) › Zeppelin to Undercity › Fly to ..."
+                local parts = {}
+                for _, leg in ipairs(legs) do parts[#parts + 1] = leg.text end
+                advice = advice .. (advice ~= "" and "\n" or "") .. L["|cff80b3ffRoute:|r "] .. "|cffd0d0d0" .. table.concat(parts, " > ") .. "|r"
             end
             for _, fs in ipairs({ b.header, b.action, b.advice }) do fs:SetWidth(inner) end
             b.lines:SetWidth(inner - 20)
             b.action:SetText(action); b.lines:SetText(lines); b.advice:SetText(advice)
             local h = 4 + Height(b.header, "x") + 3 + Height(b.action, action) + (lines ~= "" and 3 + Height(b.lines, lines) or 0)
                 + (advice ~= "" and 3 + Height(b.advice, advice) or 0) + 5
-            if k > 1 and (not fits or top - h < bottom) then fits = false end
+            if k > trip and (not fits or top - h < bottom) then fits = false end
             if fits then
                 b:ClearAllPoints(); b:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top); b:SetSize(w - 2 * PAD + 8, h); b:Show()
                 top = top - h - 3
@@ -1373,7 +1814,7 @@ local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
     end
     if not blocks[1] then
         local b = f.blocks[1]
-        b.header:SetText("Leveling guide"); b.action:SetText("Route finished. Well done!"); b.lines:SetText(""); b.advice:SetText("")
+        b.header:SetText(L["Leveling guide"]); b.action:SetText(L["Route finished. Well done!"]); b.lines:SetText(""); b.advice:SetText("")
         b.accent:SetColorTexture(0.4, 0.92, 0.45, 1)
         b:ClearAllPoints(); b:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top); b:SetSize(w - 2 * PAD + 8, 40); b:Show()
         top = top - 43
@@ -1386,7 +1827,7 @@ end
 function UI.ArrowText(model, group, adapter)
     local d = DufforthTweaksHelperGuide.Describe(model, group[1])
     local action = string.gsub(d and d.action or "", "%s*|cffaaaaaa%(.-%)|r$", "")
-    local more = #group > 1 and string.format(" |cffaaaaaa+%d more|r", #group - 1) or ""
+    local more = #group > 1 and string.format(L[" |cffaaaaaa+%d more|r"], #group - 1) or ""
     return DufforthTweaksHelperGuide.Inline(d and d.icon) .. " " .. action .. more
 end
 
@@ -1396,44 +1837,65 @@ local function Where2(e) return e.zone and string.format("%s %d, %d", e.zone, ma
 local function QuestItem(e, kind, indent)
     local dungeon = e.dungeon and ("|cff73bfff" .. e.dungeon .. ":|r ") or ""
     return {
-        text = string.format("%s%s%s%s |cffaaaaaa(level %d)|r", indent, kind ~= "" and ("|cffc080ff" .. kind .. ":|r ") or "", dungeon, e.title, e.level),
-        entry = e, kind = kind ~= "" and kind or "Dungeon quest", tipTitle = e.title,
-        tip = { (e.dungeon and ("For the dungeon " .. e.dungeon .. ". ") or "") .. "Level " .. e.level .. ".",
-                "From " .. (e.giver or "?") .. ", " .. Where2(e) .. ".",
-                "Click: a map pin and the arrow to " .. (e.giver or "the giver") .. " (click again to go back to your step)." },
+        text = string.format(L["%s%s%s%s |cffaaaaaa(level %d)|r"], indent, kind ~= "" and ("|cffc080ff" .. kind .. ":|r ") or "", dungeon, e.title, e.level),
+        entry = e, kind = kind ~= "" and kind or L["Dungeon quest"], tipTitle = e.title,
+        tip = { (e.dungeon and (L["For the dungeon "] .. e.dungeon .. ". ") or "") .. L["Level "] .. e.level .. ".",
+                L["From "] .. (e.giver or "?") .. ", " .. Where2(e) .. ".",
+                L["Click: a map pin and the arrow to "] .. (e.giver or L["the giver"]) .. L[" (click again to go back to your step)."] },
     }
 end
 
 local function ExtraItems(model)
     local items, db = {}, DB()
-    for _, e in ipairs(model:ClassQuests()) do items[#items + 1] = QuestItem(e, "Class quest", "") end
+    for _, e in ipairs(model:ClassQuests()) do items[#items + 1] = QuestItem(e, L["Class quest"], "") end
     local dungeons = model:DungeonQuests()
     if #dungeons > 0 then
-        items[#items + 1] = { toggle = "showDungeons", tipTitle = "Dungeon quests",
-            text = string.format("|cff73bfff%s %d dungeon quest%s to pick up|r", db.showDungeons and "[-]" or "[+]", #dungeons, #dungeons == 1 and "" or "s"),
-            tip = { "Quests for dungeons near your level, worth taking before you run the dungeon.", "Click to list them; click one for a map pin and the arrow to its giver." } }
+        items[#items + 1] = { toggle = "showDungeons", tipTitle = L["Dungeon quests"],
+            text = string.format(L["|cff73bfff%s %d dungeon quest%s to pick up|r"], db.showDungeons and "[-]" or "[+]", #dungeons, #dungeons == 1 and "" or "s"),
+            tip = { L["Quests for dungeons near your level, worth taking before you run the dungeon."], L["Click to list them; click one for a map pin and the arrow to its giver."] } }
         if db.showDungeons then for _, e in ipairs(dungeons) do items[#items + 1] = QuestItem(e, "", "    ") end end
+    end
+    -- Quests in your log the route doesn't plan (a random drop started it, you took it on your own): a row each; a
+    -- click points the arrow at its next objective, or at the NPC once it's complete (user, 2026-11-14).
+    for _, e in ipairs(model:OffRoute()) do
+        items[#items + 1] = { text = string.format(L["|cffffd100Your quest:|r %s |cffaaaaaa(%s)|r"], e.title, e.giver or "?"),
+            entry = e, kind = "Your quest", tipTitle = e.title,
+            tip = { L["In your log, but not in this route (it starts from a random drop, or you took it yourself)."],
+                    e.zone and (L["Next: "] .. (e.giver or "?") .. ", " .. Where2(e) .. ".") or L["Its place isn't in the data: read the quest text."],
+                    L["Click: the arrow and a map pin there (click again to go back to your step)."] } }
     end
     -- Forever's own quests (not in the Classic data the route comes from): from your quest log (user, 2026-11-14).
     for _, q in ipairs(UI.ForeverQuests(model)) do
-        items[#items + 1] = { text = "|cffff9933Forever quest:|r " .. q.title .. (q.progress ~= "" and (" |cffaaaaaa" .. q.progress .. "|r") or ""),
+        items[#items + 1] = { text = L["|cffff9933Forever quest:|r "] .. q.title .. (q.progress ~= "" and (" |cffaaaaaa" .. q.progress .. "|r") or ""),
             tipTitle = q.title, forever = q,
-            tip = { "A quest Forever added: the guide has no route for it, so it follows your quest log.",
-                    q.x and "Click: the arrow points at it on your map." or "Its place isn't on this map." } }
+            tip = { L["A quest Forever added: the guide has no route for it, so it follows your quest log."],
+                    q.x and L["Click: the arrow points at it on your map."] or L["Its place isn't on this map."] } }
     end
     local gray = model:GrayInLog()
     if #gray > 0 then
-        items[#items + 1] = { toggle = "showGray", tipTitle = "Gray quests",
-            text = string.format("|cff9d9d9d%s Abandon %d gray quest%s|r", db.showGray and "[-]" or "[+]", #gray, #gray == 1 and "" or "s"),
-            tip = { "Quests in your log far below your level give little experience.", "Open your quest log (L) and abandon them to make room. Click to list them." } }
+        items[#items + 1] = { toggle = "showGray", tipTitle = L["Gray quests"],
+            text = string.format(L["|cff9d9d9d%s Abandon %d gray quest%s|r"], db.showGray and "[-]" or "[+]", #gray, #gray == 1 and "" or "s"),
+            tip = { L["Quests in your log far below your level give little experience."], L["Open your quest log (L) and abandon them to make room. Click to list them."] } }
         if db.showGray then
             for _, e in ipairs(gray) do
-                items[#items + 1] = { text = "    |cff9d9d9d" .. e.title .. " (level " .. e.level .. ")|r", tipTitle = e.title,
-                    tip = { "Gray: little experience left. Abandon it in your quest log (L)." } }
+                items[#items + 1] = { text = "    |cff9d9d9d" .. e.title .. L[" (level "] .. e.level .. ")|r", tipTitle = e.title,
+                    tip = { L["Gray: little experience left. Abandon it in your quest log (L)."] } }
             end
         end
     end
     return items
+end
+
+-- How tall the extras (class, dungeon, your own quests) would be at this width.
+local function ExtrasHeight(f, model, w)
+    local total, items = 0, ExtraItems(model)
+    for k, r in ipairs(f.extraRows) do
+        local item = items[k]
+        if not item then break end
+        r.label:SetWidth(w - 2 * PAD - 4)
+        total = total + Height(r.label, item.text) + 3
+    end
+    return total + (#items > 0 and 3 or 0)
 end
 
 local function DrawExtras(f, model, w, top, bottom, fits)
@@ -1505,13 +1967,13 @@ function UI.FillGuideMenu()
     local f = Box()
     local data, picked = DufforthTweaksHelperGuideData, DB().guideName
     -- Guides first (always in view), then the leveling route by zone: a click shows that part in the list.
-    local entries = { { nil, "Leveling 1-60: " .. UI.STYLE_LABEL[DB().style or "speed"] .. (DB().withDungeons and " + dungeons" or ""),
-        (UI.STYLE_TIP[DB().style or "speed"] or "") .. " Change the style in the Menu (Guide style)." } }
+    local entries = { { nil, L["Leveling 1-60: "] .. UI.STYLE_LABEL[DB().style or "speed"] .. (DB().withDungeons and L[" + dungeons"] or ""),
+        (UI.STYLE_TIP[DB().style or "speed"] or "") .. L[" Change the style in the Menu (Guide style)."] } }
     for _, g in ipairs(data.guides or {}) do entries[#entries + 1] = { g.name or g[1], g.name or g[1], g.note or g[2] } end
-    entries[#entries + 1] = { nil, "|cffffd100Leveling by zone|r", "", nil, true }
+    entries[#entries + 1] = { nil, L["|cffffd100Leveling by zone|r"], "", nil, true }
     local leveling = DufforthTweaksHelperGuide.NewModel(data, UI.RaceRoute(), UI.adapter or UI.GameAdapter(), { skipped = {} })
     for _, p in ipairs(leveling:ZoneParts()) do
-        entries[#entries + 1] = { nil, "    |cffcccccc" .. p.title .. "|r", "Show this part of the leveling route in the list. Your current step still follows what you have done.", p.first }
+        entries[#entries + 1] = { nil, "    |cffcccccc" .. p.title .. "|r", L["Show this part of the leveling route in the list. Your current step still follows what you have done."], p.first }
     end
     f.guideMenu.entries, f.guideMenu.offset = entries, 0
     UI.DrawGuideMenu()
@@ -1534,7 +1996,7 @@ function UI.DrawGuideMenu()
         if e then
             r.guide, r.title, r.note, r.bracket, r.isHeader = e[1], e[2], e[3], e[4] or false, e[5] or false
             local on = not e[4] and not e[5] and ((e[1] == picked) or (e[1] == nil and not (picked and data.routes[picked])))
-            r.label:SetText((on and "|cff40ff40> |r" or "   ") .. e[2]); r:Show()
+            r.label:SetText((on and L["|cff40ff40> |r"] or "   ") .. e[2]); r:Show()
             local sw = tonumber(r.label.GetStringWidth and r.label:GetStringWidth()) or 0
             widest = math.max(widest, sw)
         else
@@ -1547,7 +2009,7 @@ function UI.DrawGuideMenu()
     local shown = math.min(#entries - offset, MENU_ROWS)
     local below = #entries - offset - shown
     if offset > 0 or below > 0 then
-        m.more:SetText(string.format("Scroll for more: %d above, %d below", offset, below)); m.more:Show()
+        m.more:SetText(string.format(L["Scroll for more: %d above, %d below"], offset, below)); m.more:Show()
     else
         m.more:SetText(""); m.more:Hide()
     end
@@ -1560,7 +2022,7 @@ function UI.ExtraClicked(item)
     if not item then return end
     if item.forever then
         local q = item.forever
-        if q.x and q.map then UI.override = { id = q.id, map = q.map, x = q.x, y = q.y, zone = q.zone, text = "Forever quest: " .. q.title } end
+        if q.x and q.map then UI.override = { id = q.id, map = q.map, x = q.x, y = q.y, zone = q.zone, text = L["Forever quest: "] .. q.title } end
         UI.Refresh()
         return
     end
@@ -1573,9 +2035,6 @@ function UI.ExtraClicked(item)
         else
             local map = DufforthTweaksHelperGuideData.uiMaps[e.zone]
             UI.override = { id = e.id, map = map, x = e.x, y = e.y, zone = e.zone, text = item.kind .. ": " .. e.title .. " - " .. (e.giver or "") }
-            if map and e.x then
-                pcall(function() C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, e.x / 100, e.y / 100)) end)
-            end
         end
         pinned = nil
     end
@@ -1586,11 +2045,32 @@ end
 local function AlongText(model, adapter)
     local parts = {}
     for _, i in ipairs(model:Along()) do
-        local action, lines = StepText(model, i, adapter)
-        parts[#parts + 1] = action .. (lines ~= "" and ("\n      " .. string.gsub(lines, "\n", "\n      ")) or "")
+        if UI.inTopBlock and UI.inTopBlock[i] then
+            -- already in the top block (the whole trip)
+        else
+            local action, lines = StepText(model, i, adapter)
+            parts[#parts + 1] = action .. (lines ~= "" and ("\n      " .. string.gsub(lines, "\n", "\n      ")) or "")
+        end
     end
-    if #parts == 0 then return "" end
-    return "|cff80b3ffAlong the way|r |cff888888(kill them as you go)|r\n" .. table.concat(parts, "\n")
+    local text = #parts > 0 and (L["|cff80b3ffAlong the way|r |cff888888(kill them as you go)|r\n"] .. table.concat(parts, "\n")) or ""
+    -- Other quests in your log you can do right here (user, 2026-11-14), with the game's progress.
+    local current = model:Current()
+    local also = current and model:AlsoHere(current) or {}
+    if #also > 0 then
+        local lines = {}
+        for _, a in ipairs(also) do
+            local progress, name = "", a.name
+            local list = adapter and adapter.objectives and adapter.objectives(a.quest) or {}
+            local k = DufforthTweaksHelperGuide.MatchObjective(list, a.goal or { [2] = a.name }, a.goals)
+            if k and list[k].text then
+                progress = " |cffaaaaaa" .. list[k].text .. "|r"
+                if not string.find(list[k].text, a.name, 1, true) then name = DufforthTweaksHelperGuide.ObjectiveName(list[k].text) or a.name end
+            end
+            lines[#lines + 1] = string.format(L["  |cffd0d0d0%s|r%s |cff888888for %s|r"], name, progress, a.title)
+        end
+        text = text .. (text ~= "" and "\n" or "") .. L["|cff80b3ffAlso here|r |cff888888(other quests in your log)|r\n"] .. table.concat(lines, "\n")
+    end
+    return text
 end
 
 local function DrawProgress(f, model, current, w, top)
@@ -1600,11 +2080,30 @@ local function DrawProgress(f, model, current, w, top)
     local pct = total > 0 and done / total or 1
     f.progress:ClearAllPoints(); f.progress:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top); f.progress:SetSize(w - 2 * PAD + 8, PROGRESS)
     f.progress:SetValue(pct)
-    local title = k and DufforthTweaksHelperGuide.SectionTitle(model:Sections()[k]) or "Route finished"
+    local title = k and DufforthTweaksHelperGuide.SectionTitle(model:Sections()[k]) or L["Route finished"]
     local route = current and math.floor((current - 1) / math.max(1, #model.steps) * 100) or 100
-    f.progress.label:SetText(string.format("|cffffd100%s|r   %s   zone %d%%", UI.GuideLabel(), title, math.floor(pct * 100 + 0.5)))
-    f.progress.routeText = string.format("Whole route: %d%% done (step %d of %d).", route, current or #model.steps, #model.steps)
-    f.progress.pace:SetText(UI.PaceText(false))
+    f.progress.routeText = string.format(L["Whole route: %d%% done (step %d of %d)."], route, current or #model.steps, #model.steps)
+    -- Side by side, never on top of each other (user, 2026-11-14): with little room the zone %, then the guide name,
+    -- then "Level up in" go first; whatever is left is cut with "...".
+    local guide, zonePct = "|cffffd100" .. UI.GuideLabel() .. "|r", string.format(L["zone %d%%"], math.floor(pct * 100 + 0.5))
+    local pace = (UI.flight and UI.FlightText()) or UI.PaceText(false) or "" -- flying: when you land
+    local shortPace = string.gsub(pace, "^Level up in ", "")
+    local tries = {
+        { guide .. "   " .. title .. "   " .. zonePct, pace }, { guide .. "   " .. title, pace },
+        { guide .. "   " .. title, shortPace }, { title, shortPace }, { title, "" },
+    }
+    local barW = w - 2 * PAD + 8
+    UI.barWidth = barW
+    local measure = UI.TextWidth or UI.MeasureText
+    local pick = tries[#tries]
+    for _, t in ipairs(tries) do
+        local paceW = t[2] ~= "" and measure(f.progress.pace, t[2]) + 8 or 0
+        if measure(f.progress.label, t[1]) + paceW + 4 <= barW then pick = t; break end
+    end
+    f.progress.pace:SetText(pick[2])
+    local paceW = pick[2] ~= "" and measure(f.progress.pace, pick[2]) + 8 or 0
+    f.progress.label:SetWidth(math.max(20, barW - paceW - 8))
+    f.progress.label:SetText(pick[1])
     return top - PROGRESS - 4
 end
 
@@ -1614,7 +2113,7 @@ local function DrawList(f, model, adapter, current, w, top, bottom)
     if UI.jump then UI.section, UI.follow, UI.scrolled = UI.jump, false, true end -- browsed to a part or bracket
     local sec = sections[UI.section]
     f.bar:ClearAllPoints(); f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top); f.bar:SetSize(w - 2 * PAD + 8, BAR)
-    f.bar.label:SetText(string.format("%s  |cff888888%d/%d|r", DufforthTweaksHelperGuide.SectionTitle(sec), UI.section, #sections))
+    f.bar.label:SetText(string.format(L["%s  |cff888888%d/%d|r"], DufforthTweaksHelperGuide.SectionTitle(sec), UI.section, #sections))
     SetOn(f.doneToggle, DB().showDone); SetOn(f.nextToggle, DB().showNext)
     top = top - BAR - 2
     local room = top - bottom
@@ -1636,7 +2135,7 @@ local function DrawList(f, model, adapter, current, w, top, bottom)
         end
     end
     UI.offset = math.max(1, math.min(UI.offset or 1, math.max(1, #items)))
-    f.empty:SetText(#items == 0 and "No steps to show: Done and Next choose which ones." or "")
+    f.empty:SetText(#items == 0 and L["No steps to show: Done and Next choose which ones."] or "")
     local inner, y, n = w - 2 * PAD, 0, 0
     for k = UI.offset, #items do
         if n >= ROWS then break end
@@ -1653,8 +2152,8 @@ local function DrawList(f, model, adapter, current, w, top, bottom)
             r.isHeader, r.step = false, i
             text = action .. (lines ~= "" and ("\n" .. lines) or "")
             if state == "done" then text = DONE_MARK .. text
-            elseif state == "passed" then text = "|cff9d9d9d(passed by)|r " .. text
-            elseif state == "along" then text = "|cff80b3ff(along the way)|r " .. text end
+            elseif state == "passed" then text = L["|cff9d9d9d(passed by)|r "] .. text
+            elseif state == "along" then text = L["|cff80b3ff(along the way)|r "] .. text end
             r.num:SetText(i)
             r.check:Show()
             r.check.mark:SetShown(model.saved.skipped[i] and true or false)
@@ -1693,12 +2192,16 @@ local function Arrow()
         local point, _, relative, x, y = self:GetPoint()
         DB().arrowPoint = { point, relative, x, y }
     end)
-    a:SetScript("OnMouseUp", function(_, button) if button == "RightButton" then UI.SetArrowShown(false) end end)
+    -- No right-click to hide: it turned the arrow off by accident and the guide looked like it had no waypoint
+    -- (user, 2026-11-14). Menu > Waypoint arrow turns it off on purpose.
     a.pointer = a:CreateTexture(nil, "ARTWORK")
     a.pointer:SetTexture("Interface\\Minimap\\MinimapArrow"); a.pointer:SetSize(52, 52); a.pointer:SetPoint("TOP", 0, 0)
     if a.pointer.SetDesaturated then a.pointer:SetDesaturated(true) end
     a.check = a:CreateTexture(nil, "ARTWORK")
     a.check:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready"); a.check:SetSize(34, 34); a.check:SetPoint("TOP", 0, -8)
+    -- Up or down to an NPC on another floor: still a waypoint, not just text (user, 2026-11-14: "there is no waypoint").
+    a.climb = a:CreateTexture(nil, "ARTWORK"); a.climb:SetSize(40, 40); a.climb:SetPoint("TOP", 0, -4)
+    a.climb:SetVertexColor(1, 0.63, 0.25); a.climb:Hide()
     -- The step text stays in the guide window (user, 2026-11-13: the arrow repeated it); the arrow shows only
     -- the distance and time, outlined so it reads over any ground (no plate: it looked bad). Step in the tooltip.
     a.label = a:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -1709,8 +2212,8 @@ local function Arrow()
     a.angle = 0
     a:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(self.label:GetText() or "Your guide step", 1, 1, 1, 1, true)
-        GameTooltip:AddLine("Points at your guide step. Drag to move, right-click to hide (the arrow button on the guide shows it).", 0.7, 0.7, 0.7, true)
+        GameTooltip:SetText(self.label:GetText() or L["Your guide step"], 1, 1, 1, 1, true)
+        GameTooltip:AddLine(L["Points at your guide step. Drag to move. Menu > Waypoint arrow turns it off."], 0.7, 0.7, 0.7, true)
         GameTooltip:Show()
     end)
     a:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1723,7 +2226,7 @@ local function Arrow()
     end)
     arrow = a
     if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
-        DufforthTweaksHelper.RegisterMovable({ label = "Guide arrow", get = function() return arrow end,
+        DufforthTweaksHelper.RegisterMovable({ label = L["Guide arrow"], get = function() return arrow end,
             enter = function(f) f:Show() end, leave = function() UI.UpdateArrow() end })
     end
     return a
@@ -1748,20 +2251,26 @@ function UI.UpdateArrow()
     if not DufforthTweaksHelperGuide then return end
     local a, t = Arrow(), UI.target
     if not DB().arrow or not t or (DufforthTweaksHelper.EditMode and DufforthTweaksHelper.EditMode()) then
+        UI.LogChange("arrow", "arrow", not DB().arrow and "hidden: turned off (Menu > Waypoint arrow)" or (not t and L["hidden: no target"]) or "edit mode")
         if not (DufforthTweaksHelper.EditMode and DufforthTweaksHelper.EditMode()) then a:Hide() end
         return
     end
+    a.climb:Hide()
     local pmap = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     local ppos = pmap and C_Map.GetPlayerMapPosition and C_Map.GetPlayerMapPosition(pmap, "player")
     local px, py = XY(ppos)
     local pc, pn, pw
     if px then pc, pn, pw = WorldPos(pmap, px, py) end
     local tc, tn, tw = WorldPos(t.map, t.x / 100, t.y / 100)
-    if not (pn and tn) then a:Hide(); return end
+    if not (pn and tn) then
+        UI.LogChange("arrow", "arrow", string.format(L["hidden: no world position (you: map %s %s; target: map %s %s)"], tostring(pmap), tostring(pn ~= nil), tostring(t.map), tostring(tn ~= nil)))
+        a:Hide(); return
+    end
     a.label:SetText(t.text)
     if pc ~= tc then
+        UI.LogChange("arrow", "arrow", "shown: go to " .. tostring(t.zone) .. " (another continent)")
         a.pointer:Hide(); a.check:Hide()
-        a.dist:SetText("|cff73bfffGo to " .. t.zone .. "|r")
+        a.dist:SetText(L["|cff73bfffGo to "] .. t.zone .. "|r")
         a:Show()
         return
     end
@@ -1772,13 +2281,23 @@ function UI.UpdateArrow()
         local function go() UI.loopPending = false; pcall(UI.Refresh) end
         if C_Timer then C_Timer.After(0.2, go) else go() end
     end
-    if dist < 10 then
+    -- The game gives addons no height, so on the right floor you know it by the NPC: targeted or talking to you.
+    local withNpc = t.npc and UnitName and (UnitName("target") == t.npc or UnitName("npc") == t.npc)
+    UI.LogChange("arrow", "arrow", dist < 10 and (t.lift and not withNpc and (L["shown: go "] .. (t.lift > 0 and "up " or "down ") .. math.abs(t.lift) .. " yd") or L["shown: you are here"])
+        or L["shown: pointing"])
+    if dist < 10 and t.lift and not withNpc then
+        -- Right under (or over) an NPC on another floor: the map spot is the same, the NPC isn't here (user, 2026-11-14).
+        a.pointer:Hide(); a.check:Hide()
+        local tex = t.lift > 0 and "Interface\\Buttons\\Arrow-Up-Up" or "Interface\\Buttons\\Arrow-Down-Up"
+        a.climb:SetTexture(tex); rawset(a.climb, "tex", tex); a.climb:Show()
+        a.dist:SetText(string.format(t.lift > 0 and L["|cffffa040Go up: %d yd above you|r"] or L["|cffffa040Go down: %d yd below you|r"], math.abs(t.lift)))
+    elseif dist < 10 then
         a.pointer:Hide(); a.check:Show()
-        a.dist:SetText("|cff40ff40You are here|r")
+        a.dist:SetText(L["|cff40ff40You are here|r"])
     else
         a.check:Hide()
         local speed = GetUnitSpeed and GetUnitSpeed("player") or 0
-        a.dist:SetText(string.format("%d yd  |cffffd100%s|r", math.floor(dist + 0.5), DufforthTweaksHelperGuide.Eta(dist, speed)))
+        a.dist:SetText(string.format(L["%d yd  |cffffd100%s|r"], math.floor(dist + 0.5), DufforthTweaksHelperGuide.Eta(dist, speed)))
         if facing then
             a.angle = rel
             a.pointer:SetRotation(rel)
@@ -1879,7 +2398,9 @@ function UI.Refresh()
     UI.adapter = UI.GameAdapter()
     UI.model = Model(UI.adapter)
     local model, adapter = UI.model, UI.adapter
-    local blocks = model:Blocks(ACTIVE)
+    local blocks = model:Blocks(ACTIVE, true) -- one row per step (user, 2026-11-15: "do not group the steps")
+    UI.inTopBlock = {} -- steps the trip's cards already show (the "Along the way" lines skip them)
+    for k = 1, math.max(1, blocks.trip or 1) do for _, i in ipairs(blocks[k] or {}) do UI.inTopBlock[i] = true end end
     local current = blocks[1] and blocks[1][1]
     if UI.viewing and not model.steps[UI.viewing] then UI.viewing = nil end
     if UI.viewing then blocks = { { UI.viewing } } end -- a step you picked in the list
@@ -1888,7 +2409,7 @@ function UI.Refresh()
         local d = current and DufforthTweaksHelperGuide.Describe(model, current)
         if d and d.useItem then
             f.useItem.item = "item:" .. d.useItem
-            f.useItem:SetText(d.useLabel or "Start quest")
+            f.useItem:SetText(d.useLabel or L["Start quest"])
             f.useItem:SetAttribute("type", "item"); f.useItem:SetAttribute("item", f.useItem.item)
             f.useItem:Show()
         else
@@ -1920,9 +2441,19 @@ function UI.Refresh()
     elseif rawget(f, "switchNote") then
         f.switchNote:Hide(); UI.switchNote = nil
     end
-    if UI.viewing then
+    if UI.override or UI.viewing then
         f.viewBar:ClearAllPoints(); f.viewBar:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top0); f.viewBar:SetWidth(w - 2 * PAD + 8)
-        f.viewBar.label:SetText(string.format("Viewing step %d (yours: %s)", UI.viewing, current or "-"))
+        if UI.override then
+            -- The arrow is on a class, dungeon or Forever quest you clicked (user, 2026-11-14: no way back to the step).
+            f.viewBar.label:SetText(L["Arrow on: "] .. (UI.override.text or L["a quest"]))
+            f.viewBar.label:SetPoint("RIGHT", f.viewBar.back, "LEFT", -4, 0)
+            f.viewBar.go:Hide()
+        else
+            f.viewBar.label:SetText(string.format(L["Viewing step %d (yours: %s)"], UI.viewing, current or "-"))
+            f.viewBar.label:SetPoint("RIGHT", f.viewBar.go, "LEFT", -4, 0)
+            f.viewBar.go:Show()
+        end
+        if f.viewBar.label.SetWordWrap then f.viewBar.label:SetWordWrap(false) end
         f.viewBar:Show()
         top0 = top0 - 24
     else
@@ -1936,7 +2467,9 @@ function UI.Refresh()
     -- The current block is always shown whole: with 2 or 3 steps at the same place the box grows for them, and
     -- shrinks back with fewer (user, 2026-11-13). Your size limits only what comes after it.
     local mustH = math.floor(-top + 8) -- down to the blocks drawn (block 2 only when it fits your size)
-    -- Then, while there is room: along the way, the progress bar, the extras, the list.
+    -- Then, like RestedXP (user, 2026-11-14 screenshots: "on top things I need to do, below only if I resize bigger I can
+    -- see all steps"): what to do along the way, then the part's numbered steps filling the room you give the box, and
+    -- the class, dungeon and your own quests at the very bottom.
     local along = AlongText(model, adapter)
     f.along:SetWidth(w - 2 * PAD); f.along:SetText(along)
     local alongH = along ~= "" and Height(f.along, along) + 4 or 0
@@ -1944,19 +2477,37 @@ function UI.Refresh()
     f.along:SetShown(fits and along ~= "")
     if fits and along ~= "" then f.along:ClearAllPoints(); f.along:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, top); top = top - alongH end
     f.note:SetText(""); f.note:Hide()
-    top, fits = DrawExtras(f, model, w, top, bottom, fits)
-    fits = fits and top - BAR - 20 >= bottom
-    f.bar:SetShown(fits); f.list:SetShown(fits)
+    local extrasH = ExtrasHeight(f, model, w)
+    local listFits = fits and top - BAR - 40 - extrasH >= bottom
+    f.bar:SetShown(listFits); f.list:SetShown(listFits)
     local used = top
-    if fits then used = DrawList(f, model, adapter, current, w, top, bottom)
-    else for _, r in ipairs(f.rows) do r:Hide() end end
+    if listFits then
+        used = DrawList(f, model, adapter, current, w, top, bottom + extrasH)
+        used = math.min(used, bottom + extrasH)
+    else
+        for _, r in ipairs(f.rows) do r:Hide() end
+    end
+    used, fits = DrawExtras(f, model, w, used, bottom, fits)
     -- Fit the box to what it shows (not while you drag the corner).
     f.fitH = math.max(math.min(h, math.floor(-used + 22)), mustH)
     if not f.sizing then f:SetHeight(f.fitH) end
     UI.target = nil
     current = UI.viewing or current -- the arrow and pin follow the step you're looking at
     if current then
-        Pin(model, current)
+        if UI.override and UI.override.map and UI.override.x then
+            -- The arrow is on a quest you clicked: the game's map pin goes there too, and stays until you go back.
+            local o = UI.override
+            local key = "o:" .. o.map .. ":" .. o.x .. ":" .. o.y
+            if pinned ~= key then
+                pinned = key
+                pcall(function()
+                    C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(o.map, o.x / 100, o.y / 100))
+                    if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then C_SuperTrack.SetSuperTrackedUserWaypoint(true) end
+                end)
+            end
+        else
+            Pin(model, current)
+        end
         local zone, x, y, map = model:Place(current)
         local legs = model:Directions(current)
         local first = legs and legs[1]
@@ -1973,17 +2524,29 @@ function UI.Refresh()
             local k = DufforthTweaksHelperGuide.NextLoopSpot(loop, UI.loopAt[current], px, py)
             UI.loopAt[current] = k
             UI.target = { map = map, x = loop[k][1], y = loop[k][2], zone = zone,
-                          text = string.format("Spot %d of %d: ", k, #loop) .. UI.ArrowText(model, blocks[1], adapter), loop = true }
+                          text = string.format(L["Spot %d of %d: "], k, #loop) .. UI.ArrowText(model, blocks[1], adapter), loop = true }
         elseif map and x and y and model:Pinpoint(current) then
             UI.target = { map = map, x = x, y = y, zone = zone, text = UI.ArrowText(model, blocks[1], adapter) }
+            UI.target.lift, UI.target.npc = model:Lift(current)
         end
     end
-    local e = UI.errands and UI.errands[1]
-    if not UI.override and e and e.x and e.kind ~= "classquest" and model.data.uiMaps[e.zone] then
-        UI.target = { map = model.data.uiMaps[e.zone], x = e.x, y = e.y, zone = e.zone, text = e.action } -- errands first
-    end
+    -- Errands (water, training, repairs) never take the arrow: waypoints are for quests (user, 2026-11-15: "do not put
+    -- waypoints to buy water, only for quests"). Their rows stay in the box; a click on one points the arrow there.
     if UI.override and UI.override.map then UI.target = UI.override end -- you clicked a class or dungeon quest
+    if current then
+        local st = model.steps[current]
+        UI.LogChange("step", "step", string.format(L["%d %s quest %s at %s %s, %s (route %s)"], current, tostring(st and st[1]), tostring(st and st[2]),
+            tostring(st and st[3]), tostring(st and st[4]), tostring(st and st[5]), tostring(UI.RouteName())))
+    end
+    local tg = UI.target
+    UI.LogChange("target", "target", tg and string.format("%s %s, %s: %s%s", tostring(tg.zone), tostring(tg.x), tostring(tg.y), Plain(tg.text),
+        UI.override and L[" (a quest you clicked)"] or (tg.lift and (" (lift " .. tg.lift .. ")") or "")) or "none")
+    UI.LogChange("settings", "settings", UI.SettingsLine())
     UI.UpdateArrow()
+    if WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsShown() and UI.mapDrawnFor ~= current then
+        UI.mapDrawnFor = current
+        UI.SafeDrawMap()
+    end
 end
 
 -- ---- The round icon (user, 2026-11-14): shown while the box is out of sight; a click opens or minimizes the
@@ -2018,9 +2581,9 @@ local function GuideIcon()
     b:SetScript("OnClick", function() UI.SetCollapsed(not UI.Hidden() and true or false) end)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("Leveling guide", 1, 0.82, 0)
+        GameTooltip:SetText(L["Leveling guide"], 1, 0.82, 0)
         if self.text then GameTooltip:AddLine(self.text, 1, 1, 1, true) end
-        GameTooltip:AddLine(UI.Hidden() and "Click: open the guide. Drag: move." or "Click: minimize the guide. Drag: move.", 0.6, 0.8, 1, true)
+        GameTooltip:AddLine(UI.Hidden() and L["Click: open the guide. Drag: move."] or L["Click: minimize the guide. Drag: move."], 0.6, 0.8, 1, true)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2036,11 +2599,85 @@ function UI.UpdateIcon()
     local model, current = UI.model, UI.lastCurrent
     local d = model and current and DufforthTweaksHelperGuide.Describe(model, current)
     b.badge:SetTexture(d and d.icon or nil); b.badge:SetShown(d ~= nil); b.ring:SetShown(d ~= nil)
-    b.num:SetText(current and ("Step " .. current) or "")
+    b.num:SetText(current and (L["Step "] .. current) or "")
     b.text = d and string.gsub(d.action or "", "|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") or nil
     local show = DB().shown and UI.Hidden()
     b:SetShown(show and true or false)
     if DufforthTweaksHelperMinimap_SetBadge then DufforthTweaksHelperMinimap_SetBadge(show and d and d.icon or nil) end
+end
+
+-- Back to your step: the arrow and the game's map pin leave the quest you clicked, and the box shows your step.
+function UI.BackToStep()
+    UI.override, UI.viewing = nil, nil
+    pinned = nil
+    UI.Refresh()
+end
+
+-- The arrow and the game's map pin on step i (a click on its card), until you go back to your step.
+function UI.PinStep(i)
+    local model = UI.model
+    if not (model and i) then return end
+    local zone, x, y, map = model:Place(i)
+    if not (map and x and y) then return end
+    local d = DufforthTweaksHelperGuide.Describe(model, i)
+    UI.override = { step = i, map = map, x = x, y = y, zone = zone,
+                    text = string.format(L["Step %d: %s"], i, Plain(d and d.action or "")) }
+    pinned = nil
+    UI.Refresh()
+end
+
+-- Right-click on a step card: its options in a small menu by the mouse.
+function UI.StepMenu(i, anchor)
+    local model = UI.model
+    if not (model and i) then return end
+    local m = UI.stepMenu
+    if not m then
+        m = CreateFrame("Frame", "DufforthTweaksHelperStepMenu", UIParent)
+        m:SetFrameStrata("DIALOG"); m:SetSize(190, 10)
+        m.bg = m:CreateTexture(nil, "BACKGROUND"); m.bg:SetAllPoints(); m.bg:SetColorTexture(0.06, 0.06, 0.07, 0.96)
+        m.rows = {}
+        m.idle = 0
+        -- Closes like the main Menu: a moment after the mouse leaves it, or on a click anywhere else (user, 2026-11-15:
+        -- "right click on the steps is persistent").
+        m:SetScript("OnUpdate", function(self, elapsed)
+            if UI.MouseOver(self) then self.idle = 0 else self.idle = self.idle + (elapsed or 0) end
+            if self.idle > 0.8 then self:Hide() end
+        end)
+        pcall(m.RegisterEvent, m, "GLOBAL_MOUSE_DOWN")
+        m:SetScript("OnEvent", function(self) if not UI.MouseOver(self) then self:Hide() end end)
+        UI.stepMenu = m
+    end
+    local done = model.saved.skipped[i]
+    local options = {
+        { L["Put the pin and arrow here"], function() UI.PinStep(i) end },
+        { done and L["Undo done"] or L["Mark done"], function() model:ToggleStep(i); UI.Refresh() end },
+        { L["Continue from this step"], function() UI.ContinueFrom(i) end },
+        { L["Back to my step"], function() UI.BackToStep() end },
+    }
+    for k, o in ipairs(options) do
+        local r = m.rows[k]
+        if not r then
+            -- A slim text row with a light hover, like the main Menu (user: "focus on text, not on the button").
+            r = CreateFrame("Button", nil, m)
+            r:SetSize(182, 18); r:SetPoint("TOPLEFT", 4, -4 - (k - 1) * 18)
+            r.hl = r:CreateTexture(nil, "HIGHLIGHT"); r.hl:SetAllPoints(); r.hl:SetColorTexture(1, 1, 1, 0.08)
+            r.label = Font(r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 12)
+            r.label:SetPoint("LEFT", 6, 0); r.label:SetJustifyH("LEFT")
+            m.rows[k] = r
+        end
+        r.label:SetText(o[1]); rawset(r, "text", o[1])
+        r:SetScript("OnClick", function() m:Hide(); o[2]() end)
+        r:Show()
+    end
+    for k = #options + 1, #m.rows do m.rows[k]:Hide() end
+    m:SetHeight(8 + #options * 18)
+    m:ClearAllPoints()
+    local x, y = GetCursorPosition and GetCursorPosition()
+    local scale = UIParent.GetEffectiveScale and tonumber((UIParent:GetEffectiveScale())) or 1
+    if x and y then m:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+    else m:SetPoint("TOPLEFT", anchor or UIParent, "TOPRIGHT", 4, 0) end
+    m.idle = 0
+    m:Show()
 end
 
 -- Show one step from the list (nil: back to yours).
@@ -2072,9 +2709,23 @@ for _, event in ipairs({ "PLAYER_LOGIN", "QUEST_ACCEPTED", "QUEST_TURNED_IN", "Q
     "PLAYER_LEVEL_UP", "ZONE_CHANGED_NEW_AREA", "TAXIMAP_OPENED", "HEARTHSTONE_BOUND", "BAG_UPDATE_DELAYED",
     "PLAYER_REGEN_ENABLED", "LEARNED_SPELL_IN_SKILL_LINE", "SPELLS_CHANGED", "PLAYER_XP_UPDATE", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD" }) do pcall(watcher.RegisterEvent, watcher, event) end
 local soon = false
-watcher:SetScript("OnEvent", function(_, event)
+watcher:SetScript("OnEvent", function(_, event, a1)
+    if event == "PLAYER_LOGIN" then
+        pcall(UI.LogLogin)
+        -- Questie's yellow objective icons when it's installed (user, 2026-11-14).
+        local questie = QuestieLoader ~= nil or (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Questie"))
+        DufforthTweaksHelperGuide.UseQuestieIcons(questie and true or false)
+    end
+    if event == "QUEST_ACCEPTED" or event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED" then
+        -- QUEST_ACCEPTED gives the log index first on older clients, the quest id on newer: log what came.
+        UI.Log("quest", event:lower():gsub("quest_", "") .. " " .. tostring(a1))
+    elseif event == "ZONE_CHANGED_NEW_AREA" then
+        UI.Log("zone", tostring(GetRealZoneText and GetRealZoneText()))
+    elseif event == "PLAYER_LEVEL_UP" then
+        UI.Log("level", tostring(a1))
+    end
     if event == "TAXIMAP_OPENED" then pcall(UI.LearnFlights); pcall(UI.AutoFly) end
-    if event == "HEARTHSTONE_BOUND" and GetRealZoneText then DB().homeZone = GetRealZoneText() end
+    if event == "HEARTHSTONE_BOUND" and GetRealZoneText then DB().homeZone = DufforthTweaksHelperLocale.ZoneName() end
     if event == "PLAYER_XP_UPDATE" or event == "PLAYER_LEVEL_UP" or event == "PLAYER_LOGIN" then pcall(UI.TrackXP) end
     if event == "PLAYER_REGEN_DISABLED" then UI.inCombat = true end
     if event == "PLAYER_REGEN_ENABLED" then UI.inCombat = false; UI.peek = nil end
@@ -2083,6 +2734,10 @@ watcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then return end -- fading out needs no redraw
     if soon then return end
     soon = true
-    local function go() soon = false; pcall(UI.Refresh) end
+    local function go()
+        soon = false
+        local ok, err = pcall(UI.Refresh)
+        if not ok then UI.Log("error", "refresh: " .. tostring(err)) end
+    end
     if C_Timer then C_Timer.After(0.5, go) else go() end
 end)

@@ -1,7 +1,8 @@
 -- Shared helpers and the /dufforth command.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 DufforthTweaksHelper = DufforthTweaksHelper or {}
-local PREFIX = "|cff66ccffDufforth Tweaks Helper:|r "
+local PREFIX = L["|cff66ccffDufforth Tweaks Helper:|r "]
 DufforthTweaksHelper.PREFIX = PREFIX
 
 local function Print(message)
@@ -26,7 +27,7 @@ local function Overlay(frame, label)
     local fill = o:CreateTexture(nil, "OVERLAY")
     fill:SetAllPoints(o); fill:SetColorTexture(0.2, 0.8, 0.3, 0.3)
     local text = o:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    text:SetPoint("BOTTOM", o, "TOP", 0, 2); text:SetText(label .. " |cffaaaaaa(drag)|r")
+    text:SetPoint("BOTTOM", o, "TOP", 0, 2); text:SetText(label .. L[" |cffaaaaaa(drag)|r"])
     o:Hide()
     frame.dthOverlay = o
     return o
@@ -89,10 +90,10 @@ end
 function DufforthTweaksHelper.ArrowButton(parent, direction, onClick)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(22, 22)
-    local base = "Interface\\Buttons\\UI-ScrollBar-Scroll" .. (direction == "up" and "Up" or "Down") .. "Button-"
+    local base = "Interface\\Buttons\\UI-ScrollBar-Scroll" .. (direction == "up" and "Up" or "Down") .. L["Button-"]
     button:SetNormalTexture(base .. "Up")
     button:SetPushedTexture(base .. "Down")
-    button:SetDisabledTexture(base .. "Disabled")
+    button:SetDisabledTexture(base .. L["Disabled"])
     button:SetHighlightTexture(base .. "Highlight", "ADD")
     if onClick then button:SetScript("OnClick", onClick) end
     return button
@@ -158,7 +159,7 @@ local RunCommand
 SlashCmdList.DUFFORTHTWEAKSHELPER = function(input)
     local ok, err = pcall(RunCommand, input)
     if not ok then
-        Print("|cffff5555that command hit an error. Please send this text:|r " .. tostring(err))
+        Print(L["|cffff5555that command hit an error. Please send this text:|r "] .. tostring(err))
     end
 end
 
@@ -168,7 +169,7 @@ RunCommand = function(input)
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle() end
     elseif command == "guide" then
         if DufforthTweaksHelperGuideUI then DufforthTweaksHelperGuideUI.Toggle()
-        else Print("the leveling guide needs a full game restart (new files).") end
+        else Print(L["the leveling guide needs a full game restart (new files)."]) end
     elseif command == "auto" then
         if DufforthTweaksHelperQuestAuto then
             DufforthTweaksHelperQuestAuto.SetEnabled(not DufforthTweaksHelperQuestAuto.Enabled())
@@ -177,7 +178,7 @@ RunCommand = function(input)
     elseif command == "arrow" then
         if DufforthTweaksHelperGuideUI then DufforthTweaksHelperGuideUI.SetArrowShown(not (DufforthTweaksHelperDB.guide or {}).arrow) end
     elseif command == "move" then
-        if not DufforthTweaksHelper.SetEditMode(not DufforthTweaksHelper.EditMode()) then Print("on-screen pieces can't move in combat.") end
+        if not DufforthTweaksHelper.SetEditMode(not DufforthTweaksHelper.EditMode()) then Print(L["on-screen pieces can't move in combat."]) end
     elseif command == "crafting" or command == "leveling" or command == "warrior"
         or command == "class" or command == "consumables" or command == "zone" or command == "gear" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle(command) end

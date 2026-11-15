@@ -92,7 +92,9 @@ class Eligibility:
             return False
         if q.classes or q.timed or (q.start_item and not q.start_drop) or q.start is None:
             return False  # class, timed and item-started quests are offered separately
-        outside = q.kind == "dungeon" and q.goals and all(g.point and g.point[0] in (0, 1) and not g.instance for g in q.goals)
+        # Outside the instance and not elite: solo-able. Elite objectives (Deviate Hides at the Wailing Caverns mouth) need
+        # the dungeon route (user, 2026-11-14: dungeon quests off, still an elite dungeon quest).
+        outside = q.kind == "dungeon" and q.goals and all(g.point and g.point[0] in (0, 1) and not g.instance and not g.elite for g in q.goals)
         if q.kind and not outside and not (q.kind == "group" and level >= q.level + self.GROUP_SOLO) \
                 and not (q.kind == "dungeon" and self.dungeons):
             return False  # dungeons (unless their objectives are outside, or the route takes dungeons), raids, PvP
@@ -196,7 +198,7 @@ class Shortcuts:
 class RoutePlanner:
     NEAR = 120        # yards: givers this close are the same quest hub (one town)
     TALK = 40         # yards: a turn-in this close is where you stand
-    MAX_ACTIVE = 20   # the quest log holds 20
+    MAX_ACTIVE = 40   # Forever's quest log holds 40 (conquestcapped.com, 2026-11-14; the addon logs the real C_QuestLog.GetMaxNumQuestsCanAccept)
     KILL_SECONDS = 20
     DROP_NEAR = 250   # yards: a quest-starting drop is picked up while working this close to its monsters
     WORTH = 0.5       # a quest must give at least this share of grinding's experience per second (user: fast leveling)
@@ -206,6 +208,18 @@ class RoutePlanner:
     STAY = 0.5        # stay in your zone while its best hub is worth at least half of the best elsewhere
     start_level = 1   # the route can be planned from any level
     DUNGEON_RUN = 2400  # seconds: one dungeon run with a group (finding one, the run, back out)
+    # Batching like RestedXP and Zygor (user, 2026-11-14: "grab a bunch of quests and do them all together"): while you
+    # carry fewer than BATCH quests with objectives left, givers up to PICKUP yards away in your zone come first.
+    # Measured on the Durotar route (6/1200/900 vs none): one-quest trip starts 348 -> 238, objectives per hand-in
+    # round 2.16 -> 2.47, same 73.7 h to 60. Most one-quest trips left: nothing else open in the zone (chains, levels).
+    BATCH = 6
+    PICKUP = 1200
+    TRIP_NEAR = 900  # yards: a quest fits the trip when one of its objectives is this close to one you carry
+    # No long walk for one quest (user, 2026-11-14: "DO NOT MAKE ME WALK FOR ONLY ONE QUEST only if is absolutely
+    # necessary"): an objective farther than LONE_FAR with nothing else you carry near it waits until you're high enough
+    # for the quests around it, while other work exists.
+    LONE_FAR = 700
+    WAIT_LEVELS = 3
 
     def __init__(self, quests, where, eligibility, xp, travel, scorer, zone_plan=None, shortcuts=None, avoid=()):
         self.shortcuts = shortcuts or Shortcuts()
@@ -407,6 +421,59 @@ class RoutePlanner:
                 best, best_value = point, value
         return (best, best_value) if with_value else best
 
+    def _pickup_first(self, todo_points):
+        """A giver to visit before heading out, so the trip does several quests: the nearest one within PICKUP yards in
+        your zone with a quest whose objectives fit the trip (near one you carry), while you carry fewer than BATCH
+        quests. None otherwise."""
+        carrying = sum(1 for goals in self.active.values() if goals)
+        if carrying >= self.BATCH or len(self.active) >= self.MAX_ACTIVE:
+            return None
+        best = None
+        for q in self.quests.values():
+            if q.id in self.active or q.start is None or q.start_drop or q.start[0] != self.pos[0]:
+                continue
+            d = distance(q.start, self.pos)
+            if d <= self.NEAR or d > self.PICKUP or (best and d >= best[0]) or q.start in self.picked:
+                continue
+            if not any(g.point and g.point[0] == t[0] and distance(g.point, t) <= self.TRIP_NEAR for g in q.goals for t in todo_points):
+                continue
+            if self._zone(q.start) != self._zone(self.pos) or not self._hub_ok(q, False):
+                continue
+            # Worth the walk to its giver and back: its experience per added second beats grinding's (a 20 xp quest
+            # next door doesn't hold the route in a poor zone).
+            kills = sum(g.count for g in q.goals if g.kind in ("kill", "collect") and g.mob_level)
+            added = 2 * d / 7.0 + kills * self.KILL_SECONDS + 10 * len(q.goals) + 20
+            xp = self.xp.quest_xp(q.xp, q.level, self.me.level) + sum(
+                g.count * self.xp.kill_xp(self.me.level, g.mob_level) for g in q.goals if g.kind in ("kill", "collect") and g.mob_level)
+            if xp / added < self._grind_rate():
+                continue
+            best = (d, q.start)
+        return best[1] if best else None
+
+    def _area_level(self, qid, goal):
+        """The level at which you can take every quest whose objectives are near this one (up to 4 above its own)."""
+        key = (qid, goal.name, goal.point)
+        if key not in self._area_cache:
+            cap = self.quests[qid].level + 4
+            level = 0
+            for q in self.quests.values():
+                if q.id == qid or q.classes or q.kind or q.level > cap or (q.races and not q.races & self.race_bit):
+                    continue
+                if any(g.point and g.point[0] == goal.point[0] and distance(g.point, goal.point) <= self.TRIP_NEAR for g in q.goals):
+                    level = max(level, q.min_level, q.level - self.eligibility.ABOVE)
+            self._area_cache[key] = level
+        return self._area_cache[key]
+
+    def _waits(self, qid, goal, todo):
+        """True when a far objective, alone among those you carry, should wait for the quests around it."""
+        if not goal.point or distance(goal.point, self.pos) <= self.LONE_FAR:
+            return False
+        if any(g is not goal and g.point and g.point[0] == goal.point[0] and distance(g.point, goal.point) <= self.TRIP_NEAR for _, g in todo):
+            return False
+        area = self._area_level(qid, goal)
+        # Only a short wait (up to WAIT_LEVELS): longer and its quests lose experience (Tirisfal +3.9 h with no limit).
+        return self.me.level < area <= self.me.level + self.WAIT_LEVELS
+
     def _on_the_way(self, stop, target):
         """True when stopping at `stop` adds almost nothing to the walk to `target`."""
         detour = distance(self.pos, stop) + distance(stop, target) - distance(self.pos, target)
@@ -420,15 +487,23 @@ class RoutePlanner:
         self.shortcuts.learn(start)
         self.stretching = False
         self.off_plan = False
+        self.picked = set()  # givers already visited to collect quests (never twice for nothing)
+        self._area_cache = {}
         guard = 0
         while self.me.level < max_level and guard < 50000:
             guard += 1
             self._turn_in_here()
             self._accept_here()
-            todo = [(qid, g) for qid, goals in self.active.items() for g in goals]
+            carried = [(qid, g) for qid, goals in self.active.items() for g in goals]
+            todo = [t for t in carried if not self._waits(t[0], t[1], carried)]  # far lonely ones wait (see LONE_FAR)
             ready = [qid for qid, goals in self.active.items() if not goals]
             nearest_end = min((self.quests[r].end for r in ready), key=lambda p: distance(p, self.pos), default=None)
             if todo:
+                pickup = self._pickup_first([g.point for _, g in todo if g.point])
+                if pickup is not None:
+                    self.picked.add(pickup)
+                    self._go(pickup)  # collect more quests first: one trip for several
+                    continue
                 qid, goal = min(todo, key=lambda t: (distance(t[1].point, self.pos), t[0]))
                 if nearest_end and self._on_the_way(nearest_end, goal.point):
                     self._go(nearest_end)  # a turn-in on the way comes first
@@ -455,6 +530,11 @@ class RoutePlanner:
                     self.stretching, self.off_plan = stretch, not planned
                     break
             self.planned = True
+            if (hub is None or hub == self.pos or distance(hub, self.pos) <= self.NEAR) and carried:
+                # Nothing else to do: the waiting objective after all (better than grinding).
+                qid, goal = min(carried, key=lambda t: (distance(t[1].point, self.pos), t[0]))
+                self._do(qid, goal)
+                continue
             if hub is None:
                 self._grind("no quests fit your level now")
                 continue

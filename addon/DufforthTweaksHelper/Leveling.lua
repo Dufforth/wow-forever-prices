@@ -11,6 +11,7 @@
 -- download (Prices.lua; vendor materials always at the vendor's price), and trainers and
 -- recipe vendors from Classic data (CMaNGOS), so their places are estimates.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Leveling = {}
 DufforthTweaksHelperLeveling = Leveling
 
@@ -20,7 +21,7 @@ local RESALE_SHARE = 0.8 -- the most of a craft's materials that selling it back
 local MIN_WINDOW = 5 -- a learning cost is spread over at least this many points
 local ROW_HEIGHT, VISIBLE_ROWS = 32, 8
 local CAPS = { 75, 150, 225, 300 }
-local RANK_NAMES = { [75] = "Journeyman", [150] = "Expert", [225] = "Artisan" }
+local RANK_NAMES = { [75] = L["Journeyman"], [150] = L["Expert"], [225] = L["Artisan"] }
 
 local function DB()
     DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
@@ -432,10 +433,10 @@ local VIEW_PLAN, VIEW_SHOP = "plan", "shopping"
 
 local COLORS = { orange = "|cffff8040", yellow = "|cffffff00", green = "|cff40c040", gray = "|cff808080" }
 -- Where a material comes from, short and in its own color (the user's choice): AH orange, Vendor blue.
-local SOURCE_WORDS = { vendor = "|cff59b3ffVendor|r", auction = "|cffff9933AH|r", crafted = "|cffccccccCraft it yourself|r" }
+local SOURCE_WORDS = { vendor = L["|cff59b3ffVendor|r"], auction = L["|cffff9933AH|r"], crafted = L["|cffccccccCraft it yourself|r"] }
 Leveling.SOURCE_WORDS = SOURCE_WORDS
-local KIND_WORDS = { known = "|cff40ff40You know it|r", starter = "Comes with the profession", trainer = "Trainer",
-    vendor = "Recipe from a " .. SOURCE_WORDS.vendor, auction = "Recipe on the " .. SOURCE_WORDS.auction }
+local KIND_WORDS = { known = L["|cff40ff40You know it|r"], starter = L["Comes with the profession"], trainer = L["Trainer"],
+    vendor = L["Recipe from a "] .. SOURCE_WORDS.vendor, auction = L["Recipe on the "] .. SOURCE_WORDS.auction }
 
 local function Money(copper)
     return DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(copper) or tostring(copper)
@@ -459,7 +460,7 @@ local function ItemName(id)
     if name then return name end
     if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
     waitingForNames = true
-    return DufforthTweaksHelperDE and DufforthTweaksHelperDE.MaterialName and DufforthTweaksHelperDE.MaterialName(id) or ("Item " .. id)
+    return DufforthTweaksHelperDE and DufforthTweaksHelperDE.MaterialName and DufforthTweaksHelperDE.MaterialName(id) or (L["Item "] .. id)
 end
 
 local function BagCount(id)
@@ -493,7 +494,7 @@ end
 
 local function NearestPlaces(c)
     local talkingTo = UnitName and (UnitName("npc") or UnitName("target")) or nil
-    local here = GetRealZoneText and GetRealZoneText() or ""
+    local here = DufforthTweaksHelperLocale.ZoneName()
     return Leveling.Nearest(c.places, here, talkingTo)
 end
 
@@ -504,10 +505,10 @@ local function LearnLine(c)
     local name, where
     if first then name, where = PlaceText(first) end
     if c.kind == "trainer" then
-        return first and string.format("Trainer %s, %s: %s", name, where, cost) or ("A trainer: " .. cost)
+        return first and string.format(L["Trainer %s, %s: %s"], name, where, cost) or (L["A trainer: "] .. cost)
     end
-    if c.kind == "vendor" and first then return string.format("Recipe from %s, %s: %s", name, where, cost) end
-    return "Recipe on the " .. SOURCE_WORDS.auction .. ": " .. cost
+    if c.kind == "vendor" and first then return string.format(L["Recipe from %s, %s: %s"], name, where, cost) end
+    return L["Recipe on the "] .. SOURCE_WORDS.auction .. ": " .. cost
 end
 
 -- What the list shows: plan steps, or recipes to learn then materials to buy.
@@ -529,7 +530,7 @@ local function AddPlaces(c)
         GameTooltip:AddDoubleLine("    " .. name .. title .. ", " .. where, Money(place.cost), 0.8, 0.8, 0.8, 1, 1, 1)
     end
     if c.kind == "trainer" and not (c.places and c.places[1]) then GameTooltip:AddLine("    A " .. (current.chosen and current.chosen.name or "profession") .. " trainer", 0.8, 0.8, 0.8) end
-    GameTooltip:AddLine("Trainer and vendor places are Classic estimates.", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine(L["Trainer and vendor places are Classic estimates."], 0.6, 0.6, 0.6)
 end
 
 local function ShowRowTooltip(line)
@@ -537,8 +538,8 @@ local function ShowRowTooltip(line)
     if not row then return end
     if row.earlierHeader then
         GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Earlier steps", 1, 0.82, 0)
-        GameTooltip:AddLine("The plan from skill 1 to yours, for looking back. Click to open or fold.", 1, 1, 1, true)
+        GameTooltip:SetText(L["Earlier steps"], 1, 0.82, 0)
+        GameTooltip:AddLine(L["The plan from skill 1 to yours, for looking back. Click to open or fold."], 1, 1, 1, true)
         GameTooltip:Show()
         return
     end
@@ -547,10 +548,10 @@ local function ShowRowTooltip(line)
         local t = row.buy
         if GameTooltip.SetHyperlink then GameTooltip:SetHyperlink("item:" .. t.id) end
         GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine("Needed for this plan", tostring(t.count), 0.45, 0.8, 1, 1, 1, 1)
-        GameTooltip:AddDoubleLine("Cheapest from", SOURCE_WORDS[t.source] or "?", 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine("Each", Money(t.each or 0), 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine("All of them", Money((t.each or 0) * t.count), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Needed for this plan"], tostring(t.count), 0.45, 0.8, 1, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Cheapest from"], SOURCE_WORDS[t.source] or "?", 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Each"], Money(t.each or 0), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["All of them"], Money((t.each or 0) * t.count), 0.8, 0.8, 0.8, 1, 1, 1)
         GameTooltip:Show()
         return
     end
@@ -559,15 +560,15 @@ local function ShowRowTooltip(line)
         local need = part.count * s.crafts
         if GameTooltip.SetHyperlink then GameTooltip:SetHyperlink("item:" .. part.id) end
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(string.format("For %s, skill %d to %d", s.recipe[NAME], s.from, s.to), 0.45, 0.8, 1, true)
-        GameTooltip:AddDoubleLine("Needed", string.format("%d (%d a craft x %d crafts)", need, part.count, s.crafts), 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine("In your bags", tostring(BagCount(part.id)), 0.8, 0.8, 0.8, 1, 1, 1)
-        if row.have then GameTooltip:AddDoubleLine("Counted for this step", string.format("%d/%d", row.have, row.need), 0.8, 0.8, 0.8, 1, 1, 1) end
-        if row.have and row.have < BagCount(part.id) then GameTooltip:AddLine("The rest goes to later steps.", 0.6, 0.6, 0.6) end
-        if row.have and row.have < row.need and BagCount(part.id) > row.have then GameTooltip:AddLine("Earlier steps use the rest of your bags.", 0.6, 0.6, 0.6) end
-        GameTooltip:AddDoubleLine("Cheapest from", SOURCE_WORDS[part.source] or "?", 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine("Each", Money(part.each or 0), 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine("All of them", Money((part.each or 0) * need), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddLine(string.format(L["For %s, skill %d to %d"], s.recipe[NAME], s.from, s.to), 0.45, 0.8, 1, true)
+        GameTooltip:AddDoubleLine(L["Needed"], string.format(L["%d (%d a craft x %d crafts)"], need, part.count, s.crafts), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["In your bags"], tostring(BagCount(part.id)), 0.8, 0.8, 0.8, 1, 1, 1)
+        if row.have then GameTooltip:AddDoubleLine(L["Counted for this step"], string.format("%d/%d", row.have, row.need), 0.8, 0.8, 0.8, 1, 1, 1) end
+        if row.have and row.have < BagCount(part.id) then GameTooltip:AddLine(L["The rest goes to later steps."], 0.6, 0.6, 0.6) end
+        if row.have and row.have < row.need and BagCount(part.id) > row.have then GameTooltip:AddLine(L["Earlier steps use the rest of your bags."], 0.6, 0.6, 0.6) end
+        GameTooltip:AddDoubleLine(L["Cheapest from"], SOURCE_WORDS[part.source] or "?", 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Each"], Money(part.each or 0), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["All of them"], Money((part.each or 0) * need), 0.8, 0.8, 0.8, 1, 1, 1)
         GameTooltip:Show()
         return
     end
@@ -576,26 +577,26 @@ local function ShowRowTooltip(line)
     if GameTooltip.SetHyperlink then GameTooltip:SetHyperlink("item:" .. r[PRODUCT]) end
     GameTooltip:AddLine(" ")
     if row.learn then
-        GameTooltip:AddLine("Learn " .. r[NAME] .. " for skill " .. s.from .. " to " .. s.to, 0.45, 0.8, 1, true)
+        GameTooltip:AddLine(L["Learn "] .. r[NAME] .. L[" for skill "] .. s.from .. " to " .. s.to, 0.45, 0.8, 1, true)
         AddPlaces(c)
         GameTooltip:Show()
         return
     end
-    GameTooltip:AddLine(string.format("Skill %d to %d: about %d crafts of %s", s.from, s.to, s.crafts, r[NAME]), 0.45, 0.8, 1, true)
-    GameTooltip:AddLine(string.format("|cffff8040Orange|r to %d, |cffffff00yellow|r to %d, |cff40c040green|r to %d, |cff808080gray|r from %d",
+    GameTooltip:AddLine(string.format(L["Skill %d to %d: about %d crafts of %s"], s.from, s.to, s.crafts, r[NAME]), 0.45, 0.8, 1, true)
+    GameTooltip:AddLine(string.format(L["|cffff8040Orange|r to %d, |cffffff00yellow|r to %d, |cff40c040green|r to %d, |cff808080gray|r from %d"],
         r[YELLOW], Leveling.Green(r), r[GRAY], r[GRAY]), 0.8, 0.8, 0.8, true)
-    GameTooltip:AddLine(string.format("Chance of a point at %d: %d%%", s.from, math.floor(s.chance * 100 + 0.5)), 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Materials for one craft", 0.45, 0.8, 1)
+    GameTooltip:AddLine(string.format(L["Chance of a point at %d: %d%%"], s.from, math.floor(s.chance * 100 + 0.5)), 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(L["Materials for one craft"], 0.45, 0.8, 1)
     for _, part in ipairs(c.parts) do
-        GameTooltip:AddDoubleLine(string.format("    %dx %s (%s)", part.count, ItemName(part.id), SOURCE_WORDS[part.source] or "?"),
+        GameTooltip:AddDoubleLine(string.format(L["    %dx %s (%s)"], part.count, ItemName(part.id), SOURCE_WORDS[part.source] or "?"),
             Money(part.each * part.count), 0.8, 0.8, 0.8, 1, 1, 1)
     end
-    GameTooltip:AddLine("This step", 0.45, 0.8, 1)
-    GameTooltip:AddDoubleLine("    Materials", Money(s.materials), 0.8, 0.8, 0.8, 1, 1, 1)
-    if s.back > 0 then GameTooltip:AddDoubleLine("    Selling what you make (up to 80% back)", "-" .. Money(s.back), 0.8, 0.8, 0.8, 0.4, 1, 0.4) end
-    if s.learning > 0 then GameTooltip:AddDoubleLine("    Learning it", Money(s.learning), 0.8, 0.8, 0.8, 1, 1, 1) end
-    GameTooltip:AddDoubleLine("    Total", SignedMoney(s.cost), 1, 0.82, 0, 1, 1, 1)
-    GameTooltip:AddLine("How to learn", 0.45, 0.8, 1)
+    GameTooltip:AddLine(L["This step"], 0.45, 0.8, 1)
+    GameTooltip:AddDoubleLine(L["    Materials"], Money(s.materials), 0.8, 0.8, 0.8, 1, 1, 1)
+    if s.back > 0 then GameTooltip:AddDoubleLine(L["    Selling what you make (up to 80% back)"], "-" .. Money(s.back), 0.8, 0.8, 0.8, 0.4, 1, 0.4) end
+    if s.learning > 0 then GameTooltip:AddDoubleLine(L["    Learning it"], Money(s.learning), 0.8, 0.8, 0.8, 1, 1, 1) end
+    GameTooltip:AddDoubleLine(L["    Total"], SignedMoney(s.cost), 1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddLine(L["How to learn"], 0.45, 0.8, 1)
     if c.kind == "known" or c.kind == "starter" then
         GameTooltip:AddLine("    " .. KIND_WORDS[c.kind], 0.8, 0.8, 0.8)
     else
@@ -634,7 +635,7 @@ local function Draw()
             line.rowButton:SetText(craft.label)
             line.rowButton:SetEnabled(craft.enabled and craft.run ~= nil)
         elseif searchable then
-            line.rowButton:SetText("Search")
+            line.rowButton:SetText(L["Search"])
             line.rowButton:SetEnabled(true)
         end
         searchable = searchable or craft ~= nil
@@ -647,33 +648,33 @@ local function Draw()
         if row and row.earlierHeader then
             local open = DB().showEarlier
             line.icon:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up")
-            line.name:SetText(string.format("|cffffd100Earlier steps|r |cffaaaaaa(1-%d, %d steps)|r", row.to, row.count))
-            line.sub:SetText(open and "What the plan had you craft before your skill. Click to fold." or "Click to see what the plan had you craft before your skill.")
+            line.name:SetText(string.format(L["|cffffd100Earlier steps|r |cffaaaaaa(1-%d, %d steps)|r"], row.to, row.count))
+            line.sub:SetText(open and L["What the plan had you craft before your skill. Click to fold."] or L["Click to see what the plan had you craft before your skill."])
             line.cost:SetText(""); line.detail:SetText("")
         elseif row and row.done then
             local s, r = row.step, row.step.recipe
             line.icon:SetTexture(ItemIcon(r[PRODUCT])); line.icon:SetDesaturated(true)
-            line.name:SetText(string.format("|cff808080%d-%d  %s|r", s.from, s.to, r[NAME]))
-            line.sub:SetText(string.format("|cff808080%d crafts. %s|r", s.crafts, LearnLine(s.candidate)))
+            line.name:SetText(string.format(L["|cff808080%d-%d  %s|r"], s.from, s.to, r[NAME]))
+            line.sub:SetText(string.format(L["|cff808080%d crafts. %s|r"], s.crafts, LearnLine(s.candidate)))
             line.cost:SetText("|cff40c040Done|r"); line.detail:SetText("")
         elseif row and row.part then
             local part, s = row.part, row.partOf
             local need, have = row.need, row.have
             line.icon:SetTexture(ItemIcon(part.id))
-            line.name:SetText(string.format("|cffffffff%dx|r %s", need, ItemName(part.id)))
+            line.name:SetText(string.format(L["|cffffffff%dx|r %s"], need, ItemName(part.id)))
             if row.nested then
-                line.sub:SetText(string.format("For %d %s you make: %d each, %s, %s each", row.crafts, ItemName(row.nested.id), part.count,
+                line.sub:SetText(string.format(L["For %d %s you make: %d each, %s, %s each"], row.crafts, ItemName(row.nested.id), part.count,
                     SOURCE_WORDS[part.source] or "?", Money(part.each or 0)))
             else
-                line.sub:SetText(string.format("%d a craft, %s, %s each", part.count, SOURCE_WORDS[part.source] or "?", Money(part.each or 0)))
+                line.sub:SetText(string.format(L["%d a craft, %s, %s each"], part.count, SOURCE_WORDS[part.source] or "?", Money(part.each or 0)))
             end
             line.cost:SetText(Money((part.each or 0) * need))
             line.detail:SetText(string.format(have >= need and "|cff40c040%d/%d|r" or "|cffffffff%d|r/%d", have, need))
         elseif row and row.buy then
             local t = row.buy
             line.icon:SetTexture(ItemIcon(t.id))
-            line.name:SetText(string.format("|cffffffff%dx|r %s", t.count, ItemName(t.id)))
-            line.sub:SetText(string.format("%s, %s each", SOURCE_WORDS[t.source] or "?", Money(t.each or 0)))
+            line.name:SetText(string.format(L["|cffffffff%dx|r %s"], t.count, ItemName(t.id)))
+            line.sub:SetText(string.format(L["%s, %s each"], SOURCE_WORDS[t.source] or "?", Money(t.each or 0)))
             line.cost:SetText(Money((t.each or 0) * t.count))
             line.detail:SetText("")
         elseif row and row.learn then
@@ -686,14 +687,14 @@ local function Draw()
         elseif row then
             local s, r = row.step, row.step.recipe
             line.icon:SetTexture(ItemIcon(r[PRODUCT]))
-            line.name:SetText(string.format("|cffbbbbbb%d-%d|r  %s%s|r", s.from, s.to, COLORS[s.color], r[NAME]))
-            line.sub:SetText(string.format("|cffffffff%d crafts.|r %s", s.crafts, LearnLine(s.candidate)))
+            line.name:SetText(string.format(L["|cffbbbbbb%d-%d|r  %s%s|r"], s.from, s.to, COLORS[s.color], r[NAME]))
+            line.sub:SetText(string.format(L["|cffffffff%d crafts.|r %s"], s.crafts, LearnLine(s.candidate)))
             line.cost:SetText(SignedMoney(s.cost))
-            line.detail:SetText(SignedMoney(math.floor(s.cost / math.max(1, s.to - s.from))) .. " a point")
+            line.detail:SetText(SignedMoney(math.floor(s.cost / math.max(1, s.to - s.from))) .. L[" a point"])
         end
     end
     local last = math.min(offset + VisibleRows(), #rows)
-    panel.pageText:SetText(#rows > VisibleRows() and string.format("%d-%d of %d", offset + 1, last, #rows) or "")
+    panel.pageText:SetText(#rows > VisibleRows() and string.format(L["%d-%d of %d"], offset + 1, last, #rows) or "")
     panel.up:SetEnabled(offset > 0)
     panel.down:SetEnabled(last < #rows)
     panel.planButton:SetEnabled(shopping)
@@ -788,7 +789,7 @@ local function SearchAuctionHouse(id)
     local name = (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)) or (GetItemInfo and GetItemInfo(id))
     if not name then
         if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
-        return nil, "The game is still loading this item. Click Search again in a moment."
+        return nil, L["The game is still loading this item. Click Search again in a moment."]
     end
     if frame and frame.SearchBar then
         if frame.SetDisplayMode and AuctionHouseFrameDisplayMode and AuctionHouseFrameDisplayMode.Buy then
@@ -803,7 +804,7 @@ local function SearchAuctionHouse(id)
         AuctionFrameBrowse_Search()
         return true
     end
-    return nil, "Couldn't reach the auction house search. Search for " .. name .. " by hand."
+    return nil, L["Couldn't reach the auction house search. Search for "] .. name .. L[" by hand."]
 end
 
 local function SpellOf(link)
@@ -818,7 +819,7 @@ local function FindOpenRecipe(spell, name)
             if kind ~= "header" then
                 local id = SpellOf(GetTradeSkillRecipeLink and GetTradeSkillRecipeLink(i))
                 if id == spell or (not id and skillName == name) then
-                    return { available = tonumber(available) or 0, source = "trade skill window", craft = function(n) DoTradeSkill(i, n) end }
+                    return { available = tonumber(available) or 0, source = L["trade skill window"], craft = function(n) DoTradeSkill(i, n) end }
                 end
             end
         end
@@ -826,7 +827,7 @@ local function FindOpenRecipe(spell, name)
     if C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo and C_TradeSkillUI.CraftRecipe then
         local info = C_TradeSkillUI.GetRecipeInfo(spell)
         if info and info.learned ~= false then
-            return { available = tonumber(info.numAvailable) or 0, source = "profession window", craft = function(n) C_TradeSkillUI.CraftRecipe(spell, n) end }
+            return { available = tonumber(info.numAvailable) or 0, source = L["profession window"], craft = function(n) C_TradeSkillUI.CraftRecipe(spell, n) end }
         end
     end
     -- Enchanting's older Craft window makes one per click.
@@ -836,7 +837,7 @@ local function FindOpenRecipe(spell, name)
             if kind ~= "header" then
                 local id = SpellOf((GetCraftRecipeLink and GetCraftRecipeLink(i)) or (GetCraftItemLink and GetCraftItemLink(i)))
                 if id == spell or (not id and craftName == name) then
-                    return { available = tonumber(available) or 0, source = "craft window", once = true, craft = function() DoCraft(i) end }
+                    return { available = tonumber(available) or 0, source = L["craft window"], once = true, craft = function() DoCraft(i) end }
                 end
             end
         end
@@ -873,8 +874,8 @@ local function ShowAtVendor(index)
     local per = MERCHANT_ITEMS_PER_PAGE or 10
     MerchantFrame.page = math.ceil(index / per)
     MerchantFrame_Update()
-    local slot = _G["MerchantItem" .. ((index - 1) % per + 1)]
-    local button = slot and (slot.ItemButton or _G["MerchantItem" .. ((index - 1) % per + 1) .. "ItemButton"]) or slot
+    local slot = _G[L["MerchantItem"] .. ((index - 1) % per + 1)]
+    local button = slot and (slot.ItemButton or _G[L["MerchantItem"] .. ((index - 1) % per + 1) .. "ItemButton"]) or slot
     if button then
         glow = glow or CreateFrame("Frame")
         glow:SetParent(button); glow:ClearAllPoints(); glow:SetAllPoints(button)
@@ -897,12 +898,12 @@ local function SearchRow(row)
     if where.merchant then
         local m = (current.merchant or ReadMerchant())[id]
         if not m then
-            current.status = { at = Now(), text = "|cffffd100This vendor doesn't sell " .. ItemName(id) .. ".|r" }
+            current.status = { at = Now(), text = L["|cffffd100This vendor doesn't sell "] .. ItemName(id) .. ".|r" }
         else
             local unit = Money(math.floor(m.price / math.max(1, m.bundle) + 0.5))
             local shown = ShowAtVendor(m.index)
-            current.status = { at = Now(), text = string.format("|cffffd100%s:|r %s each here, buy %d more%s.", ItemName(id), unit, missing,
-                shown and " (lit up in the vendor window)" or "") }
+            current.status = { at = Now(), text = string.format(L["|cffffd100%s:|r %s each here, buy %d more%s."], ItemName(id), unit, missing,
+                shown and L[" (lit up in the vendor window)"] or "") }
         end
         Leveling.Refresh()
         return
@@ -910,14 +911,16 @@ local function SearchRow(row)
     if not where.auction then return end
     local ok, why = SearchAuctionHouse(id)
     if ok then
-        current.status = { at = Now(), text = string.format("|cffffd100%s:|r buy %d more%s.", ItemName(id), missing,
-            missing > 0 and "" or ", you already have enough") }
+        current.status = { at = Now(), text = string.format(L["|cffffd100%s:|r buy %d more%s."], ItemName(id), missing,
+            missing > 0 and "" or L[", you already have enough"]) }
     else
         current.status = { at = Now(), text = "|cffff5555" .. why .. "|r" }
     end
     Leveling.Refresh()
 end
 Leveling.SearchRow = SearchRow
+Leveling.FindOpenRecipe = FindOpenRecipe -- the Disenchant tab's Craft button
+Leveling.BagCount = BagCount
 Leveling.SearchAuctionHouse = SearchAuctionHouse
 function Leveling.Where() return where end
 
@@ -929,26 +932,26 @@ local function BuildAction(plan)
     if where.merchant then
         local buys, total = Leveling.VendorPlan(Leveling.ShoppingList(plan), Have, ReadMerchant())
         if #buys == 0 then
-            return { label = "Buy", enabled = false, notice = "This vendor sells nothing you still need for the plan.",
-                tip = { "This vendor sells nothing you still need for the plan, or sells it dearer than the list." } }
+            return { label = L["Buy"], enabled = false, notice = L["This vendor sells nothing you still need for the plan."],
+                tip = { L["This vendor sells nothing you still need for the plan, or sells it dearer than the list."] } }
         end
-        local tip = { "Buys what you still need from this vendor, minus what's in your bags:" }
-        for _, b in ipairs(buys) do tip[#tip + 1] = { string.format("%dx %s", b.units, ItemName(b.id)), Money(b.cost) } end
-        tip[#tip + 1] = { "Total", Money(total) }
+        local tip = { L["Buys what you still need from this vendor, minus what's in your bags:"] }
+        for _, b in ipairs(buys) do tip[#tip + 1] = { string.format(L["%dx %s"], b.units, ItemName(b.id)), Money(b.cost) } end
+        tip[#tip + 1] = { L["Total"], Money(total) }
         local short = GetMoney and GetMoney() < total
-        if short then tip[#tip + 1] = "|cffff5555You don't have enough money for all of it: it buys in this order until it runs out.|r" end
+        if short then tip[#tip + 1] = L["|cffff5555You don't have enough money for all of it: it buys in this order until it runs out.|r"] end
         return {
-            label = string.format("Buy %d items", #buys), enabled = not busy, tip = tip,
-            notice = string.format("|cffffd100This vendor sells %d things you need: %s.|r Hover Buy for the list.", #buys, Money(total)),
+            label = string.format(L["Buy %d items"], #buys), enabled = not busy, tip = tip,
+            notice = string.format(L["|cffffd100This vendor sells %d things you need: %s.|r Hover Buy for the list."], #buys, Money(total)),
             run = function()
                 local spent, ranShort = BuyFromMerchant(buys)
                 busyUntil = Now() + 2 -- until your bags update, so a second click can't buy twice
-                return string.format("Bought for %s%s.", Money(spent), ranShort and ", then ran out of money" or "")
+                return string.format(L["Bought for %s%s."], Money(spent), ranShort and L[", then ran out of money"] or "")
             end,
         }
     end
-    if where.auction then return { notice = "Click Search on a material, or the row itself, to open it on the auction house." } end
-    if where.tradeSkill then return { notice = "Click Craft on a step to craft it." } end
+    if where.auction then return { notice = L["Click Search on a material, or the row itself, to open it on the auction house."] } end
+    if where.tradeSkill then return { notice = L["Click Craft on a step to craft it."] } end
 end
 
 -- How many crafts your bags have materials for, from the recipe data (mats are id, count pairs).
@@ -1024,17 +1027,17 @@ local function UpdateProgress()
     bar:SetStatusBarColor(unpack(BAR_COLORS[state]))
     bar.count:SetText(string.format("%d / %d", c.done, c.total))
     if state == "crafting" then
-        bar.label:SetText("Crafting " .. c.name)
-        bar.timeLeft:SetText("about " .. Leveling.Duration(left) .. " left")
+        bar.label:SetText(L["Crafting "] .. c.name)
+        bar.timeLeft:SetText(string.format(L["about %s left"], Leveling.Duration(left)))
     elseif state == "done" then
-        bar.label:SetText("Done: " .. c.name)
-        bar.timeLeft:SetText(c.bagsFull and "|cffffd100bags full|r" or "")
+        bar.label:SetText(L["Done: "] .. c.name)
+        bar.timeLeft:SetText(c.bagsFull and L["|cffffd100bags full|r"] or "")
     else
-        bar.label:SetText("Stopped: " .. c.name)
+        bar.label:SetText(L["Stopped: "] .. c.name)
         bar.timeLeft:SetText("")
     end
     -- Below the bar: when your bags will be full, if before the step is done.
-    bar.note:SetText(c.bagsFull and string.format("Bags full after %d of the %d this step needs: make room to craft the rest.", c.total, c.wanted) or "")
+    bar.note:SetText(c.bagsFull and string.format(L["Bags full after %d of the %d this step needs: make room to craft the rest."], c.total, c.wanted) or "")
     bar:Show()
     ShowHeaderLines(false)
 end
@@ -1074,13 +1077,13 @@ end
 
 -- What the open trainer lists, for the Learn hover: "The trainer lists 12 spells: A, B, C...".
 function Leveling.TrainerSummary()
-    if not (GetNumTrainerServices and GetTrainerServiceInfo) then return "The game gave no trainer list to the addon." end
+    if not (GetNumTrainerServices and GetTrainerServiceInfo) then return L["The game gave no trainer list to the addon."] end
     local n, names = GetNumTrainerServices() or 0, {}
     for i = 1, math.min(n, 6) do
         local serviceName, category = Leveling.ServiceInfo(i)
         if serviceName then names[#names + 1] = serviceName .. (category and category ~= "available" and (" (" .. category .. ")") or "") end
     end
-    return string.format("The trainer lists %d spell%s%s", n, n == 1 and "" or "s", #names > 0 and (": " .. table.concat(names, ", ") .. (n > 6 and "..." or "")) or ".")
+    return string.format(L["The trainer lists %d spell%s%s"], n, n == 1 and "" or "s", #names > 0 and (": " .. table.concat(names, ", ") .. (n > 6 and "..." or "")) or ".")
 end
 
 function Leveling.FindTrainerService(name)
@@ -1105,9 +1108,9 @@ local function CraftState(step)
         if item > 0 and (where.auction or soldHere or c.kind == "auction") then
             local ready = where.auction or soldHere
             return {
-                label = "Search", enabled = ready,
-                tip = { "You don't know " .. r[NAME] .. " yet: it's learned from a recipe item.", LearnLine(c),
-                    ready and "Search opens it so you can buy it." or "Open the auction house to search for it." },
+                label = L["Search"], enabled = ready,
+                tip = { L["You don't know "] .. r[NAME] .. L[" yet: it's learned from a recipe item."], LearnLine(c),
+                    ready and L["Search opens it so you can buy it."] or L["Open the auction house to search for it."] },
                 run = ready and function() SearchRow({ learn = step }) end or nil,
             }
         end
@@ -1115,67 +1118,67 @@ local function CraftState(step)
             local service = Leveling.FindTrainerService(r[NAME])
             if service and service.category == "available" then
                 return {
-                    label = "Learn", enabled = true,
-                    tip = { "Learns " .. r[NAME] .. " from this trainer.", LearnLine(c) },
+                    label = L["Learn"], enabled = true,
+                    tip = { L["Learns "] .. r[NAME] .. L[" from this trainer."], LearnLine(c) },
                     run = function()
                         BuyTrainerService(service.index)
                         -- Counted as known now, so the plan moves on without reopening your profession window.
                         DufforthTweaksHelperCrafting.Known().spells[r[SPELL]] = true
-                        return "Learned " .. r[NAME] .. "."
+                        return L["Learned "] .. r[NAME] .. "."
                     end,
                 }
             end
             if service and service.category == "used" then
                 DufforthTweaksHelperCrafting.Known().spells[r[SPELL]] = true
-                return { label = "Learn", enabled = false, tip = { "You already know " .. r[NAME] .. ". Open your profession window to update the plan." } }
+                return { label = L["Learn"], enabled = false, tip = { L["You already know "] .. r[NAME] .. L[". Open your profession window to update the plan."] } }
             end
             if service then
-                return { label = "Learn", enabled = false, tip = { "This trainer can't teach you " .. r[NAME] .. " yet: your skill or level is too low (the trainer marks it " .. tostring(service.category) .. ").", LearnLine(c) } }
+                return { label = L["Learn"], enabled = false, tip = { L["This trainer can't teach you "] .. r[NAME] .. L[" yet: your skill or level is too low (the trainer marks it "] .. tostring(service.category) .. ").", LearnLine(c) } }
             end
-            return { label = "Learn", enabled = false, tip = { "This trainer doesn't teach " .. r[NAME] .. ". If the trainer list is filtered, show all.", LearnLine(c), Leveling.TrainerSummary() } }
+            return { label = L["Learn"], enabled = false, tip = { L["This trainer doesn't teach "] .. r[NAME] .. L[". If the trainer list is filtered, show all."], LearnLine(c), Leveling.TrainerSummary() } }
         end
         local seen = c.kind == "trainer" and GetNumTrainerServices and (GetNumTrainerServices() or 0) > 0
-        return { label = "Learn", enabled = false, tip = { "You don't know " .. r[NAME] .. " yet.", LearnLine(c),
-            c.kind == "trainer" and "Talk to the trainer and this button learns it." or "This recipe isn't taught by a trainer.",
-            seen and ("|cffff8040The addon didn't get the trainer-opened signal. " .. Leveling.TrainerSummary() .. "|r") or nil } }
+        return { label = L["Learn"], enabled = false, tip = { L["You don't know "] .. r[NAME] .. " yet.", LearnLine(c),
+            c.kind == "trainer" and L["Talk to the trainer and this button learns it."] or L["This recipe isn't taught by a trainer."],
+            seen and (L["|cffff8040The addon didn't get the trainer-opened signal. "] .. Leveling.TrainerSummary() .. "|r") or nil } }
     end
     if not where.tradeSkill then
-        return { label = "Craft", enabled = false, tip = { string.format("Open your %s window to craft %s here.", profession, r[NAME]) } }
+        return { label = L["Craft"], enabled = false, tip = { string.format(L["Open your %s window to craft %s here."], DufforthTweaksHelperLocale.Prof(profession), r[NAME]) } }
     end
-    if Casting() then return { label = "Crafting", enabled = false, tip = { "Crafting now." } } end
+    if Casting() then return { label = "Crafting", enabled = false, tip = { L["Crafting now."] } } end
     local found = FindOpenRecipe(r[SPELL], r[NAME])
     if not found then
-        return { label = "Craft", enabled = false, tip = { r[NAME] .. " isn't in the open window. Open your " .. profession .. " window." } }
+        return { label = L["Craft"], enabled = false, tip = { r[NAME] .. L[" isn't in the open window. Open your "] .. profession .. " window." } }
     end
     local bags = CanMake(r)
     local available = math.max(found.available, bags)
     local count = found.once and math.min(1, available) or Leveling.CraftCount(step, available)
-    local why = string.format("Your bags have materials for %d; the %s says %d.", bags, found.source or "window", found.available)
+    local why = string.format(L["Your bags have materials for %d; the %s says %d."], bags, found.source or "window", found.available)
     -- Bag space: each craft makes r[COUNT] of the product.
     local free, fits = FreeSlots(), nil
     if free then
         fits = Leveling.CraftsThatFit(free, StackSize(r[PRODUCT]), BagCount(r[PRODUCT]), r[COUNT])
-        why = why .. string.format(" Your bags have %d free slots: room for at least %d crafts.", free, fits)
+        why = why .. string.format(L[" Your bags have %d free slots: room for at least %d crafts."], free, fits)
         if fits == 0 and count > 0 then
-            return { label = "Bags full", enabled = false, tip = { "No room in your bags for " .. r[NAME] .. ". Sell, bank or destroy something, then craft.", why } }
+            return { label = L["Bags full"], enabled = false, tip = { L["No room in your bags for "] .. r[NAME] .. L[". Sell, bank or destroy something, then craft."], why } }
         end
     end
     local wanted = count
     if fits and fits < count then count = fits end
     if count == 0 then
-        return { label = "No mats", enabled = false, tip = { "You don't have the materials for one " .. r[NAME] .. ". The rows under this step say what's missing.", why } }
+        return { label = L["No mats"], enabled = false, tip = { L["You don't have the materials for one "] .. r[NAME] .. L[". The rows under this step say what's missing."], why } }
     end
-    local tip = { string.format("Crafts %s %d times: this step needs about %d, your materials allow %d.", r[NAME], count, step.crafts, available), why }
-    if count < wanted then tip[#tip + 1] = string.format("|cffff8040Your bags fill up after %d crafts: make room to craft the other %d.|r", count, wanted - count) end
-    if found.once then tip = { "Crafts one " .. r[NAME] .. ". This window makes one per click.", why } end
+    local tip = { string.format(L["Crafts %s %d times: this step needs about %d, your materials allow %d."], r[NAME], count, step.crafts, available), why }
+    if count < wanted then tip[#tip + 1] = string.format(L["|cffff8040Your bags fill up after %d crafts: make room to craft the other %d.|r"], count, wanted - count) end
+    if found.once then tip = { L["Crafts one "] .. r[NAME] .. L[". This window makes one per click."], why } end
     return {
-        label = "Craft " .. count, enabled = Now() >= busyUntil, tip = tip,
+        label = L["Craft "] .. count, enabled = Now() >= busyUntil, tip = tip,
         run = function()
             found.craft(count)
             crafting = { spell = r[SPELL], name = r[NAME], total = count, done = 0, startedAt = Now(), bagsFull = count < wanted, wanted = wanted }
             UpdateProgress()
             busyUntil = Now() + 1.5 -- until the craft starts, so a second click can't queue it twice
-            return string.format("Crafting %s %d times. The plan updates as you skill up.", r[NAME], count)
+            return string.format(L["Crafting %s %d times. The plan updates as you skill up."], r[NAME], count)
         end,
     }
 end
@@ -1187,7 +1190,7 @@ local function RowButtonClick(row)
         if not (state.enabled and state.run) then return end
         local ok, result = pcall(state.run)
         if not ok or result then -- Search sets its own message
-            current.status = { at = Now(), text = ok and result or ("|cffff5555That didn't work: " .. tostring(result) .. "|r") }
+            current.status = { at = Now(), text = ok and result or (L["|cffff5555That didn't work: "] .. tostring(result) .. "|r") }
         end
         Leveling.Refresh()
         return
@@ -1214,7 +1217,7 @@ function Leveling.Refresh()
         pcall(Draw)
         panel.summary:SetText("")
         panel.notice:SetText("")
-        panel.empty:SetText("|cffff5555The Leveling tab hit an error. Please send this text:|r\n" .. tostring(err))
+        panel.empty:SetText(L["|cffff5555The Leveling tab hit an error. Please send this text:|r\n"] .. tostring(err))
     end
 end
 
@@ -1242,13 +1245,13 @@ RefreshNow = function()
     current.action = nil
     panel.summary:SetText(""); panel.total:SetText(""); panel.notice:SetText(""); panel.empty:SetText("")
     if not chosen then
-        panel.title:SetText("No crafting profession")
-        panel.empty:SetText("Learn a crafting profession at a trainer, then open this tab. Mining levels by mining.")
+        panel.title:SetText(L["No crafting profession"])
+        panel.empty:SetText(L["Learn a crafting profession at a trainer, then open this tab. Mining levels by mining."])
         Draw()
         return
     end
     local skill = mine[chosen.name]
-    panel.title:SetText(string.format("%s  |cffffffff%d / %d|r", chosen.name, skill.rank, skill.max))
+    panel.title:SetText(string.format(L["%s  |cffffffff%d / %d|r"], DufforthTweaksHelperLocale.Prof(chosen.name), skill.rank, skill.max))
     local market = Market()
     local prices = DufforthTweaksHelperPrices and DufforthTweaksHelperPrices[market]
     local known = DufforthTweaksHelperCrafting.Known()
@@ -1256,14 +1259,14 @@ RefreshNow = function()
     current.plan = plan
 
     local notes = current.notes
-    if not prices then notes[#notes + 1] = "|cffff5555No prices for your market (" .. market .. "). Download the addon again from the Forever Prices page.|r" end
-    if known.scanned[chosen.name] ~= true then notes[#notes + 1] = "|cffffd100Open your " .. chosen.name .. " window once so the plan knows your recipes.|r" end
+    if not prices then notes[#notes + 1] = L["|cffff5555No prices for your market ("] .. market .. L["). Download the addon again from the Forever Prices page.|r"] end
+    if known.scanned[chosen.name] ~= true then notes[#notes + 1] = L["|cffffd100Open your "] .. DufforthTweaksHelperLocale.Prof(chosen.name) .. L[" window once so the plan knows your recipes.|r"] end
     if skill.rank >= skill.max and skill.max < 300 then
-        notes[#notes + 1] = string.format("|cffffd100You're at your cap. Train %s at a %s trainer to go past %d.|r", RANK_NAMES[skill.max] or "the next rank", chosen.name, skill.max)
+        notes[#notes + 1] = string.format(L["|cffffd100You're at your cap. Train %s at a %s trainer to go past %d.|r"], RANK_NAMES[skill.max] or L["the next rank"], chosen.name, skill.max)
     elseif plan.stoppedAt then
-        notes[#notes + 1] = string.format("|cffffd100No recipe with prices gives points at %d. Try the options above.|r", plan.stoppedAt)
+        notes[#notes + 1] = string.format(L["|cffffd100No recipe with prices gives points at %d. Try the options above.|r"], plan.stoppedAt)
     elseif skill.max < 300 then
-        notes[#notes + 1] = string.format("At %d, train %s to keep going.", skill.max, RANK_NAMES[skill.max] or "the next rank")
+        notes[#notes + 1] = string.format(L["At %d, train %s to keep going."], skill.max, RANK_NAMES[skill.max] or L["the next rank"])
     end
     current.action = BuildAction(plan)
     if current.action and current.action.notice then table.insert(notes, 1, current.action.notice) end
@@ -1273,17 +1276,17 @@ RefreshNow = function()
     panel.noticeHover:SetShown(#notes > 0)
 
     if #plan.steps == 0 then
-        panel.empty:SetText(#notes > 0 and table.concat(notes, "\n\n") or "Nothing to plan.")
+        panel.empty:SetText(#notes > 0 and table.concat(notes, "\n\n") or L["Nothing to plan."])
         Draw()
         return
     end
-    panel.total:SetText("Total " .. SignedMoney(plan.total))
+    panel.total:SetText(L["Total "] .. SignedMoney(plan.total))
     if options.view == VIEW_SHOP then
         rows = ShoppingRows(plan)
         local buy = 0
         for _, row in ipairs(rows) do if row.buy then buy = buy + (row.buy.each or 0) * row.buy.count end end
-        panel.summary:SetText(string.format("To %d: buy %s of materials%s", plan.reached, Money(buy),
-            plan.learning > 0 and (", learn recipes for " .. Money(plan.learning)) or ""))
+        panel.summary:SetText(string.format(L["To %d: buy %s of materials%s"], plan.reached, Money(buy),
+            plan.learning > 0 and (L[", learn recipes for "] .. Money(plan.learning)) or ""))
     else
         -- Earlier steps (user, 2026-11-14): the plan from 1 up to your skill, folded under one header; open, they show
         -- greyed as done, so you can look back at the whole plan.
@@ -1324,7 +1327,7 @@ RefreshNow = function()
                 end
             end
         end
-        panel.summary:SetText(string.format("To %d: about %d crafts in %d steps", plan.reached, plan.crafts, #plan.steps))
+        panel.summary:SetText(string.format(L["To %d: about %d crafts in %d steps"], plan.reached, plan.crafts, #plan.steps))
     end
     offset = math.max(0, math.min(offset, #rows - VisibleRows()))
     Draw()
@@ -1334,12 +1337,12 @@ local function ShowSummaryTooltip(owner)
     local plan = current.plan
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
     if plan and #plan.steps > 0 then
-        GameTooltip:AddLine(string.format("%s to %d", current.chosen.name, plan.reached), 1, 0.82, 0)
-        GameTooltip:AddDoubleLine("Crafts (about)", tostring(plan.crafts), 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine("Materials", Money(plan.materials), 0.8, 0.8, 0.8, 1, 1, 1)
-        if plan.learning > 0 then GameTooltip:AddDoubleLine("Learning recipes", Money(plan.learning), 0.8, 0.8, 0.8, 1, 1, 1) end
-        if plan.resale > 0 then GameTooltip:AddDoubleLine("Selling what you make", "-" .. Money(plan.resale), 0.8, 0.8, 0.8, 0.4, 1, 0.4) end
-        GameTooltip:AddDoubleLine("Total", SignedMoney(plan.total), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddLine(string.format(L["%s to %d"], current.chosen.name, plan.reached), 1, 0.82, 0)
+        GameTooltip:AddDoubleLine(L["Crafts (about)"], tostring(plan.crafts), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Materials"], Money(plan.materials), 0.8, 0.8, 0.8, 1, 1, 1)
+        if plan.learning > 0 then GameTooltip:AddDoubleLine(L["Learning recipes"], Money(plan.learning), 0.8, 0.8, 0.8, 1, 1, 1) end
+        if plan.resale > 0 then GameTooltip:AddDoubleLine(L["Selling what you make"], "-" .. Money(plan.resale), 0.8, 0.8, 0.8, 0.4, 1, 0.4) end
+        GameTooltip:AddDoubleLine(L["Total"], SignedMoney(plan.total), 1, 0.82, 0, 1, 1, 1)
     end
     for _, note in ipairs(current.notes or {}) do GameTooltip:AddLine(note, 1, 1, 1, true) end
     GameTooltip:Show()
@@ -1417,36 +1420,36 @@ Leveling.LAYOUT = { title = -2, options = -26, views = -52, summary = -78, notic
 -- Builds the tab inside `parent` (the window's Leveling tab).
 function Leveling.BuildPanel(parent, width)
     panel = parent
-    local L = Leveling.LAYOUT
-    panel.prev = SmallButton(parent, "<", 24); panel.prev:SetPoint("TOPLEFT", 4, L.title)
+    local LAY = Leveling.LAYOUT
+    panel.prev = SmallButton(parent, "<", 24); panel.prev:SetPoint("TOPLEFT", 4, LAY.title)
     panel.prev:SetScript("OnClick", function() Cycle(-1) end)
-    Tip(panel.prev, "Previous profession")
-    panel.next = SmallButton(parent, ">", 24); panel.next:SetPoint("TOPRIGHT", -4, L.title)
+    Tip(panel.prev, L["Previous profession"])
+    panel.next = SmallButton(parent, ">", 24); panel.next:SetPoint("TOPRIGHT", -4, LAY.title)
     panel.next:SetScript("OnClick", function() Cycle(1) end)
-    Tip(panel.next, "Next profession")
+    Tip(panel.next, L["Next profession"])
     panel.title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    panel.title:SetPoint("TOP", 0, L.title - 4)
+    panel.title:SetPoint("TOP", 0, LAY.title - 4)
 
     panel.boxes = {
-        Check(parent, 4, L.options, "unlearned", "Include recipes I don't know", "Also plans with recipes you'd still have to learn, when that's cheaper overall: from a trainer, a vendor or the auction house. Learning costs are in the total."),
-        Check(parent, 220, L.options, "resale", "Count selling what I make", "Takes off what you get back by selling each crafted item, at the better of the auction house after the 5% cut or a vendor, up to 80% of its materials (not everything sells). Untick if what you make won't sell."),
+        Check(parent, 4, LAY.options, "unlearned", L["Include recipes I don't know"], L["Also plans with recipes you'd still have to learn, when that's cheaper overall: from a trainer, a vendor or the auction house. Learning costs are in the total."]),
+        Check(parent, 220, LAY.options, "resale", L["Count selling what I make"], L["Takes off what you get back by selling each crafted item, at the better of the auction house after the 5% cut or a vendor, up to 80% of its materials (not everything sells). Untick if what you make won't sell."]),
     }
 
-    panel.planButton = SmallButton(parent, "Plan", 56); panel.planButton:SetPoint("TOPLEFT", 6, L.views)
+    panel.planButton = SmallButton(parent, L["Plan"], 56); panel.planButton:SetPoint("TOPLEFT", 6, LAY.views)
     panel.planButton:SetScript("OnClick", function() SetView(VIEW_PLAN) end)
-    Tip(panel.planButton, "What to craft at each skill, cheapest per point.")
-    panel.shopButton = SmallButton(parent, "Shopping list", 96); panel.shopButton:SetPoint("LEFT", panel.planButton, "RIGHT", 4, 0)
+    Tip(panel.planButton, L["What to craft at each skill, cheapest per point."])
+    panel.shopButton = SmallButton(parent, L["Shopping list"], 96); panel.shopButton:SetPoint("LEFT", panel.planButton, "RIGHT", 4, 0)
     panel.shopButton:SetScript("OnClick", function() SetView(VIEW_SHOP) end)
-    Tip(panel.shopButton, "Everything to buy and learn for the whole plan, most expensive first. At a vendor, the auction house or your profession window, a button next to this buys, searches or crafts it.")
+    Tip(panel.shopButton, L["Everything to buy and learn for the whole plan, most expensive first. At a vendor, the auction house or your profession window, a button next to this buys, searches or crafts it."])
     -- One button for where you are: Buy at a vendor, Search next at the auction house, Craft at
     -- your profession window. Hidden anywhere else.
-    panel.action = SmallButton(parent, "Craft", 116); panel.action:SetPoint("LEFT", panel.shopButton, "RIGHT", 8, 0)
+    panel.action = SmallButton(parent, L["Craft"], 116); panel.action:SetPoint("LEFT", panel.shopButton, "RIGHT", 8, 0)
     panel.action:Hide()
     panel.action:SetScript("OnClick", function()
         local action = current.action
         if not (action and action.enabled and action.run) then return end
         local ok, result = pcall(action.run)
-        current.status = { at = Now(), text = ok and result or ("|cffff5555That didn't work: " .. tostring(result) .. "|r") }
+        current.status = { at = Now(), text = ok and result or (L["|cffff5555That didn't work: "] .. tostring(result) .. "|r") }
         Leveling.Refresh()
     end)
     panel.action:SetScript("OnEnter", function(self)
@@ -1462,15 +1465,15 @@ function Leveling.BuildPanel(parent, width)
     end)
     panel.action:SetScript("OnLeave", function() GameTooltip:Hide() end)
     panel.total = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    panel.total:SetPoint("TOPRIGHT", -8, L.views - 4); panel.total:SetJustifyH("RIGHT")
+    panel.total:SetPoint("TOPRIGHT", -8, LAY.views - 4); panel.total:SetJustifyH("RIGHT")
 
     panel.summary = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    panel.summary:SetPoint("TOPLEFT", 8, L.summary); OneLine(panel.summary, width - 16)
+    panel.summary:SetPoint("TOPLEFT", 8, LAY.summary); OneLine(panel.summary, width - 16)
     panel.notice = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    panel.notice:SetPoint("TOPLEFT", 8, L.notice); OneLine(panel.notice, width - 16)
+    panel.notice:SetPoint("TOPLEFT", 8, LAY.notice); OneLine(panel.notice, width - 16)
     -- Hovering the summary or notice shows the cost breakdown and every note in full.
     panel.noticeHover = CreateFrame("Frame", nil, parent)
-    panel.noticeHover:SetPoint("TOPLEFT", 4, L.summary + 2); panel.noticeHover:SetSize(width - 8, 32)
+    panel.noticeHover:SetPoint("TOPLEFT", 4, LAY.summary + 2); panel.noticeHover:SetSize(width - 8, 32)
     panel.noticeHover:EnableMouse(true)
     panel.noticeHover:SetScript("OnEnter", ShowSummaryTooltip)
     panel.noticeHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1478,7 +1481,7 @@ function Leveling.BuildPanel(parent, width)
     -- batch is crafting (blue), then green when done or red when stopped.
     local bar = CreateFrame("StatusBar", nil, parent)
     panel.progress = bar
-    bar:SetPoint("TOPLEFT", 8, L.summary + 1); bar:SetSize(width - 16, 20)
+    bar:SetPoint("TOPLEFT", 8, LAY.summary + 1); bar:SetSize(width - 16, 20)
     bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     bar:SetStatusBarColor(unpack(BAR_COLORS.crafting))
     bar:SetMinMaxValues(0, 1); bar:SetValue(0)
@@ -1507,16 +1510,16 @@ function Leveling.BuildPanel(parent, width)
     panel.progress:Hide()
 
     panel.empty = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    panel.empty:SetPoint("TOPLEFT", 12, L.rows - 8); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
+    panel.empty:SetPoint("TOPLEFT", 12, LAY.rows - 8); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
 
     -- Rows fill the space down to the page bar.
     local height = parent.GetHeight and parent:GetHeight() or 0
-    local count = height > 0 and math.floor((height + L.rows - 28) / ROW_HEIGHT) or VISIBLE_ROWS
+    local count = height > 0 and math.floor((height + LAY.rows - 28) / ROW_HEIGHT) or VISIBLE_ROWS
     count = 20 -- more than fit; VisibleRows() decides how many show
     for i = 1, count do
         local line = CreateFrame("Button", nil, parent)
         line:SetSize(width - 8, ROW_HEIGHT)
-        line:SetPoint("TOPLEFT", 4, L.rows - (i - 1) * ROW_HEIGHT)
+        line:SetPoint("TOPLEFT", 4, LAY.rows - (i - 1) * ROW_HEIGHT)
         line:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
         line.icon = line:CreateTexture(nil, "ARTWORK")
         line.icon:SetSize(26, 26); line.icon:SetPoint("LEFT", 2, 0)
@@ -1525,7 +1528,7 @@ function Leveling.BuildPanel(parent, width)
         line.detail = line:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         line.detail:SetPoint("BOTTOMRIGHT", -4, 4); line.detail:SetJustifyH("RIGHT")
         local thisLine = line
-        line.rowButton = SmallButton(line, "Search", 58)
+        line.rowButton = SmallButton(line, L["Search"], 58)
         line.rowButton:SetPoint("RIGHT", -4, 0)
         line.rowButton:Hide()
         if line.rowButton.SetMotionScriptsWhileDisabled then line.rowButton:SetMotionScriptsWhileDisabled(true) end
@@ -1537,7 +1540,7 @@ function Leveling.BuildPanel(parent, width)
                 GameTooltip:AddLine(craft.label, 1, 0.82, 0)
                 for _, text in ipairs(craft.tip) do GameTooltip:AddLine(text, 1, 1, 1, true) end
             else
-                GameTooltip:SetText(where.merchant and "Shows this item in the vendor window." or "Opens this item on the auction house. You buy with the game's own buttons.", 1, 1, 1, 1, true)
+                GameTooltip:SetText(where.merchant and L["Shows this item in the vendor window."] or L["Opens this item on the auction house. You buy with the game's own buttons."], 1, 1, 1, 1, true)
             end
             GameTooltip:Show()
         end)
@@ -1551,8 +1554,8 @@ function Leveling.BuildPanel(parent, width)
             local row = thisLine.row
             if not row then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(row.nestFold and (row.folded and "Show what it takes to make it yourself" or "Hide what it takes to make it")
-                or (row.folded and "Show this step's materials" or "Hide this step's materials"), 1, 1, 1, 1, true)
+            GameTooltip:SetText(row.nestFold and (row.folded and L["Show what it takes to make it yourself"] or L["Hide what it takes to make it"])
+                or (row.folded and L["Show this step's materials"] or L["Hide this step's materials"]), 1, 1, 1, 1, true)
             GameTooltip:Show()
         end)
         line.fold:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1585,8 +1588,8 @@ function Leveling.BuildPanel(parent, width)
     panel.pageText = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.pageText:SetPoint("RIGHT", panel.up, "LEFT", -6, 0); panel.pageText:SetJustifyH("RIGHT")
     -- Bottom left: opening this tab with your profession window (on by default).
-    local auto = Check(parent, 4, 0, "openWithProfession", "Open with my profession window",
-        "Opening a profession window (Leatherworking, Tailoring...) also opens this tab on that profession, and closing it closes this window again if it opened it. Hover a row for details; places are Classic estimates.")
+    local auto = Check(parent, 4, 0, "openWithProfession", L["Open with my profession window"],
+        L["Opening a profession window (Leatherworking, Tailoring...) also opens this tab on that profession, and closing it closes this window again if it opened it. Hover a row for details; places are Classic estimates."])
     auto:ClearAllPoints(); auto:SetPoint("BOTTOMLEFT", 2, 2)
     panel.boxes[#panel.boxes + 1] = auto
     parent:EnableMouseWheel(true)

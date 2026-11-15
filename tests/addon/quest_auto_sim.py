@@ -7,6 +7,7 @@ import lupa.lua51 as L
 
 ADDON = Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper"
 lua = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 failed = False
 
 

@@ -107,6 +107,15 @@ class EligibilityTest(unittest.TestCase):
     def ok(self, q, level=5, done=(), active=(), race=ORC, groups=None):
         return self.e.available(q, level=level, done=set(done), active=set(active), race_bit=race, groups=groups or {})
 
+    def test_a_dungeon_quest_with_elite_objectives_outside_needs_the_dungeon_route(self):
+        # User (2026-11-14): dungeon quests off, still "Deviate Hides" (elite deviates at the Wailing Caverns mouth).
+        elite = Goal(kind="collect", name="Deviate Hide", point=(1, 100, 100), count=20, mob_level=18, elite=True)
+        plain = Goal(kind="kill", name="Raptor", point=(1, 100, 100), count=8, mob_level=5)
+        self.assertFalse(self.ok(quest(1, level=5, start=(1, 90, 90), kind="dungeon", goals=[elite])), "elite: not solo, not without dungeons")
+        self.assertTrue(self.ok(quest(1, level=5, start=(1, 90, 90), kind="dungeon", goals=[plain])), "outside and not elite: still fine")
+        self.e.dungeons = True
+        self.assertTrue(self.ok(quest(1, level=5, start=(1, 90, 90), kind="dungeon", goals=[elite])), "the dungeon route takes it")
+
     def test_level_window(self):
         self.assertTrue(self.ok(quest(1, level=7, min_level=5)))
         self.assertFalse(self.ok(quest(1, level=9, min_level=5)), "more than 3 levels above you")
@@ -190,6 +199,42 @@ class RoutePlannerTest(unittest.TestCase):
         k = kinds(steps)
         self.assertLess(k.index(("turnin", 1)), k.index(("do", 2)))
 
+    def test_collects_quests_from_a_nearby_hub_before_heading_out(self):
+        # User (2026-11-14): "after reading Zygor and RestedXP grab a bunch of quests and do them all together"; the route
+        # set out with one quest at a time (1.7 objectives per trip). A second giver 300 yd away is visited first.
+        qs = [quest(1, start=(0, 0, 0), goals=[kill((0, 800, 400))]),
+              quest(2, start=(0, 300, 0), goals=[kill((0, 820, 420), name="Wolf")])]
+        steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=3)
+        k = kinds(steps)
+        self.assertLess(k.index(("accept", 2)), k.index(("do", 1)), k)
+        self.assertEqual(k[k.index(("do", 1)) - 1], ("accept", 2), "both objectives in one trip")
+
+    def test_a_far_lonely_objective_waits_for_the_quests_around_it(self):
+        # User (2026-11-14): "DO NOT MAKE ME WALK FOR ONLY ONE QUEST only if is absolutely necessary" / "wait until I reach
+        # the level needed to do all quests around". Quest 1's objective is far, alone; a level 4 quest is given there.
+        # Another hub has work now: it comes first, and quest 1 is done together with quest 3 later.
+        qs = [quest(1, level=1, start=(0, 0, 0), goals=[kill((0, 0, 1500))]),
+              quest(3, level=4, min_level=3, start=(0, 50, 1450), goals=[kill((0, 0, 1520), name="Wolf")]),
+              quest(2, level=1, start=(0, 0, 400), goals=[kill((0, 0, 450), name="Crab", count=40)], xp=3000)]
+        steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=5)
+        k = kinds(steps)
+        self.assertLess(k.index(("do", 2)), k.index(("do", 1)), k)
+        self.assertEqual(k[k.index(("do", 1)):k.index(("do", 1)) + 3], [("do", 1), ("accept", 3), ("do", 3)],
+                         "quest 1 waits until quest 3 can be taken: one trip for both")
+
+    def test_a_far_lonely_objective_is_still_done_when_nothing_else_is_left(self):
+        qs = [quest(1, level=1, start=(0, 0, 0), goals=[kill((0, 0, 1500))]),
+              quest(3, level=9, min_level=9, start=(0, 50, 1450), goals=[kill((0, 0, 1520), name="Wolf")])]
+        steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=3)
+        self.assertIn(("do", 1), kinds(steps), "no other work: it goes anyway rather than grinding")
+
+    def test_a_far_hub_is_not_worth_the_walk_before_heading_out(self):
+        qs = [quest(1, start=(0, 0, 0), goals=[kill((0, 100, 0))]),
+              quest(2, start=(0, 900, 900), goals=[kill((0, 950, 950), name="Wolf")])]
+        steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=3)
+        k = kinds(steps)
+        self.assertLess(k.index(("do", 1)), k.index(("accept", 2)), k)
+
     def test_leaves_out_other_races_quests(self):
         qs = [quest(1, goals=[kill((0, 100, 0))]), quest(2, races=16, goals=[kill((0, 100, 0))])]
         steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=2)
@@ -211,11 +256,14 @@ class RoutePlannerTest(unittest.TestCase):
         accepted = [s.quest for s in steps if s.kind == "accept"]
         self.assertEqual(accepted[:2], [1, 2], accepted)
 
-    def test_never_more_than_twenty_quests_in_the_log(self):
-        qs = [quest(i, goals=[kill((0, 500 + i, 0))]) for i in range(1, 30)]
+    def test_never_more_quests_than_the_log_holds(self):
+        # Forever's quest log holds 40 (2026-11-14); the limit is the planner's MAX_ACTIVE.
+        qs = [quest(i, goals=[kill((0, 500 + i, 0))]) for i in range(1, 50)]
         p = planner(qs)
         steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=2)
-        self.assertLessEqual(p.most_active, 20)
+        self.assertEqual(p.MAX_ACTIVE, 40)
+        self.assertLessEqual(p.most_active, 40)
+        self.assertGreater(p.most_active, 20, "more than Classic's 20 at once")
 
     def test_every_step_knows_its_level_and_place(self):
         qs = [quest(1, goals=[kill((0, 100, 0))], xp=1000)]

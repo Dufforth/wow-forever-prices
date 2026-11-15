@@ -7,6 +7,7 @@
 -- route's new one. Any other quest is left to you. Hold Shift to do it yourself. On by default; the "Auto" button on the guide or
 -- /dth auto turns it off. Never writes to chat.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Q = {}
 DufforthTweaksHelperQuestAuto = Q
 
@@ -99,8 +100,8 @@ function Q.RecommendReward()
     local pick, why = gear.PickReward(choices)
     if not pick then return nil end
     local c = choices[pick]
-    Q.ShowRecommendation(why == "upgrade" and string.format("Best reward: %s (upgrade, +%.0f points)", c.name, c.gain)
-        or string.format("Best reward: %s (no upgrade: sells for the most)", c.name))
+    Q.ShowRecommendation(why == "upgrade" and string.format(L["Best reward: %s (upgrade, +%.0f points)"], c.name, c.gain)
+        or string.format(L["Best reward: %s (no upgrade: sells for the most)"], c.name))
     return pick, why, c.name
 end
 

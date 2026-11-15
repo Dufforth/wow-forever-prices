@@ -5,6 +5,7 @@
 -- your class (rough leveling weights below). Buffs are compared by score per gold per hour, potions
 -- by health, mana or rage per gold. Prices: the cheaper of the AH (bundled download) and a vendor.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Cons = {}
 DufforthTweaksHelperConsumables = Cons
 
@@ -31,24 +32,24 @@ local KEEP_NEAR = 0.6 -- "best value" must be at least this share of the stronge
 local PER_SECTION = 5
 local PER_ELIXIR_SECTION = 8
 
-local NAMES = { wdmg = "weapon damage", hit = "% hit", str = "Strength", agi = "Agility", sta = "Stamina", int = "Intellect", spi = "Spirit", all = "all stats",
-    ap = "attack power", rap = "ranged attack power", sp = "spell damage", heal = "healing", crit = "% crit", scrit = "% spell crit",
-    armor = "armor", mp5 = "mana every 5 sec", hpmax = "maximum health", hp = "health", mana = "mana", rage = "rage", xp = "% kill experience" }
+local NAMES = { wdmg = L["weapon damage"], hit = L["% hit"], str = L["Strength"], agi = L["Agility"], sta = L["Stamina"], int = L["Intellect"], spi = L["Spirit"], all = L["all stats"],
+    ap = L["attack power"], rap = L["ranged attack power"], sp = L["spell damage"], heal = "healing", crit = L["% crit"], scrit = L["% spell crit"],
+    armor = "armor", mp5 = L["mana every 5 sec"], hpmax = L["maximum health"], hp = "health", mana = "mana", rage = "rage", xp = L["% kill experience"] }
 local ORDER = { "wdmg", "str", "agi", "sta", "int", "spi", "all", "ap", "rap", "sp", "heal", "crit", "hit", "scrit", "armor", "hpmax", "mp5", "hp", "mana", "rage", "xp" }
 Cons.SECTIONS = {
-    { key = "food", title = "Food (Well Fed)" },
-    { key = "elixir", title = "Elixirs, flasks and scrolls" },
-    { key = "weapon", title = "Weapon stones and oils" },
-    { key = "battle", title = "Potions for a fight" },
-    { key = "hp", title = "Healing potions" },
-    { key = "mana", title = "Mana potions" },
-    { key = "rage", title = "Rage potions" },
+    { key = "food", title = L["Food (Well Fed)"] },
+    { key = "elixir", title = L["Elixirs, flasks and scrolls"] },
+    { key = "weapon", title = L["Weapon stones and oils"] },
+    { key = "battle", title = L["Potions for a fight"] },
+    { key = "hp", title = L["Healing potions"] },
+    { key = "mana", title = L["Mana potions"] },
+    { key = "rage", title = L["Rage potions"] },
 }
 
 local ID, NAME, KIND, LEVEL, SECONDS, VENDOR, EFFECTS, WEAPONS = 1, 2, 3, 4, 5, 6, 7, 8
 -- Weapon subclasses (the game's numbers), for the stones' "sharp" and "blunt" weapon lists.
-local WEAPON_NAMES = { [0] = "one-handed axes", [1] = "two-handed axes", [4] = "one-handed maces", [5] = "two-handed maces",
-    [6] = "polearms", [7] = "one-handed swords", [8] = "two-handed swords", [10] = "staves", [13] = "fist weapons", [15] = "daggers" }
+local WEAPON_NAMES = { [0] = L["one-handed axes"], [1] = L["two-handed axes"], [4] = L["one-handed maces"], [5] = L["two-handed maces"],
+    [6] = "polearms", [7] = L["one-handed swords"], [8] = L["two-handed swords"], [10] = "staves", [13] = L["fist weapons"], [15] = "daggers" }
 
 -- Can a stone or oil go on this weapon subclass? Unknown weapon or no list: yes.
 function Cons.FitsWeapon(row, subclass)
@@ -59,7 +60,7 @@ end
 
 function Cons.WeaponList(row)
     local mask, names = row[WEAPONS] or 0, {}
-    if mask == 0 then return "any weapon" end
+    if mask == 0 then return L["any weapon"] end
     for bit = 0, 20 do
         if WEAPON_NAMES[bit] and math.floor(mask / 2 ^ bit) % 2 == 1 then names[#names + 1] = WEAPON_NAMES[bit] end
     end
@@ -81,12 +82,12 @@ end
 
 -- Plain words for a group: "one Strength elixir or scroll at a time".
 function Cons.GroupText(group)
-    if group == "food" then return "one Well Fed food at a time" end
-    if group == "flask" then return "one flask at a time" end
-    if group == "potion" then return "potions share one cooldown" end
-    if group == "weapon" then return "one per weapon; replaces poisons and Windfury" end
+    if group == "food" then return L["one Well Fed food at a time"] end
+    if group == "flask" then return L["one flask at a time"] end
+    if group == "potion" then return L["potions share one cooldown"] end
+    if group == "weapon" then return L["one per weapon; replaces poisons and Windfury"] end
     local stat = group:match("^elixir:(.+)$")
-    return "one " .. (NAMES[stat] or "such") .. " elixir or scroll at a time"
+    return "one " .. (NAMES[stat] or "such") .. L[" elixir or scroll at a time"]
 end
 
 local function Money(copper)
@@ -112,7 +113,7 @@ function Cons.Duration(seconds)
     if not seconds or seconds <= 0 then return "instant" end
     if seconds >= 3600 then return (seconds % 3600 == 0) and (seconds / 3600 .. " h") or string.format("%.1f h", seconds / 3600) end
     if seconds >= 60 then return math.floor(seconds / 60 + 0.5) .. " min" end
-    return seconds .. " sec"
+    return seconds .. L[" sec"]
 end
 
 -- How much a buff helps this class: the sum of effect x weight (experience and restores aside).
@@ -317,8 +318,8 @@ Cons.FOOD_CLICKS = { "LeftButtonDown", "LeftButtonUp" }
 -- No food in your bags, at the auction house: a click searches the food to buy (once, on the release).
 function Cons.FoodPostClick(self, mouseButton, down)
     if down or mouseButton ~= "LeftButton" or self.food or not self.buy then return end
-    local L = DufforthTweaksHelperLeveling
-    if L and L.SearchAuctionHouse then pcall(L.SearchAuctionHouse, self.buy.row[ID]) end
+    local LV = DufforthTweaksHelperLeveling
+    if LV and LV.SearchAuctionHouse then pcall(LV.SearchAuctionHouse, self.buy.row[ID]) end
 end
 
 local foodButton
@@ -341,12 +342,12 @@ local function FoodButton()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if self.buy and not self.food then
             if GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.buy.row[ID]) end
-            GameTooltip:AddLine("You have no Well Fed food. Click to find this one on the auction house: the most for your gold for your class. Right-drag to move.", 0.45, 0.8, 1, true)
+            GameTooltip:AddLine(L["You have no Well Fed food. Click to find this one on the auction house: the most for your gold for your class. Right-drag to move."], 0.45, 0.8, 1, true)
             GameTooltip:Show()
             return
         end
         if self.food and GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.food[ID]) end
-        GameTooltip:AddLine("Click to eat. Well Fed adds +5% kill experience on Forever and lasts 15 min. Right-drag to move it.", 0.45, 0.8, 1, true)
+        GameTooltip:AddLine(L["Click to eat. Well Fed adds +5% kill experience on Forever and lasts 15 min. Right-drag to move it."], 0.45, 0.8, 1, true)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -366,8 +367,8 @@ function Cons.FoodToBuy(data, class, level, prices)
 end
 
 local function AtAuction()
-    local L = DufforthTweaksHelperLeveling
-    return L and L.Where and L.Where().auction or false
+    local LV = DufforthTweaksHelperLeveling
+    return LV and LV.Where and LV.Where().auction or false
 end
 
 function Cons.UpdateFoodReminder()
@@ -396,12 +397,12 @@ function Cons.UpdateFoodReminder()
     b.food, b.buy = food, buy
     -- Saved for diagnosis (DufforthTweaksHelperDB.consumables.lastCheck).
     Options().lastCheck = { at = time and time() or 0, on = state.on and true or false, wellFed = state.wellFed or false,
-        eating = state.eating or false, level = level, class = class, food = food and food[NAME] or "none in bags" }
+        eating = state.eating or false, level = level, class = class, food = food and food[NAME] or L["none in bags"] }
     if food then
         b:SetAttribute("type1", "item")
         b:SetAttribute("item1", "item:" .. food[ID])
         b.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(food[ID])) or (GetItemIcon and GetItemIcon(food[ID])) or "Interface\\Icons\\INV_Misc_Food_15")
-        b.label:SetText("|cffffd100Eat:|r " .. food[NAME])
+        b.label:SetText(L["|cffffd100Eat:|r "] .. food[NAME])
         b:Show()
     elseif buy then
         -- Not an item to use: the click searches the auction house (PostClick), so no secure action.
@@ -410,7 +411,7 @@ function Cons.UpdateFoodReminder()
         local row = buy.row
         b.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(row[ID])) or (GetItemIcon and GetItemIcon(row[ID])) or "Interface\\Icons\\INV_Misc_Food_15")
         local money = DufforthTweaksHelperDE and DufforthTweaksHelperDE.Money and DufforthTweaksHelperDE.Money(buy.price) or tostring(buy.price)
-        b.label:SetText("|cffff9933Buy:|r " .. row[NAME] .. " " .. money)
+        b.label:SetText(L["|cffff9933Buy:|r "] .. row[NAME] .. " " .. money)
         b:Show()
     else
         b:Hide()
@@ -419,13 +420,13 @@ end
 
 -- Edit mode: show the eat button with an example, drag with either button, no eating while placing it.
 if DufforthTweaksHelper and DufforthTweaksHelper.RegisterMovable then
-    DufforthTweaksHelper.RegisterMovable({ label = "Eat button", get = FoodButton,
+    DufforthTweaksHelper.RegisterMovable({ label = L["Eat button"], get = FoodButton,
         enter = function(b)
             b:RegisterForClicks()
             b:RegisterForDrag("LeftButton", "RightButton")
             if not b:IsShown() then
                 b.icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
-                b.label:SetText("|cffffd100Eat:|r (your food)")
+                b.label:SetText(L["|cffffd100Eat:|r (your food)"])
             end
             b:Show()
         end,
@@ -481,7 +482,7 @@ local function Toggle(key)
     Cons.Refresh()
 end
 local SOURCE = { vendor = "|cff59b3ffVendor|r", auction = "|cffff9933AH|r" }
-local BADGE = { best = "|cff9ad99aBest of its kind|r", strongest = "|cffffd100Strongest|r", kit = "|cff40ff40Recommended|r" }
+local BADGE = { best = L["|cff9ad99aBest of its kind|r"], strongest = "|cffffd100Strongest|r", kit = "|cff40ff40Recommended|r" }
 
 local function PlayerClass()
     local name, token -- "x and f()" would keep only f's first value
@@ -510,8 +511,8 @@ local function Icon(id)
 end
 
 local function AtAuction()
-    local L = DufforthTweaksHelperLeveling
-    return L and L.Where and L.Where().auction or false
+    local LV = DufforthTweaksHelperLeveling
+    return LV and LV.Where and LV.Where().auction or false
 end
 
 -- Right-hand column: next to the Search button when it shows, at the edge otherwise. Name and
@@ -561,7 +562,7 @@ function Cons.Refresh()
     if not panel then return end
     local class, className = PlayerClass()
     local level = UnitLevel and UnitLevel("player") or 1
-    panel.title:SetText(string.format("Consumables for your %s, level %d", className, level))
+    panel.title:SetText(string.format(L["Consumables for your %s, level %d"], className, level))
     local advice = Cons.Advice(DufforthTweaksHelperConsumableData, class, level, Prices(), MainHand())
     rows = {}
     local kit = Cons.Kit(advice)
@@ -573,15 +574,15 @@ function Cons.Refresh()
             copy.kit = true
             copies[#copies + 1] = copy
         end
-        Section("cons:kit", "Use together: these buffs stack", "One of each kind. Potions are for different moments: they share a cooldown.", copies)
+        Section("cons:kit", L["Use together: these buffs stack"], L["One of each kind. Potions are for different moments: they share a cooldown."], copies)
     end
     for _, s in ipairs(Cons.SECTIONS) do
         local list = advice[s.key]
         if #list.rows > 0 then
-            Section("cons:" .. s.key, s.title, list.unpriced > 0 and string.format("%d more without a price", list.unpriced) or nil, list.rows)
+            Section("cons:" .. s.key, s.title, list.unpriced > 0 and string.format(L["%d more without a price"], list.unpriced) or nil, list.rows)
         end
     end
-    panel.empty:SetText(#rows == 0 and "No consumable with a price helps your class at your level yet. Prices come with the addon download." or "")
+    panel.empty:SetText(#rows == 0 and L["No consumable with a price helps your class at your level yet. Prices come with the addon download."] or "")
     offset = math.min(offset, math.max(0, #rows - Shown()))
     Draw()
 end
@@ -593,31 +594,31 @@ local function ShowRow(line)
     GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
     if GameTooltip.SetItemByID then GameTooltip:SetItemByID(item[ID]) else GameTooltip:SetText(item[NAME]) end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(Cons.Describe(item[EFFECTS]) .. (item[SECONDS] > 0 and (" for " .. Cons.Duration(item[SECONDS])) or ""), 0.45, 0.8, 1, true)
-    GameTooltip:AddDoubleLine("Price", Money(r.price) .. " " .. (SOURCE[r.source] or ""), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddLine(Cons.Describe(item[EFFECTS]) .. (item[SECONDS] > 0 and (L[" for "] .. Cons.Duration(item[SECONDS])) or ""), 0.45, 0.8, 1, true)
+    GameTooltip:AddDoubleLine(L["Price"], Money(r.price) .. " " .. (SOURCE[r.source] or ""), 0.8, 0.8, 0.8, 1, 1, 1)
     local section = Cons.Section(item, class)
     if section == "hp" or section == "mana" or section == "rage" then
-        GameTooltip:AddDoubleLine("Per gold", string.format("%d %s", math.floor(r.value + 0.5), NAMES[section]), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(L["Per gold"], string.format("%d %s", math.floor(r.value + 0.5), NAMES[section]), 0.8, 0.8, 0.8, 1, 1, 1)
     else
-        GameTooltip:AddDoubleLine("Worth to a " .. className, string.format("%.1f points", r.power), 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddDoubleLine(item[KIND] == "potion" and "Points per gold per use" or "Points per gold per hour", string.format("%.0f", r.value), 0.8, 0.8, 0.8, 1, 1, 1)
-        GameTooltip:AddLine("Points: each stat times how much it helps your class (Strength counts 1 for a warrior). Rough leveling weights.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddDoubleLine(L["Worth to a "] .. className, string.format(L["%.1f points"], r.power), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(item[KIND] == "potion" and L["Points per gold per use"] or L["Points per gold per hour"], string.format("%.0f", r.value), 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddLine(L["Points: each stat times how much it helps your class (Strength counts 1 for a warrior). Rough leveling weights."], 0.6, 0.6, 0.6, true)
     end
-    GameTooltip:AddLine("Stacking: " .. Cons.GroupText(Cons.Group(item)) .. ". Different kinds stack.", 0.8, 0.8, 0.8, true)
-    if item[KIND] == "weapon" then GameTooltip:AddLine("Goes on: " .. Cons.WeaponList(item) .. ".", 0.8, 0.8, 0.8, true) end
-    if r.kit then GameTooltip:AddLine("Recommended: part of the set to use together, the most for your gold in its kind.", 0.25, 1, 0.25, true)
-    elseif r.badge == "best" then GameTooltip:AddLine("Best of its kind: the most for your gold among the strong ones you can use. Not in the set above, because other kinds give more for the gold.", 0.6, 0.85, 0.6, true)
-    elseif r.badge == "strongest" then GameTooltip:AddLine("Strongest you can use, but it costs more for what it gives.", 1, 0.82, 0, true) end
-    if item[EFFECTS].xp then GameTooltip:AddLine("Forever's Well Fed food also adds kill experience while you level.", 0.6, 0.6, 0.6, true) end
+    GameTooltip:AddLine(L["Stacking: "] .. Cons.GroupText(Cons.Group(item)) .. L[". Different kinds stack."], 0.8, 0.8, 0.8, true)
+    if item[KIND] == "weapon" then GameTooltip:AddLine(L["Goes on: "] .. Cons.WeaponList(item) .. ".", 0.8, 0.8, 0.8, true) end
+    if r.kit then GameTooltip:AddLine(L["Recommended: part of the set to use together, the most for your gold in its kind."], 0.25, 1, 0.25, true)
+    elseif r.badge == "best" then GameTooltip:AddLine(L["Best of its kind: the most for your gold among the strong ones you can use. Not in the set above, because other kinds give more for the gold."], 0.6, 0.85, 0.6, true)
+    elseif r.badge == "strongest" then GameTooltip:AddLine(L["Strongest you can use, but it costs more for what it gives."], 1, 0.82, 0, true) end
+    if item[EFFECTS].xp then GameTooltip:AddLine(L["Forever's Well Fed food also adds kill experience while you level."], 0.6, 0.6, 0.6, true) end
     GameTooltip:Show()
 end
 
 -- At the auction house, a click opens the item there.
 local function ClickRow(line)
     local r = line.row
-    local L = DufforthTweaksHelperLeveling
-    if not r or r.header or not (L and L.SearchAuctionHouse and L.Where and L.Where().auction) then return end
-    L.SearchAuctionHouse(r.row[ID])
+    local LV = DufforthTweaksHelperLeveling
+    if not r or r.header or not (LV and LV.SearchAuctionHouse and LV.Where and LV.Where().auction) then return end
+    LV.SearchAuctionHouse(r.row[ID])
 end
 
 function Cons.BuildPanel(parent, width)
@@ -626,7 +627,7 @@ function Cons.BuildPanel(parent, width)
     panel.title:SetPoint("TOPLEFT", 8, -4)
     panel.legend = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.legend:SetPoint("TOPLEFT", 8, -22); panel.legend:SetWidth(width - 16); panel.legend:SetJustifyH("LEFT")
-    panel.legend:SetText("Only what helps your class. |cff40ff40Recommended|r: the set to use together. Hover for why; at the AH, Search opens it.")
+    panel.legend:SetText(L["Only what helps your class. |cff40ff40Recommended|r: the set to use together. Hover for why; at the AH, Search opens it."])
     panel.empty = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     panel.empty:SetPoint("TOPLEFT", 12, TOP - 8); panel.empty:SetWidth(width - 24); panel.empty:SetJustifyH("LEFT")
     local height = parent.GetHeight and parent:GetHeight() or 0
@@ -653,11 +654,11 @@ function Cons.BuildPanel(parent, width)
         -- At the auction house: Search opens this item there, and you buy with the game's buttons.
         local thisLine = line
         line.search = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
-        line.search:SetSize(58, 20); line.search:SetPoint("RIGHT", -4, 0); line.search:SetText("Search")
+        line.search:SetSize(58, 20); line.search:SetPoint("RIGHT", -4, 0); line.search:SetText(L["Search"])
         line.search:SetScript("OnClick", function() pcall(ClickRow, thisLine) end)
         line.search:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Opens this item on the auction house. You buy with the game's own buttons.", 1, 1, 1, 1, true)
+            GameTooltip:SetText(L["Opens this item on the auction house. You buy with the game's own buttons."], 1, 1, 1, 1, true)
             GameTooltip:Show()
         end)
         line.search:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -679,12 +680,12 @@ function Cons.BuildPanel(parent, width)
     local box = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     box:SetSize(22, 22); box:SetPoint("BOTTOMLEFT", 2, 2)
     box.label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    box.label:SetPoint("LEFT", box, "RIGHT", 2, 0); box.label:SetText("Remind me to eat (Well Fed: +5% XP)")
+    box.label:SetPoint("LEFT", box, "RIGHT", 2, 0); box.label:SetText(L["Remind me to eat (Well Fed: +5% XP)"])
     box:SetChecked(Options().foodReminder)
     box:SetScript("OnClick", function(self) Options().foodReminder = self:GetChecked() and true or false; pcall(Cons.UpdateFoodReminder) end)
     box:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Out of combat, when you aren't Well Fed, a button shows your best food in your bags for your class. One click eats it.", 1, 1, 1, 1, true)
+        GameTooltip:SetText(L["Out of combat, when you aren't Well Fed, a button shows your best food in your bags for your class. One click eats it."], 1, 1, 1, 1, true)
         GameTooltip:Show()
     end)
     box:SetScript("OnLeave", function() GameTooltip:Hide() end)

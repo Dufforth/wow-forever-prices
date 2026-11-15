@@ -6,10 +6,11 @@
 -- The game only lists your recipes while a profession window is open, so open each
 -- profession once and the tab marks which recipes you know.
 
+local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local Crafting = {}
 DufforthTweaksHelperCrafting = Crafting
 
-local GEAR_PROFESSIONS = "Blacksmithing, Engineering, Leatherworking and Tailoring"
+local GEAR_PROFESSIONS = L["Blacksmithing, Engineering, Leatherworking and Tailoring"]
 local ROW_HEIGHT, MAX_ROWS = 32, 16
 -- Rows that fit the panel (the window can be short or tall); 9 when the height is unknown.
 local panel
@@ -175,58 +176,132 @@ end)
 -- ---- The tab ----
 local lines, rows, offset = {}, {}, 0
 
+-- The rows to show: each recipe, then each of its materials under it (user, 2026-11-15: "i dont see the mats needed under
+-- each item"). { {result = r} or {part = p, of = r} }.
+function Crafting.DisplayRows(results)
+    local out = {}
+    for _, r in ipairs(results or {}) do
+        out[#out + 1] = { result = r }
+        for _, p in ipairs(r.parts or {}) do out[#out + 1] = { part = p, of = r } end
+    end
+    return out
+end
+
+-- What a row's Search looks for: the item (one) or the material (the count for one craft).
+function Crafting.SearchItem(row)
+    if not row then return nil end
+    if row.part then return row.part.id, row.part.count end
+    if row.result then return row.result.product, 1 end
+end
+
+-- "(have 5)": green when it's enough for one craft, red when it's short (user, 2026-11-15).
+function Crafting.HaveText(have, need)
+    return string.format(L["%s(have %d)|r"], (have or 0) >= (need or 0) and "|cff40ff40" or "|cffff5555", have or 0)
+end
+
+-- The recipe in the open profession window ({ available, craft(n) }), or nil.
+function Crafting.CraftFor(result)
+    local lv = DufforthTweaksHelperLeveling
+    if not (result and lv and lv.FindOpenRecipe) then return nil end
+    local ok, found = pcall(lv.FindOpenRecipe, result.spell, result.name)
+    return ok and found or nil
+end
+
+local function Have(id)
+    local lv = DufforthTweaksHelperLeveling
+    return lv and lv.BagCount and (tonumber((lv.BagCount(id))) or 0) or 0
+end
+
+local function SearchHere()
+    local where = DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.Where and DufforthTweaksHelperLeveling.Where()
+    return where and (where.auction or where.merchant) and true or false
+end
+
 local function QualityColor(quality)
     local c = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
     return c and c.hex or "|cff1eff00"
 end
 
-local SOURCE_WORDS = { vendor = "vendor", auction = "auction", crafted = "you craft it" }
+local SOURCE_WORDS = { vendor = L["vendor"], auction = L["auction"], crafted = L["you craft it"] }
 
 local function LearnText(result)
-    if result.known then return "|cff40ff40you know it|r" end
-    if result.learn == 0 then return "trainer" end
-    if result.learn and result.learn > 0 then return "recipe item" end
-    return "how to learn not known"
+    if result.known then return L["|cff40ff40you know it|r"] end
+    if result.learn == 0 then return L["trainer"] end
+    if result.learn and result.learn > 0 then return L["recipe item"] end
+    return L["how to learn not known"]
 end
 
 local function ShowRowTooltip(line)
     local r = line.result
-    if not r then return end
+    if not r then
+        local p = line.row and line.row.part
+        if p and GameTooltip.SetHyperlink then
+            GameTooltip:SetOwner(line, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink("item:" .. p.id); GameTooltip:Show()
+        end
+        return
+    end
     local Money = DufforthTweaksHelperDE.Money
     GameTooltip:SetOwner(line, "ANCHOR_RIGHT")
     if GameTooltip.SetHyperlink then GameTooltip:SetHyperlink("item:" .. r.product) end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Profit if you disenchant it", (r.profit >= 0 and "|cff40ff40+" or "|cffff5555-") .. Money(math.abs(r.profit)) .. "|r", 0.45, 0.8, 1)
-    GameTooltip:AddDoubleLine("    Disenchant value (average)", Money(r.value), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("    Materials cost", Money(r.cost), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddLine("Materials", 0.45, 0.8, 1)
+    GameTooltip:AddDoubleLine(L["Profit if you disenchant it"], (r.profit >= 0 and "|cff40ff40+" or "|cffff5555-") .. Money(math.abs(r.profit)) .. "|r", 0.45, 0.8, 1)
+    GameTooltip:AddDoubleLine(L["    Disenchant value (average)"], Money(r.value), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddDoubleLine(L["    Materials cost"], Money(r.cost), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddLine(L["Materials"], 0.45, 0.8, 1)
     for _, part in ipairs(r.parts) do
         local name = DufforthTweaksHelperDE.MaterialName(part.id)
-        GameTooltip:AddDoubleLine(string.format("    %dx %s |cff999999(%s)|r", part.count, name, SOURCE_WORDS[part.source] or "no price"),
-            part.each and Money(part.each * part.count) or "no price", 0.8, 0.8, 0.8, 1, 1, 1)
+        GameTooltip:AddDoubleLine(string.format(L["    %dx %s |cff999999(%s)|r"], part.count, name, SOURCE_WORDS[part.source] or L["no price"]),
+            part.each and Money(part.each * part.count) or L["no price"], 0.8, 0.8, 0.8, 1, 1, 1)
     end
-    local skill = r.skill > 0 and (r.profession .. " " .. r.skill) or (r.profession .. ", skill not known")
-    GameTooltip:AddDoubleLine("Needs", skill, 0.45, 0.8, 1, 1, 1, 1)
-    local learn = r.known and "You know it" or r.learn == 0 and "A profession trainer"
-        or (r.learn and r.learn > 0) and DufforthTweaksHelperDE.MaterialName(r.learn) or "Not known; check Wowhead"
-    GameTooltip:AddDoubleLine("Learn from", learn, 0.45, 0.8, 1, 1, 1, 1)
-    if r.ah then GameTooltip:AddDoubleLine("Or sell it on the auction house", Money(r.ah * 0.95), 0.8, 0.8, 0.8, 1, 1, 1) end
+    local skill = r.skill > 0 and (r.profession .. " " .. r.skill) or (r.profession .. L[", skill not known"])
+    GameTooltip:AddDoubleLine(L["Needs"], skill, 0.45, 0.8, 1, 1, 1, 1)
+    local learn = r.known and L["You know it"] or r.learn == 0 and L["A profession trainer"]
+        or (r.learn and r.learn > 0) and DufforthTweaksHelperDE.MaterialName(r.learn) or L["Not known; check Wowhead"]
+    GameTooltip:AddDoubleLine(L["Learn from"], learn, 0.45, 0.8, 1, 1, 1, 1)
+    if r.ah then GameTooltip:AddDoubleLine(L["Or sell it on the auction house"], Money(r.ah * 0.95), 0.8, 0.8, 0.8, 1, 1, 1) end
     GameTooltip:Show()
 end
 
 local function Draw()
     for i, line in ipairs(lines) do
-        local r = i <= VisibleRows() and rows[i + offset] or nil
-        line.result = r
-        line:SetShown(r ~= nil)
-        if r then
-            local Money = DufforthTweaksHelperDE.Money
-            line.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(r.product)) or (GetItemIcon and GetItemIcon(r.product)) or "Interface\\Icons\\INV_Misc_QuestionMark")
-            line.name:SetText(QualityColor(r.quality) .. r.name .. "|r")
-            line.sub:SetText(string.format("%s %s, %s", r.profession, r.skill > 0 and r.skill or "?", LearnText(r)))
-            line.profit:SetText((r.profit >= 0 and "|cff40ff40+" or "|cffff5555-") .. Money(math.abs(r.profit)) .. "|r")
-            line.detail:SetText("cost " .. Money(r.cost))
+        local row = i <= VisibleRows() and rows[i + offset] or nil
+        local r = row and row.result
+        line.row, line.result = row, r
+        line:SetShown(row ~= nil)
+        local Money = DufforthTweaksHelperDE.Money
+        local function icon(id) return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)) or (GetItemIcon and GetItemIcon(id)) or "Interface\\Icons\\INV_Misc_QuestionMark" end
+        -- Text anchored to the row, not the icon, so a small material icon doesn't squeeze its two lines together.
+        local function place(iconLeft, iconSize)
+            line.icon:ClearAllPoints(); line.icon:SetPoint("LEFT", iconLeft, 0); line.icon:SetSize(iconSize, iconSize)
+            local x = iconLeft + iconSize + 6
+            line.name:ClearAllPoints(); line.name:SetPoint("TOPLEFT", line, "TOPLEFT", x, -2)
+            line.sub:ClearAllPoints(); line.sub:SetPoint("BOTTOMLEFT", line, "BOTTOMLEFT", x, 3)
         end
+        local craft = r and Crafting.CraftFor(r)
+        if line.craft then
+            line.craft.found = craft
+            if craft then line.craft:SetText(string.format(L["Craft (%d)"], craft.available or 0)) end
+            line.craft:SetShown(craft ~= nil)
+        end
+        if r then
+            place(2, 26)
+            line.icon:SetTexture(icon(r.product))
+            line.name:SetText(QualityColor(r.quality) .. r.name .. "|r")
+            line.sub:SetText(string.format("%s %s, %s", DufforthTweaksHelperLocale.Prof(r.profession), r.skill > 0 and r.skill or "?", LearnText(r)))
+            line.profit:SetText((r.profit >= 0 and "|cff40ff40+" or "|cffff5555-") .. Money(math.abs(r.profit)) .. "|r")
+            line.detail:SetText(L["cost "] .. Money(r.cost))
+        elseif row and row.part then
+            -- A material under its item, indented.
+            local p = row.part
+            place(26, 18)
+            line.icon:SetTexture(icon(p.id))
+            line.name:SetText(string.format("|cffffffff%dx|r %s %s", p.count, DufforthTweaksHelperDE.MaterialName(p.id), Crafting.HaveText(Have(p.id), p.count)))
+            line.sub:SetText(string.format("%s, %s", SOURCE_WORDS[p.source] or L["no price"], p.each and (Money(p.each) .. L[" each"]) or L["no price"]))
+            line.profit:SetText("")
+            line.detail:SetText(p.each and Money(p.each * p.count) or "")
+        end
+        -- Search at the auction house or a vendor, like the Leveling tab (user, 2026-11-15).
+        if line.search then line.search:SetShown(row ~= nil and SearchHere()) end
     end
     panel.up:SetEnabled(offset > 0)
     panel.down:SetEnabled(offset + VisibleRows() < #rows)
@@ -238,7 +313,8 @@ function Crafting.Refresh()
     local professions = DufforthTweaksHelper.Professions and DufforthTweaksHelper.Professions() or nil
     local known = Crafting.Known()
     local market = Market()
-    rows = Crafting.Recommend(professions or {}, known, options, market, DufforthTweaksHelperPrices)
+    local results = Crafting.Recommend(professions or {}, known, options, market, DufforthTweaksHelperPrices)
+    rows = Crafting.DisplayRows(results)
     offset = math.max(0, math.min(offset, #rows - VisibleRows()))
     for _, box in ipairs(panel.boxes) do box:SetChecked(options[box.key] and true or false) end
 
@@ -253,26 +329,26 @@ function Crafting.Refresh()
         end
     end
     table.sort(mine)
-    local text = "Your professions: " .. (#mine > 0 and table.concat(mine, ", ") or "none found")
+    local text = L["Your professions: "] .. (#mine > 0 and table.concat(mine, ", ") or L["none found"])
     if #unchecked > 0 then
         table.sort(unchecked)
-        text = text .. "\n|cffffd100Open your " .. table.concat(unchecked, " and ") .. " window once so this list knows your recipes.|r"
+        text = text .. L["\n|cffffd100Open your "] .. table.concat(unchecked, " and ") .. L[" window once so this list knows your recipes.|r"]
     end
     panel.status:SetText(text)
 
     local empty = ""
     if not professions then
-        empty = "The game didn't share your professions. Open this tab again in a moment."
+        empty = L["The game didn't share your professions. Open this tab again in a moment."]
     elseif not crafting then
-        empty = "None of your professions make gear that can be disenchanted. Those are " .. GEAR_PROFESSIONS .. "."
+        empty = L["None of your professions make gear that can be disenchanted. Those are "] .. GEAR_PROFESSIONS .. "."
     elseif not (DufforthTweaksHelperPrices and DufforthTweaksHelperPrices[market]) then
-        empty = "This download has no prices for your market (" .. market .. "). Download the addon again from the Forever Prices page."
-    elseif #rows == 0 then
-        empty = options.onlyProfit and "Nothing you can craft makes a profit when disenchanted right now. Untick \"Only profitable\" to see the rest."
-            or "No recipes match. Try \"Show recipes above my skill\"."
+        empty = L["This download has no prices for your market ("] .. market .. L["). Download the addon again from the Forever Prices page."]
+    elseif #results == 0 then
+        empty = options.onlyProfit and L["Nothing you can craft makes a profit when disenchanted right now. Untick \"Only profitable\" to see the rest."]
+            or L["No recipes match. Try \"Show recipes above my skill\"."]
     end
     panel.empty:SetText(empty)
-    panel.count:SetText(#rows > 0 and string.format("%d recipes, best profit first", #rows) or "")
+    panel.count:SetText(#results > 0 and string.format(L["%d recipes, best profit first"], #results) or "")
     Draw()
 end
 
@@ -304,9 +380,9 @@ function Crafting.BuildPanel(parent, width)
     panel.status = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.status:SetPoint("TOPLEFT", 6, -4); panel.status:SetWidth(width - 12); panel.status:SetJustifyH("LEFT")
     panel.boxes = {
-        Check(parent, 4, -34, "onlyKnown", "Only recipes I know", "Hides recipes you don't know yet, once you've opened that profession's window. Untick to see what's worth learning."),
-        Check(parent, 150, -34, "onlyProfit", "Only profitable", "Hides recipes whose materials cost more than the disenchant materials are worth."),
-        Check(parent, 270, -34, "showHigher", "Above my skill", "Also shows recipes that need more skill than you have."),
+        Check(parent, 4, -34, "onlyKnown", L["Only recipes I know"], L["Hides recipes you don't know yet, once you've opened that profession's window. Untick to see what's worth learning."]),
+        Check(parent, 150, -34, "onlyProfit", L["Only profitable"], L["Hides recipes whose materials cost more than the disenchant materials are worth."]),
+        Check(parent, 270, -34, "showHigher", L["Above my skill"], L["Also shows recipes that need more skill than you have."]),
     }
     panel.count = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.count:SetPoint("TOPLEFT", 8, -60)
@@ -332,6 +408,22 @@ function Crafting.BuildPanel(parent, width)
         line.profit:SetPoint("TOPRIGHT", -4, -2); line.profit:SetJustifyH("RIGHT")
         line.detail = line:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         line.detail:SetPoint("BOTTOMRIGHT", -4, 3); line.detail:SetJustifyH("RIGHT")
+        line.search = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
+        line.search:SetSize(56, 18); line.search:SetPoint("RIGHT", line, "RIGHT", -80, 0); line.search:SetText(L["Search"])
+        line.search:SetScript("OnClick", function()
+            local id, need = Crafting.SearchItem(line.row)
+            local lv = DufforthTweaksHelperLeveling
+            if id and lv and lv.SearchRow then pcall(lv.SearchRow, { part = { id = id, count = need }, partOf = { crafts = 1 } }) end
+        end)
+        line.search:Hide()
+        -- Craft one, while the profession window is open (user, 2026-11-15: "craft to DE does not have a craft button").
+        line.craft = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
+        line.craft:SetSize(72, 18); line.craft:SetPoint("RIGHT", line.search, "LEFT", -4, 0); line.craft:SetText(L["Craft"])
+        line.craft:SetScript("OnClick", function()
+            local c = line.craft.found
+            if c and c.craft then pcall(c.craft, 1) end
+        end)
+        line.craft:Hide()
         line:SetScript("OnEnter", ShowRowTooltip)
         line:SetScript("OnLeave", function() GameTooltip:Hide() end)
         line:EnableMouseWheel(true)
@@ -343,6 +435,6 @@ function Crafting.BuildPanel(parent, width)
     end
     local note = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     note:SetPoint("BOTTOMLEFT", 6, 4); note:SetWidth(width - 12); note:SetJustifyH("LEFT")
-    note:SetText("Profit = average disenchant value minus materials. Vendor materials always use the vendor's price. Hover a row for details.")
+    note:SetText(L["Profit = average disenchant value minus materials. Vendor materials always use the vendor's price. Hover a row for details."])
     parent:HookScript("OnShow", Crafting.Refresh)
 end

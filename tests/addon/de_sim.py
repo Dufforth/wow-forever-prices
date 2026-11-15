@@ -39,6 +39,7 @@ DufforthTweaksHelperPrices = { at = NOW - 3600, ["forever.normal.horde.us"] = { 
 """
 
 lua = L.LuaRuntime(unpack_returned_tuples=True)
+for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
 lua.execute(MOCK)
 lua.execute(SRC)
 g = lua.globals()
