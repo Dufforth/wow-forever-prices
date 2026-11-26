@@ -34,6 +34,7 @@ local function tooltip(name)
   return t
 end
 GameTooltip = tooltip("GameTooltip")
+CreateFrame = function() local f = { events = {}, scripts = {} }; function f:RegisterEvent(e) self.events[e] = true end; function f:SetScript(k, v) self.scripts[k] = v end; MOD_FRAME = f; return f end
 DufforthTweaksHelper = { MarketName = function() return "forever.normal.horde.us" end }
 DufforthTweaksHelperPrices = { at = NOW - 3600, ["forever.normal.horde.us"] = { [11083] = 1000, [11082] = 4000, [11084] = 6000, [20725] = 90000 } }
 """
@@ -47,8 +48,8 @@ DE = g.DufforthTweaksHelperDE
 fails = []
 
 
-def check(name, ok):
-    print(("ok   " if ok else "FAIL ") + name)
+def check(name, ok, detail=None):
+    print(("ok   " if ok else "FAIL ") + name + ("" if ok or detail is None else f"   [{detail}]"))
     if not ok:
         fails.append(name)
 
@@ -79,7 +80,6 @@ check("skill: epic 60 needs 200", DE.SkillNeeded(item(4, 60, 4)) == 200)
 market = "forever.normal.horde.us"
 shipped = g.DufforthTweaksHelperPrices
 check("bundled price for this market", DE.Price(11084, market, shipped) == 6000)
-check("no price for another market", DE.Price(11084, "forever.pvp.horde.us", shipped) is None)
 check("no price for an unlisted item", DE.Price(10940, market, shipped) is None)
 
 # Average for the level-30 helm with download prices: 75% x1.5 x1000 + 20% x1.5 x4000 + 5% x1 x6000, after 5%.
@@ -87,53 +87,123 @@ expected = (0.75 * 1.5 * 1000 + 0.2 * 1.5 * 4000 + 0.05 * 6000) * 0.95
 value = DE.ExpectedValue(armor, lua.eval("function(id) return DufforthTweaksHelperPrices['forever.normal.horde.us'][id] end"))
 check("average value matches the page's formula", abs(value - expected) < 1e-6)
 
-def tip(it, skill=10):
-    lines, advice = DE.TooltipLines(it, market, shipped, 1000000, skill)
+def tip(it, skill=300, **opts):
+    o = lua.table_from(opts) if opts else None
+    res = DE.TooltipLines(it, market, shipped, 1000000, skill, o)
+    lines, advice = res if isinstance(res, tuple) else (res, None)
+    if lines is None:
+        return None, None, advice
     return [lines[i][1] for i in range(1, len(lines) + 1)], lines, advice
 
 
-texts, lines, advice = tip(item(2, 30, 4))
-check("header names the skill needed", texts[0] == "Disenchants into (Enchanting 50)")
-check("header turns red below the skill", lines[1][3] == 1 and lines[1][4] < 1)
-check("one line per material, as before", "75%  1-2x Soul Dust" in texts[1] and "5%  1x Large Glimmering Shard" in texts[3])
-check("average value line", texts[4] == "  Average value")
-check("no repeated vendor or auction lines", not any("Vendor" in t or "Auction" in t for t in texts))
-check("last line is the tag, green for disenchant", texts[5] == "Best: disenchant it (needs Enchanting 50)" and lines[6][3] < 0.5 and lines[6][4] == 1 and len(texts) == 6)
-check("enough skill: no 'needs' note", tip(item(2, 30, 4), 300)[0][5] == "Best: disenchant it")
+def right(lines, i):
+    return str(lines[i][2])
+
+
+helm = item(2, 30, 4)
+texts, lines, advice = tip(helm)
+check("verdict first: Best: Disenchant with ~value", texts[0] == "Best: Disenchant" and right(lines, 1).startswith("~") and advice.key == "de")
+check("verdict green for disenchant", lines[1][3] < 0.5 and lines[1][4] == 1)
+check("details: one disenchant line, no odds by default", texts[1:] == ["  Disenchant (average)"], texts)
+check("disenchant detail shows the value", right(lines, 2).startswith("~"))
+texts, lines, _ = tip(helm, odds=True)
+check("odds on: one line per material", "75%  1-2x Soul Dust" in texts[2] and "5%  1x Large Glimmering Shard" in texts[4], texts)
+texts, _, _ = tip(helm, details=False, odds=True)
+check("verdict only: one line", texts == ["Best: Disenchant"], texts)
+texts, _, _ = tip(helm, shift=True)
+check("hold Shift: verdict and a hint", texts == ["Best: Disenchant", "  Hold Shift for details"], texts)
+texts, _, _ = tip(helm, shift=True, shiftDown=True)
+check("Shift held: details, no hint", texts == ["Best: Disenchant", "  Disenchant (average)"], texts)
+
+# Without the skill: disenchanting isn't your option, but it's still worth knowing.
+texts, lines, advice = tip(helm, skill=False)
+check("no Enchanting, nothing else: verdict says the skill it needs", texts[0] == "Best: Disenchant (Enchanting 50)" and advice.key == "de", texts)
+check("no Enchanting: detail line notes the skill", "  Disenchant (needs Enchanting 50)" in texts, texts)
+low = item(2, 15, 4)
+shipped[market][10940] = 100; shipped[market][10938] = 300
+texts, _, _ = tip(low, skill=False)
+check("no Enchanting at all, even for level 1 items", texts[0] == "Best: Disenchant (Enchanting 1)", texts)
 
 rich = item(2, 30, 4); rich.id = 7; rich.sellPrice = 50
 shipped[market][7] = 100000
-texts, lines, advice = tip(rich, 300)
-check("sells for more on the AH: gold tag", advice.key == "ah" and texts[-1] == "Best: sell on the auction house" and lines[len(texts)][3] == 1 and lines[len(texts)][5] == 0)
+texts, lines, advice = tip(rich)
+check("sells for more on the AH: gold verdict with the price after the cut", advice.key == "ah" and texts[0] == "Best: Auction house"
+      and "9g" in right(lines, 1) and "50s" in right(lines, 1) and lines[1][3] == 1 and lines[1][5] == 0, texts)
+check("details: auction, vendor and disenchant, aligned prices", texts[1:] == ["  Auction house (after 5% cut)", "  Vendor", "  Disenchant (average)"], texts)
+texts, _, _ = tip(rich, skill=10)
+check("lacking the skill and disenchant isn't best: no disenchant line", "  Disenchant (average)" not in texts and not any("needs Enchanting" in t for t in texts), texts)
 rich.sellPrice = 999999
-texts, lines, advice = tip(rich, 300)
-check("a vendor pays most: gray tag", advice.key == "vendor" and texts[-1] == "Best: sell to a vendor")
+texts, lines, advice = tip(rich)
+check("a vendor pays most: gray verdict", advice.key == "vendor" and texts[0] == "Best: Vendor")
 rich.sellPrice = 50; rich.bindType = 1
-check("Bind on Pickup can't go to the AH", tip(rich, 300)[2].key == "de")
+check("Bind on Pickup can't go to the AH", tip(rich)[2].key == "de")
 check("advice ties go to the least work", DE.Advice(100, 100, 100).key == "vendor" and DE.Advice(None, None, None) is None)
 
+# Anything with an auction price gets the advice, not only gear.
+cloth = item(1, 5, 7, ""); cloth.id = 8; cloth.sellPrice = 13; cloth.stack = 20
+shipped[market][8] = 200
+texts, lines, advice = tip(cloth)
+check("materials: auction house vs vendor for everyone", texts[0] == "Best: Auction house" and advice.key == "ah" and "each" in right(lines, 1), texts)
+check("materials: no disenchant line", not any("Disenchant" in t for t in texts), texts)
+cloth.id = 9
+check("no auction price and can't be disenchanted: no lines", tip(cloth)[0] is None)
+check("cloth without a price gets no lines", DE.TooltipLines(item(1, 5, 7), market, shipped, 1000000, None) is None)
+
 shipped.at = 1000000 - 3 * 86400
-texts, _, _ = tip(item(2, 30, 4))
-check("old prices say how old they are", texts[4] == "  Average value (prices 3 days old)")
-texts, lines, _ = tip(item(4, 60, 4), 300)
-check("epic: no chance shown when certain", texts[1] == "  1x Nexus Crystal" and lines[1][3] != 1)
-check("cloth gets no lines", DE.TooltipLines(item(1, 5, 7), market, shipped, 1000000, None) is None)
+texts, _, _ = tip(helm)
+check("old prices say how old they are", texts[-1] == "  Prices are 3 days old", texts)
+shipped.at = 1000000 - 3600
 
 # Real tooltip hooks: the fallback path adds lines once per item.
 GT = g.GameTooltip
 GT.id = 1
 g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
 g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
-check("tooltip gets the lines once", len(GT.lines) == 6)
+check("tooltip gets the lines once", len(GT.lines) >= 1 and GT.lines[1].startswith("Best: "), list(GT.lines.values()))
+n_once = len(GT.lines)
 g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
 GT.lines = lua.table()
 GT.id = 6
 g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
-check("cloth tooltip untouched", len(GT.lines) == 0)
+check("cloth without a price: tooltip untouched", len(GT.lines) == 0)
+
+# Another PC: Forever has no global GetItemInfo (another addon, GearQuest Forever, adds it on the user's PC).
+lua.execute("OLD_GII = GetItemInfo; GetItemInfo = nil; C_Item = { GetItemInfo = OLD_GII, RequestLoadItemDataByID = function(id) REQUESTED = id end }")
+g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
+GT.lines = lua.table(); GT.id = 1
+g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
+check("no global GetItemInfo: the advice still shows (C_Item.GetItemInfo)", len(GT.lines) == n_once, list(GT.lines.values()))
+g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
+GT.lines = lua.table(); GT.id = 4242
+g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
+check("item not cached yet: asks the game to load it", g.REQUESTED == 4242 and len(GT.lines) == 0)
+lua.execute("GetItemInfo = nil; C_Item = nil")
+g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
+GT.lines = lua.table(); GT.id = 1
+ok = lua.eval("function(f, t) return (pcall(f, t)) end")(g.HOOKS["GameTooltip:OnTooltipSetItem"], GT)
+check("no item API at all: no error, no lines", ok and len(GT.lines) == 0)
+lua.execute("GetItemInfo = OLD_GII")
+
+# Settings in DufforthTweaksHelperDB.deTooltip.
 g.DufforthTweaksHelperDB = lua.table()
+O = DE.TooltipOptions()
+check("settings default: details on, odds off, Shift off", O.details is True and O.odds is False and O.shift is False)
+O.details = False
+g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
+GT.lines = lua.table(); GT.id = 1
+g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
+check("verdict-only setting: one tooltip line", len(GT.lines) == 1, list(GT.lines.values()))
+check("Shift changes refresh the tooltip", g.MOD_FRAME is not None and g.MOD_FRAME.events["MODIFIER_STATE_CHANGED"] is True)
+
+# Prices for a market that isn't in the download: the same ruleset and faction in the US, then normal.
+check("EU market falls back to the US prices", DE.Price(11084, "forever.normal.horde.eu", shipped) == 6000)
+check("missing ruleset falls back to normal", DE.Price(11084, "forever.pvp.horde.us", shipped) == 6000)
+check("no fallback across factions", DE.Price(11084, "forever.normal.alliance.us", shipped) is None)
+
 DE.Toggle("off")
 GT.id = 2
 g.HOOKS["GameTooltip:OnTooltipCleared"](GT)
+GT.lines = lua.table()
 g.HOOKS["GameTooltip:OnTooltipSetItem"](GT)
 check("off means no lines", len(GT.lines) == 0 and "OFF" in g.CHAT[1])
 

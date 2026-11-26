@@ -151,6 +151,37 @@ check("rows: the trip's rows are in step order (user, 2026-11-15: 390, 373, 368 
 lua.execute("TM3 = G.NewModel(DATA, 'Trip', GAME({ level = 5, log = { [70] = true, [71] = true, [72] = true, [73] = true }, zone = 'Durotar', pos = { 'Durotar', 75, 95 } }), { skipped = {} }); FB3 = TM3:Blocks(3, true)")
 order3 = [lua.eval(f"FB3[{k}][1]") for k in range(1, lua.eval("FB3.trip") + 1)]
 check("rows: in step order even when you stand by a later objective", order3 == sorted(order3) and lua.eval("TM3:Current()") == 2, (order3, lua.eval("TM3:Current()")))
+# Only your zone, and a limit that fits the screen (user, 2026-11-15 screenshot: Barrens steps 393 and 476 in the trip while in
+# Hillsbrad, 12 cards).
+lua.execute("""
+DATA.quests[74] = { "Far Zone", 5, 1, 0, "", 0, 0, "A", { "The Barrens", 50, 50 }, "A", { "The Barrens", 50, 50 },
+  { { "kill", "Raptor", 5, "The Barrens", 40, 40, "", 1, {}, 5, 6, 0 } }, {}, 0, 2 }
+DATA.routes.Zones = { races = {}, steps = {} }
+for k = 1, 9 do table.insert(DATA.routes.Zones.steps, { "do", 70, "Durotar", 45 + k, 65, 5, "", 1 }) end
+table.insert(DATA.routes.Zones.steps, 3, { "do", 74, "The Barrens", 40, 40, 5, "", 1 })
+table.insert(DATA.routes.Zones.steps, { "turnin", 70, "Durotar", 50, 50, 6, "" })
+ZM = G.NewModel(DATA, "Zones", GAME({ level = 5, log = { [70] = true, [74] = true }, zone = "Durotar" }), { skipped = {} })
+ZB = ZM:Blocks(2, true)
+""")
+zsteps = [lua.eval(f"ZB[{k}][1]") for k in range(1, lua.eval("ZB.trip") + 1)]
+check("rows: no steps from another zone in the trip", 3 not in zsteps, zsteps)
+check("rows: at most 6 trip cards", lua.eval("ZB.trip") <= 6, lua.eval("ZB.trip"))
+lua.execute("DATA.quests[74] = nil; DATA.routes.Zones = nil")
+# The current step stays until it's done (user, 2026-11-15: "the quest log is changing while I'm moving so I cannot finish any
+# quest").
+lua.execute("""
+POS = { 'Durotar', 45, 65 }
+SG = GAME({ level = 5, log = { [70] = true, [71] = true, [72] = true, [73] = true }, zone = 'Durotar' })
+SG.position = function() return POS[1], POS[2], POS[3] end
+SM = G.NewModel(DATA, 'Trip', SG, { skipped = {} })
+FIRST = SM:Current()
+POS = { 'Durotar', 75, 95 }
+AFTER_MOVE = SM:Current()
+SM.saved.skipped[FIRST] = true
+AFTER_DONE = SM:Current()
+""")
+check("sticky: walking toward another objective doesn't change your step", lua.eval("AFTER_MOVE") == lua.eval("FIRST"), (lua.eval("FIRST"), lua.eval("AFTER_MOVE")))
+check("sticky: once it's done, the nearest one is next", lua.eval("AFTER_DONE") == 2, lua.eval("AFTER_DONE"))
 check("rows: one step per block", all(lua.eval(f"#FB[{k}]") == 1 for k in range(1, lua.eval("#FB") + 1)), [lua.eval(f"#FB[{k}]") for k in range(1, lua.eval("#FB") + 1)])
 check("rows: every trip step is there, then the next ones", lua.eval("FB.trip") == 4 and lua.eval("#FB") == 5 and lua.eval("TM2.steps[FB[5][1]][1]") == "turnin", (lua.eval("FB.trip"), lua.eval("#FB")))
 lua.execute("DATA.routes.Trip = nil")
@@ -522,7 +553,7 @@ def legs(zone):
     d = lua.eval("F:Directions(1)")
     return [str(d[k].text) for k in sorted(d)] if d else []
 far = legs("Durotar")
-check("directions: other continent, the zeppelin first", len(far) == 3 and far[0] == "Go to Orgrimmar (zeppelin)", far)
+check("directions: other continent, the zeppelin first", len(far) == 3 and far[0] == "Go to Orgrimmar: Undercity zeppelin", far)
 check("directions: which zeppelin to take", far[1] == "Zeppelin to Undercity", far)
 check("directions: then fly to the flight point near the step", far[2] == "Fly to Hillsbrad Foothills" and lua.eval("F:Directions(1)[3].zone") == "Undercity", far)
 near = legs("Tirisfal Glades")
@@ -936,6 +967,18 @@ check("bar: wide, everything shows", "zone" in str(box.progress.label.text) and 
 ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 290, 520); box.grip.scripts.OnMouseUp(box.grip)")
 check("bar: narrow, the zone part still shows", "1-3 Durotar" in str(box.progress.label.text) or "Durotar" in str(box.progress.label.text),
       box.progress.label.text)
+# Flying (user, 2026-11-21 screenshot: "Flying to Camp Taurajo, The Barrens: landing in 1:40" over "17-20 The Barrens"):
+# the flight ticker refits the bar each second instead of only swapping the right-hand text.
+ui.execute("""
+FNOW = 2000; SAVED_GT = GetTime; GetTime = function() return FNOW end
+UnitOnTaxi = function() return true end
+GU.FlightStarted("Crossroads", "Camp Taurajo, The Barrens", 100)
+FNOW = 2001; GU.FlightCheck()
+""")
+fits = ui.eval("{BAR_FITS()}")
+check("flying, 290 wide: the flight time doesn't overlap the zone", fits[1] is True and "1:39" in str(box.progress.pace.text),
+      (fits[2], fits[3], box.progress.label.text, box.progress.pace.text))
+ui.execute("GU.flight = nil; GetTime = SAVED_GT; UnitOnTaxi = nil")
 ui.execute("GU.PaceText = SAVED_PACE; GU.TextWidth = nil; box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 420, 520); box.grip.scripts.OnMouseUp(box.grip)")
 
 # Questie's data as a fallback place (user, 2026-11-14), through its loader; nothing breaks without Questie.
@@ -1293,7 +1336,7 @@ i = lua2.eval("M:Current()")
 step = lua2.eval(f"DATA.routes['Mulgore'].steps[{i}]")
 print("     real: current step", i, step[1], step[3], "level", step[6], "|", step[7])
 check("real data: level 14 Tauren Druid in the Barrens starts near its level, not back in Mulgore",
-      step[3] != "Mulgore" and 11 <= step[6] <= 17, f"{step[3]} level {step[6]}")
+      step[3] != "Mulgore" and 10 <= step[6] <= 17, f"{step[3]} level {step[6]}")  # 10: Forever's Barrens quests (Questie data, 2026-11-16) start there
 check("real data: quests in the log are worked on, not accepted again", not (step[1] == "accept" and step[2] in LOG))
 # A simulated playthrough of each real route: a character does exactly what the guide says.
 lua2.execute("""

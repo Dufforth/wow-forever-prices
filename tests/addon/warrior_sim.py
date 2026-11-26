@@ -124,7 +124,8 @@ def steps_text():
 
 # Level 1: Battle Stance, Heroic Strike, Battle Shout.
 setup(["Attack", "Battle Stance", "Heroic Strike", "Battle Shout"], [2457])
-check("level 1 macro is written", update() is True and g.CREATES == 1)
+check("level 1: both macros are written (single target and AoE)", update() is True and g.CREATES == 2
+      and g.MACROS[W.MACRO_NAME] is not None and g.MACROS[W.MACRO_AOE] is not None)
 check("level 1: attack, shout, Heroic Strike", macro() == "/startattack\n/castsequence reset=combat Battle Shout,nil\n/cast [form:1] Heroic Strike")
 
 # Level 12: Defensive Stance and some battle spells; Execute and Revenge not yet.
@@ -135,7 +136,7 @@ check("Charge before the fight (off the global cooldown, rejected harmlessly whe
 check("one global-cooldown line per stance: Overpower in Battle, Sunder then Heroic Strike in Defensive",
       "/cast [form:1] Overpower" in lines and "/castsequence [form:2] Sunder Armor,Heroic Strike" in lines)
 check("no Intercept, Whirlwind or Execute before you learn them", not any(x in macro() for x in ("Intercept", "Whirlwind", "Execute", "Mortal")))
-check("an update to the existing macro edits it", g.EDITS == 1 and g.CREATES == 1)
+check("an update to the existing macros edits them", g.EDITS >= 1 and g.CREATES == 2)
 check("Rend once per pull in Battle Stance, before the stance lines",
       lines.index("/castsequence [form:1] reset=combat Rend,nil") < lines.index("/castsequence [form:2] Sunder Armor,Heroic Strike"))
 check("no hidden button: everything is in the one macro", "/click" not in macro())
@@ -161,7 +162,9 @@ picks = W.ButtonPick(W.ParseMacro("/startattack\n/cast [form:1] Execute\n/cast [
 check("icon: Bloodrage is never the pick (Heroic Strike shows while Execute waits)", picks[0] == "Heroic Strike" if isinstance(picks, tuple) else picks == "Heroic Strike")
 setup(["Battle Stance", "Berserker Stance", "Whirlwind", "Heroic Strike"], [2457, 2458])
 update()
-check("Berserker on slot 2 uses form:2", "/castsequence [form:2] Whirlwind,Heroic Strike" in macro())
+check("Berserker on slot 2: Whirlwind is AoE, so the single button only has Heroic Strike there",
+      "Whirlwind" not in macro() and "/cast [form:1/2] Heroic Strike" in macro())
+check("Berserker on slot 2: the AoE button has Whirlwind in form:2", "/cast [form:2] Whirlwind" in g.MACROS[W.MACRO_AOE])
 
 # Everything learned.
 ALL = ["Battle Stance", "Defensive Stance", "Berserker Stance", "Heroic Strike", "Battle Shout", "Charge", "Intercept",
@@ -179,7 +182,15 @@ check("Berserker Stance: Bloodthirst then Heroic Strike", "/castsequence [form:3
 check("level 60 macro still fits", len(body) <= 255)
 g.IsInGroup = lambda: True
 update()
-check("in a group: Cleave instead of Heroic Strike", "Cleave" in macro() and "Heroic Strike" not in macro())
+check("in a group the single button still never uses Cleave", "Cleave" not in macro() and "Heroic Strike" in macro())
+aoe = g.MACROS[W.MACRO_AOE]
+check("AoE button fits the 255-character limit", len(aoe) <= 255)
+check("AoE button: no single-target spells", not any(x in aoe for x in ("Heroic Strike", "Mortal Strike", "Bloodthirst", "Rend", "Overpower", "Execute", "Sunder", "Shield Slam")))
+check("AoE button: Thunder Clap is only learned spells (not in ALL) and Whirlwind then Cleave in Berserker", "/castsequence [form:3] Whirlwind,Cleave" in aoe and "Thunder Clap" not in aoe)
+check("AoE button: Revenge then Cleave in Defensive with a shield", "/castsequence [form:2] Revenge,Cleave" in aoe)
+check("AoE button: Sweeping Strikes once a fight in Battle", "/castsequence [form:1] reset=combat Sweeping Strikes,nil" in aoe)
+check("AoE button: Cleave every press in Battle (no Thunder Clap known)", "/cast [form:1] Cleave" in aoe)
+check("single button: no AoE spells", not any(x in macro() for x in ("Cleave", "Whirlwind", "Thunder Clap", "Sweeping", "Demoralizing")))
 g.IsInGroup = lambda: False
 g.IsEquippedItemType = lambda kind: False
 update()
@@ -288,7 +299,8 @@ check("Battle Shout when the buff is gone", next_spell({"Battle Shout", "Mortal 
 check("Defensive Stance: Shield Slam, then Revenge", next_spell({"Revenge", "Shield Slam"}, stance=2, rendOnTarget=True, shield=True) == "Shield Slam"
       and next_spell({"Revenge", "Sunder Armor"}, stance=2, rendOnTarget=True, shield=True) == "Revenge")
 check("Defensive Stance: Sunder when Execute and Revenge can't be used", next_spell({"Sunder Armor"}, stance=2, rendOnTarget=True) == "Sunder Armor")
-check("in a group, Cleave instead of Heroic Strike", next_spell({"Cleave", "Heroic Strike"}, inGroup=True) == "Cleave")
+check("icon, single button: Heroic Strike even in a group", next_spell({"Cleave", "Heroic Strike"}, inGroup=True) == "Heroic Strike")
+check("icon follows the AoE button at 2+ enemies", W.HintKind(2) == "aoe" and W.HintKind(1) == "single" and W.HintKind(0) == "single")
 check("nothing ready shows nothing", next_spell(set()) is None)
 
 # ---- Fight log ----
@@ -430,7 +442,7 @@ check("shout missing with a shield: everything fits now (no Sunder Armor solo)",
 check("solo with a shield: no Sunder Armor", "Sunder Armor" not in m and "/castsequence [form:2] Revenge,Heroic Strike" in m)
 g.IsInGroup = lambda: True
 update()
-check("in a group: Sunder Armor is back (threat)", "Revenge,Sunder Armor,Cleave" in macro())
+check("in a group: Sunder Armor is back (threat), Heroic Strike stays", "Revenge,Sunder Armor,Heroic Strike" in macro())
 g.IsInGroup = lambda: False
 update()
 g.BUFFS = lua.table_from([lua.table_from(["Battle Shout", 1e9])])

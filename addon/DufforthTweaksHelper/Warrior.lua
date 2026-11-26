@@ -12,12 +12,17 @@ DufforthTweaksHelperWarrior = DufforthTweaksHelperWarrior or {}
 local W = DufforthTweaksHelperWarrior
 
 local MACRO_NAME = L["DTH Warrior"]
+-- Two buttons that never mix (user, 2026-11-21: "1 for aoe and another for single target damage do
+-- not mix rotations"): DTH Warrior hits one enemy, DTH Warrior AoE hits every enemy around you.
+local MACRO_AOE = L["DTH Warrior AoE"]
 local MACRO_ICON = "INV_MISC_QUESTIONMARK" -- the question mark shows the spell the macro will cast
 local MACRO_LIMIT = 255
 local SHOUT = "Battle Shout"
 local SHOUT_KEEP_SECONDS = 45 -- leave Battle Shout out of the macro while it has this long left
 local VICTORIOUS = L["Victorious"] -- the buff a kill that gives XP or honor puts on you (Victory Rush)
-W.MACRO_NAME, W.MACRO_LIMIT = MACRO_NAME, MACRO_LIMIT
+W.MACRO_NAME, W.MACRO_AOE, W.MACRO_LIMIT = MACRO_NAME, MACRO_AOE, MACRO_LIMIT
+W.KINDS = { { kind = "single", name = MACRO_NAME }, { kind = "aoe", name = MACRO_AOE } }
+function W.MacroNameFor(kind) return kind == "aoe" and MACRO_AOE or MACRO_NAME end
 
 -- Stances by spell id; their number on the stance bar depends on which ones you know.
 local STANCES = { { id = 2457, name = "Battle Stance" }, { id = 71, name = "Defensive Stance" }, { id = 2458, name = "Berserker Stance" } }
@@ -46,13 +51,15 @@ local LINES = {
     { { spell = "Charge" }, { spell = "Intercept" }, { spell = "Battle Shout" }, { spell = "Rend" },
       { spell = "Revenge" }, { spell = "Sunder Armor" }, { spell = "Shield Slam" }, { spell = "Shield Block" },
       { spell = "Overpower" }, { spell = "Execute" }, { spell = "Bloodrage" }, { spell = "Mortal Strike" }, { spell = "Bloodthirst" }, { spell = "Whirlwind" },
-      { spell = "Heroic Strike" }, { spell = "Cleave" } },
+      { spell = "Heroic Strike" }, { spell = "Cleave" }, { spell = "Thunder Clap" }, { spell = "Demoralizing Shout" },
+      { spell = "Sweeping Strikes" } },
 }
 W.LINES = LINES
 
--- The best global-cooldown attack for Battle or Berserker Stance, if any.
+-- The best single-target global-cooldown attack for Battle or Berserker Stance, if any. Whirlwind
+-- hits everything around you, so it only goes in the AoE button.
 local function BigAttack(known, stance)
-    local order = stance == BERSERKER and { "Bloodthirst", "Mortal Strike", "Whirlwind" } or { "Mortal Strike", "Bloodthirst" }
+    local order = stance == BERSERKER and { "Bloodthirst", "Mortal Strike" } or { "Mortal Strike", "Bloodthirst" }
     for _, name in ipairs(order) do if known[name] then return name end end
 end
 
@@ -338,12 +345,9 @@ W.ChargeClause = ChargeClause
 
 -- options: shout (Battle Shout is missing), charge (false = no Charge), shield, group, level,
 -- chargeStances / chargeInCombat (where your talents allow Charge).
-function W.BuildLines(known, numbers, options)
-    options = options or {}
+-- The start both buttons share: attack, Charge or Intercept, and Battle Shout once a fight.
+local function Opening(known, numbers, options)
     local out = { "/startattack" }
-    local berserkerKnown = numbers[BERSERKER] ~= nil
-    local filler = (options.group and known["Cleave"]) and "Cleave" or (known["Heroic Strike"] and "Heroic Strike" or nil)
-
     -- Off the global cooldown: tried on every press.
     if options.charge ~= false then
         local parts = {}
@@ -368,6 +372,74 @@ function W.BuildLines(known, numbers, options)
     -- fight. reset=combat, because reset=120 restarted its timer on every press and often never
     -- re-armed between pulls (Battle Shout was up 86% of the last 30 fights).
     if options.shout and known[SHOUT] then out[#out + 1] = "/castsequence reset=combat " .. SHOUT .. ",nil" end
+    return out
+end
+
+-- "/cast [form:1/3] Spell" for the stances given (nil when none of them is known).
+local function CastIn(stances, numbers, spell)
+    local forms = {}
+    for _, stance in ipairs(stances) do if numbers[stance] then forms[#forms + 1] = numbers[stance] end end
+    if #forms == 0 then return nil end
+    return "/cast [form:" .. table.concat(forms, "/") .. "] " .. spell
+end
+
+-- Bloodrage: free rage, off the global cooldown, so it never takes another spell's try; on its
+-- one-minute cooldown the game just skips it. "Not enough rage" was the most common error in
+-- every stance (user asked for it, 2026-11-12). In combat only, so it isn't spent before a pull.
+-- Once per fight: a castsequence at "nil" is skipped silently, so after Bloodrage goes off the
+-- button stops asking for it (it was refused 15-26 times a fight on its cooldown).
+-- No space after "]": the game trims it, and it keeps the level 26 macro at 255 characters.
+local BLOODRAGE_LINE = "/castsequence [combat]reset=combat Bloodrage,nil"
+
+-- The AoE button: only spells that hit every enemy around you (Thunder Clap, Whirlwind, Cleave,
+-- Demoralizing Shout, Sweeping Strikes). Revenge stays in Defensive Stance with a shield, because
+-- it is that stance's only attack that needs no rage pool and blocks come faster with more enemies.
+-- Same press rule as the single-target button: one global-cooldown line per stance.
+function W.BuildAoeLines(known, numbers, options)
+    options = options or {}
+    local out = Opening(known, numbers, options)
+    local cleave = known["Cleave"] and "Cleave" or nil
+    -- Once a fight each: they hit everything, so they open the pull.
+    if known["Demoralizing Shout"] then out[#out + 1] = "/castsequence reset=combat Demoralizing Shout,nil" end
+    if known["Sweeping Strikes"] and numbers[BATTLE] then
+        out[#out + 1] = string.format("/castsequence [form:%d] reset=combat Sweeping Strikes,nil", numbers[BATTLE])
+    end
+    local withCleave = {} -- stances whose sequence already queues Cleave
+    local function Line(stance, spell)
+        if not numbers[stance] or not spell then return end
+        if cleave then
+            out[#out + 1] = "/castsequence [form:" .. numbers[stance] .. "] " .. spell .. "," .. cleave
+            withCleave[stance] = true
+        else
+            out[#out + 1] = "/cast [form:" .. numbers[stance] .. "] " .. spell
+        end
+    end
+    Line(DEFENSIVE, options.shield and known["Revenge"] and "Revenge" or nil)
+    Line(BATTLE, known["Thunder Clap"] and "Thunder Clap" or nil)
+    Line(BERSERKER, known["Whirlwind"] and "Whirlwind" or nil)
+    if options.shield and known["Shield Block"] and numbers[DEFENSIVE] then
+        out[#out + 1] = "/cast [form:" .. numbers[DEFENSIVE] .. L["] Shield Block"]
+    end
+    -- Cleave on every press where no sequence above queues it.
+    if cleave then
+        local rest = {}
+        for _, stance in ipairs({ BATTLE, DEFENSIVE, BERSERKER }) do if not withCleave[stance] then rest[#rest + 1] = stance end end
+        local line = CastIn(rest, numbers, cleave)
+        if line then out[#out + 1] = line end
+    end
+    if known["Bloodrage"] then out[#out + 1] = BLOODRAGE_LINE end
+    return out
+end
+
+-- The single-target button. options: shout (Battle Shout is missing), charge (false = no Charge),
+-- shield, group, level, chargeStances / chargeInCombat (where your talents allow Charge),
+-- aoe (true = build the AoE button instead).
+function W.BuildLines(known, numbers, options)
+    options = options or {}
+    if options.aoe then return W.BuildAoeLines(known, numbers, options) end
+    local out = Opening(known, numbers, options)
+    -- Heroic Strike only: Cleave hits a second enemy, so it belongs to the AoE button.
+    local filler = known["Heroic Strike"] and "Heroic Strike" or nil
     -- Rend in Battle Stance only, once per pull (2026-11-11, user agreed): in Defensive it did 33
     -- damage a cast (3.3 per rage point, Revenge 23) and took the global-cooldown try from Revenge.
     -- reset=combat, because reset=N restarts its timer on every press and never re-armed it.
@@ -406,29 +478,33 @@ function W.BuildLines(known, numbers, options)
     if options.shield and known["Shield Block"] and numbers[DEFENSIVE] then
         out[#out + 1] = "/cast [form:" .. numbers[DEFENSIVE] .. L["] Shield Block"]
     end
-    -- Heroic Strike on every press where no sequence above already uses it (Battle Stance at low level).
-    if filler and numbers[BATTLE] and not battleBig then out[#out + 1] = "/cast [form:" .. numbers[BATTLE] .. "] " .. filler end
-    -- Bloodrage: free rage, off the global cooldown, so it never takes another spell's try; on its
-    -- one-minute cooldown the game just skips it. "Not enough rage" was the most common error in
-    -- every stance (user asked for it, 2026-11-12). In combat only, so it isn't spent before a pull.
-    -- Once per fight: a castsequence at "nil" is skipped silently, so after Bloodrage goes off the
-    -- button stops asking for it (it was refused 15-26 times a fight on its cooldown).
-    -- No space after "]": the game trims it, and it keeps the level 26 macro at 255 characters.
-    if known["Bloodrage"] then out[#out + 1] = "/castsequence [combat]reset=combat Bloodrage,nil" end
+    -- Heroic Strike on every press where no sequence above already uses it (Battle Stance at low
+    -- level, Berserker Stance before Bloodthirst).
+    if filler then
+        local rest = {}
+        if not battleBig then rest[#rest + 1] = BATTLE end
+        if not berserkerBig then rest[#rest + 1] = BERSERKER end
+        local line = CastIn(rest, numbers, filler)
+        if line then out[#out + 1] = line end
+    end
+    if known["Bloodrage"] then out[#out + 1] = BLOODRAGE_LINE end
     return out
 end
 
 -- The macro text, at most 255 characters: if it's longer, the least important lines go first.
 local DROP_FIRST = { "Bloodrage", "Rend", "Charge", "Battle Shout" }
+-- The AoE button is pressed once you're among the enemies, so Charge goes before the spells that hit them all.
+local DROP_FIRST_AOE = { "Bloodrage", "Charge", "Demoralizing Shout", "Battle Shout", "Sweeping Strikes" }
+W.DROP_FIRST_AOE = DROP_FIRST_AOE
 -- With Victory Rush in (right after a kill), Charge goes first: you are usually close already.
 local DROP_FIRST_VICTORY = { "Bloodrage", "Charge", "Battle Shout", "Rend" }
-function W.Fit(lines)
+function W.Fit(lines, order)
     local kept = {}
     for i, line in ipairs(lines) do kept[i] = line end
     local function TooLong() return #table.concat(kept, "\n") > MACRO_LIMIT end
     local victory = false
     for _, line in ipairs(kept) do if string.find(line, "Victory Rush", 1, true) then victory = true end end
-    for _, name in ipairs(victory and DROP_FIRST_VICTORY or DROP_FIRST) do
+    for _, name in ipairs(order or (victory and DROP_FIRST_VICTORY) or DROP_FIRST) do
         if not TooLong() then break end
         for i = #kept, 1, -1 do
             if string.find(kept[i], name, 1, true) then table.remove(kept, i); break end
@@ -463,10 +539,15 @@ function W.Update()
     local victorious = false
     local shield = W.HasShield()
     local group = (IsInGroup and IsInGroup()) or (GetNumGroupMembers and GetNumGroupMembers() > 0) or false
-    local lines = W.BuildLines(known, numbers, { shout = shout, charge = options.charge, shield = shield, group = group,
+    local build = { shout = shout, charge = options.charge, shield = shield, group = group,
         chargeStances = chargeStances, chargeInCombat = chargeInCombat, victorious = victorious,
-        level = UnitLevel and UnitLevel("player") })
+        level = UnitLevel and UnitLevel("player") }
+    local lines = W.BuildLines(known, numbers, build)
     local body, dropped = W.Fit(lines)
+    build.aoe = true
+    local aoeLines = W.BuildAoeLines(known, numbers, build)
+    local aoeBody, aoeDropped = W.Fit(aoeLines, DROP_FIRST_AOE)
+    state.aoeLines, state.aoeDropped = aoeLines, aoeDropped
     state.known, state.numbers, state.lines, state.dropped = known, numbers, lines, dropped
     state.shout, state.shield, state.group = shout, shield, group
     state.victoryInMacro = string.find(body, "Victory Rush", 1, true) ~= nil
@@ -478,24 +559,38 @@ function W.Update()
         C_Timer.After(left - SHOUT_KEEP_SECONDS + 1, function() shoutTimer = nil; W.Update() end)
     end
 
-    if body == state.body then return false end -- unchanged: don't reset the Battle Shout sequence
+    -- Each macro is saved only when its text changed: a rewrite resets its castsequences.
+    local wrote = false
+    for _, job in ipairs({ { name = MACRO_NAME, body = body, key = "body" }, { name = MACRO_AOE, body = aoeBody, key = "aoeBody" } }) do
+        if job.body ~= state[job.key] then
+            local ok, err = W.SaveMacro(job.name, job.body)
+            if not ok then
+                state.status = L["|cffff5555Couldn't save the macro: "] .. tostring(err) .. "|r"
+                return wrote
+            end
+            state[job.key] = job.body
+            wrote = true
+        end
+    end
+    if not wrote then return false end
+    state.status = string.format(L["Macro %s: %d lines, %d characters%s."], MACRO_NAME, #lines - dropped, #body,
+        dropped > 0 and (", " .. dropped .. L[" left out to fit"]) or "") .. " "
+        .. string.format(L["Macro %s: %d lines, %d characters%s."], MACRO_AOE, #aoeLines - aoeDropped, #aoeBody,
+        aoeDropped > 0 and (", " .. aoeDropped .. L[" left out to fit"]) or "")
+    return true
+end
 
-    local index = GetMacroIndexByName(MACRO_NAME)
+-- Creates or rewrites one character macro. Returns ok, error.
+function W.SaveMacro(name, body)
+    local index = GetMacroIndexByName(name)
     local ok, err
     if index and index > 0 then
-        ok, err = pcall(EditMacro, index, MACRO_NAME, MACRO_ICON, body)
+        ok, err = pcall(EditMacro, index, name, MACRO_ICON, body)
     else
-        ok, err = pcall(CreateMacro, MACRO_NAME, MACRO_ICON, body, true)
+        ok, err = pcall(CreateMacro, name, MACRO_ICON, body, true)
         if ok and (not err or err == 0) then ok, err = false, L["no free character macro slot"] end
     end
-    if not ok then
-        state.status = L["|cffff5555Couldn't save the macro: "] .. tostring(err) .. "|r"
-        return false
-    end
-    state.body = body
-    state.status = string.format(L["Macro %s: %d lines, %d characters%s."], MACRO_NAME, #lines - dropped, #body,
-        dropped > 0 and (", " .. dropped .. L[" left out to fit"]) or "")
-    return true
+    return ok, err
 end
 
 -- W.Update, with any error shown on the Warrior tab.
@@ -523,10 +618,11 @@ function W.SafeUpdate()
     return ok and result
 end
 
-function W.PickUp()
+-- kind: "aoe" picks up the AoE button, anything else the single-target one.
+function W.PickUp(kind)
     if Lockdown() then return end
     W.SafeUpdate()
-    if PickupMacro then PickupMacro(MACRO_NAME) end
+    if PickupMacro then PickupMacro(W.MacroNameFor(kind)) end
 end
 
 function W.Print()
@@ -534,6 +630,8 @@ function W.Print()
     if not W.state.lines then say(W.state.status); return end
     say(W.state.status)
     for _, line in ipairs(W.state.lines) do DEFAULT_CHAT_FRAME:AddMessage("  " .. line) end
+    DEFAULT_CHAT_FRAME:AddMessage(MACRO_AOE .. ":")
+    for _, line in ipairs(W.state.aoeLines or {}) do DEFAULT_CHAT_FRAME:AddMessage("  " .. line) end
 end
 
 -- ---- What the button will do next (for the icon) ----
@@ -596,8 +694,24 @@ function W.NextSpell(facts, ready)
         if big and ok(big) then return big end
         if not big and known["Execute"] and ok("Execute") then return "Execute" end
     end
-    local filler = (facts.inGroup and known["Cleave"]) and "Cleave" or "Heroic Strike"
-    if ok(filler) then return filler end
+    if ok("Heroic Strike") then return "Heroic Strike" end
+end
+
+-- The AoE button's best ready spell when its macro text can't be read (same order as BuildAoeLines).
+function W.NextAoeSpell(facts, ready)
+    local known = facts.known
+    local function ok(name) return known[name] and ready(name) end
+    if not facts.inCombat and facts.charge ~= false and ok("Charge") then return "Charge" end
+    if facts.shoutInMacro and known[SHOUT] and not facts.shoutLeft and ok(SHOUT) then return SHOUT end
+    if facts.stance == DEFENSIVE then
+        if facts.shield and ok("Shield Block") then return "Shield Block" end
+        if facts.shield and ok("Revenge") then return "Revenge" end
+    elseif facts.stance == BATTLE then
+        if ok("Thunder Clap") then return "Thunder Clap" end
+    elseif facts.stance == BERSERKER then
+        if ok("Whirlwind") then return "Whirlwind" end
+    end
+    if ok("Cleave") then return "Cleave" end
 end
 
 -- While the button holds the after-kill Victory Rush, pressing Victory Rush on its own key would
@@ -642,6 +756,8 @@ local function ConditionsMet(list, facts)
         local met = true
         if name == "combat" then
             met = facts.inCombat and true or false
+        elseif name == "group" then
+            met = facts.inGroup and true or false
         elseif name == "form" or name == "stance" then
             met = false
             if value == "" then met = (facts.stance or 0) > 0 end
@@ -718,16 +834,17 @@ end
 
 -- What the next press does. Returns the global-cooldown spell it tries (gcd) and the first ready
 -- off-global-cooldown spell it casts (off).
-function W.MacroNext(lines, facts, ready, now)
+function W.MacroNext(lines, facts, ready, now, offGcd)
+    offGcd = offGcd or OFF_GCD
     local gcd, off
     for _, line in ipairs(lines) do
         local action = W.LineAction(line.args, facts)
         local spell = action
         if action and line.kind == "castsequence" then spell = W.SequenceNext(action, now) end
         if spell then
-            if OFF_GCD[spell] then
+            if offGcd[spell] then
                 -- Bloodrage is background rage: the icon shows what you're fighting with instead.
-                if not off and spell ~= "Bloodrage" and ready(spell) then off = spell end
+                if not off and spell ~= "Bloodrage" and spell ~= "Enrage" and ready(spell) then off = spell end
             elseif not gcd then
                 gcd = spell
             end
@@ -748,9 +865,9 @@ end
 
 -- A spell went off (kind "C") or was queued (kind "S", for Heroic Strike and Cleave): sequences
 -- waiting on it move to their next step.
-function W.SequenceCast(lines, facts, name, kind, now)
+function W.SequenceCast(lines, facts, name, kind, now, onSwing)
     if not name then return end
-    if (ON_SWING[name] or false) ~= (kind == "S") then return end
+    if ((onSwing or ON_SWING)[name] or false) ~= (kind == "S") then return end
     for _, line in ipairs(lines) do
         if line.kind == "castsequence" then
             local action = W.LineAction(line.args, facts)
@@ -783,10 +900,10 @@ local WHY_NOT_READY = {
     ["Victory Rush"] = L["needs a kill first"],
     ["Execute"] = L["needs the enemy under 20% health"],
 }
-function W.ButtonPick(lines, facts, ready, now)
-    local gcd, off = W.MacroNext(lines, facts, ready, now)
+function W.ButtonPick(lines, facts, ready, now, offGcd, whyNotReady)
+    local gcd, off = W.MacroNext(lines, facts, ready, now, offGcd)
     if gcd and ready(gcd) then return gcd, true end
-    local why = gcd and (WHY_NOT_READY[gcd] or L["not ready yet"])
+    local why = gcd and ((whyNotReady or WHY_NOT_READY)[gcd] or L["not ready yet"])
     if off then
         return off, true, gcd and string.format(L["|cffc0c0c0Then %s (%s)|r"], gcd, why) or nil
     end
@@ -795,13 +912,15 @@ function W.ButtonPick(lines, facts, ready, now)
     end
 end
 
-function W.MacroLines()
+-- kind: "aoe" reads the AoE button, anything else the single-target one.
+function W.MacroLines(kind)
+    local name, saved = W.MacroNameFor(kind), kind == "aoe" and W.state.aoeLines or W.state.lines
     local body
-    if GetMacroInfo and GetMacroIndexByName and (GetMacroIndexByName(MACRO_NAME) or 0) > 0 then
-        local ok, _, _, text = pcall(GetMacroInfo, MACRO_NAME)
+    if GetMacroInfo and GetMacroIndexByName and (GetMacroIndexByName(name) or 0) > 0 then
+        local ok, _, _, text = pcall(GetMacroInfo, name)
         if ok and type(text) == "string" then body = text end
     end
-    if not body and W.state.lines then body = table.concat(W.state.lines, "\n") end
+    if not body and saved then body = table.concat(saved, "\n") end
     return W.ParseMacro(body)
 end
 
@@ -931,10 +1050,12 @@ local function AllBarButtons()
     end
     return list
 end
+W.AllBarButtons, W.ButtonSlot = AllBarButtons, ButtonSlot
 
 function W.RefreshButtons()
     if not GetActionInfo then return end
     local index = GetMacroIndexByName and GetMacroIndexByName(MACRO_NAME) or 0
+    local aoeIndex = GetMacroIndexByName and GetMacroIndexByName(MACRO_AOE) or 0
     -- Saved for the log: what the game reports for every bar slot holding a macro.
     local facts, matched = {}, {}
     for slot = 1, 180 do
@@ -942,14 +1063,19 @@ function W.RefreshButtons()
         if kind == "macro" then facts[#facts + 1] = slot .. "=" .. tostring(id) .. "/" .. tostring(subType) end
     end
     for _, overlay in pairs(overlays) do overlay.active = false end
-    if index and index > 0 then
+    if (index and index > 0) or (aoeIndex and aoeIndex > 0) then
         for _, button in ipairs(AllBarButtons()) do
             do
                 local slot = button and ButtonSlot(button)
                 if slot then
                     local kind, id = GetActionInfo(slot)
                     local name = GetActionText and GetActionText(slot)
-                    if kind == "macro" and (id == index or name == MACRO_NAME) then
+                    local which
+                    if kind == "macro" then
+                        if name == MACRO_AOE or (aoeIndex > 0 and id == aoeIndex) then which = "aoe"
+                        elseif name == MACRO_NAME or (index > 0 and id == index) then which = "single" end
+                    end
+                    if which then
                         matched[#matched + 1] = tostring(button.GetName and button:GetName() or "?") .. "@" .. slot
                         local overlay = overlays[button]
                         if not overlay and not Lockdown() then
@@ -962,7 +1088,7 @@ function W.RefreshButtons()
                             overlay.icon:SetPoint("BOTTOMRIGHT", -2, 2)
                             overlays[button] = overlay
                         end
-                        if overlay then overlay.active = true end
+                        if overlay then overlay.active, overlay.kind = true, which end
                     end
                 end
             end
@@ -970,29 +1096,36 @@ function W.RefreshButtons()
     end
     for _, overlay in pairs(overlays) do overlay:SetShown(overlay.active and DB().buttonIcon and true or false) end
     local debug = DB().debug
-    debug.buttons = string.format(L["macro index %s; macro slots %s; matched %s"], tostring(index),
+    debug.buttons = string.format(L["macro index %s; macro slots %s; matched %s"], tostring(index) .. "/" .. tostring(aoeIndex),
         table.concat(facts, " "), #matched > 0 and table.concat(matched, " ") or "none")
 end
 
-local function ShowOnButtons(spell, ready)
-    local texture = spell and SpellIcon(spell)
+-- picks: { single = { spell, ready }, aoe = { spell, ready } }; each button shows its own macro's pick.
+local function ShowOnButtons(picks)
     for _, overlay in pairs(overlays) do
+        local pick = picks[overlay.kind or "single"] or {}
+        local texture = pick[1] and SpellIcon(pick[1])
         overlay:SetShown(overlay.active and DB().buttonIcon and texture ~= nil or false)
         if overlay.active and texture then
             overlay.icon:SetTexture(texture)
-            overlay.icon:SetDesaturated(not ready)
+            overlay.icon:SetDesaturated(not pick[2])
         end
     end
 end
 
 -- The icon's pick: the button's real next step when the macro is known, else the best ready spell.
 -- Returns spell, ready, note.
-function W.Pick(facts)
-    local lines = W.MacroLines()
+-- kind: "aoe" for the AoE button, anything else the single-target one.
+function W.Pick(facts, kind)
+    local lines = W.MacroLines(kind)
     if #lines > 0 then return W.ButtonPick(lines, facts, SpellReady, GetTime()) end
-    local spell = W.NextSpell(facts, SpellReady)
+    local spell = (kind == "aoe" and W.NextAoeSpell or W.NextSpell)(facts, SpellReady)
     return spell, spell ~= nil
 end
+
+-- Which button the icon follows: the AoE one once two or more enemies are on you.
+W.AOE_ENEMIES = 2
+function W.HintKind(enemies) return (enemies or 0) >= W.AOE_ENEMIES and "aoe" or "single" end
 
 -- Whether your target is casting or channeling. Values may be hidden in combat; a hidden value
 -- still means a cast is there.
@@ -1106,9 +1239,13 @@ local function UpdateHint()
     local options = DB()
     if not W.IsWarrior() then hint:Hide(); return end
     local facts = HintFacts()
-    local spell, ready, pickNote = W.Pick(facts)
+    local enemies = W.EnemyCount()
+    local picks = {}
+    for _, entry in ipairs(W.KINDS) do picks[entry.kind] = { W.Pick(facts, entry.kind) } end
+    local hintKind = W.HintKind(enemies)
+    local spell, ready, pickNote = picks[hintKind][1], picks[hintKind][2], picks[hintKind][3]
     W.currentPick = spell
-    ShowOnButtons(spell, ready)
+    ShowOnButtons(picks)
     facts.casting = W.TargetCasting()
     local curse = W.CurseOnYou()
     local cleanse = W.CursePrompt(facts, SpellReady, curse)
@@ -1146,8 +1283,7 @@ local function UpdateHint()
     -- waiting all fight (the macro can't change in combat), and the rotation would stop.
     local warning = W.VictoryWarning(facts)
     if warning then notes[#notes + 1] = warning end
-    local enemies = W.EnemyCount()
-    if enemies >= 2 then notes[#notes + 1] = enemies .. " enemies" end
+    if enemies >= 2 then notes[#notes + 1] = string.format(L["|cffffd100%d enemies: press %s|r"], enemies, MACRO_AOE) end
     if spell == "Charge" and not facts.inCombat and hostile then
         local close = CheckInteractDistance and CheckInteractDistance("target", 3) and true or false
         notes[#notes + 1] = W.ChargeNote(SpellInRange("Charge"), close)
@@ -1607,17 +1743,43 @@ function W.LogTick(seconds)
     if W.BuffLeft(SHOUT) then fight.shoutUp = fight.shoutUp + seconds end
     local enemies = W.EnemyCount()
     if enemies > fight.mostEnemies then fight.mostEnemies = enemies end
-    W.lastPrediction = (W.Pick(HintFacts()))
+    W.lastPrediction = (W.Pick(HintFacts(), W.HintKind(enemies)))
 end
 
 -- Keeps the icon's copy of the castsequence steps in line with the game (see SequenceNext).
+-- The game doesn't say which button was pressed, so a cast moves the sequences of each button whose
+-- next press would have tried that spell (the game keeps one place per sequence text, shared by both).
 function W.FollowTry(kind, name)
     if not W.IsWarrior() then return end
-    local lines = W.MacroLines()
-    if #lines == 0 then return end
     local facts, now = HintFacts(), GetTime()
-    if kind == "C" or kind == "S" then W.SequenceCast(lines, facts, name, kind, now) end
-    W.SequencePressed(lines, facts, now)
+    local moved = {}
+    for _, entry in ipairs(W.KINDS) do
+        local lines = W.MacroLines(entry.kind)
+        if #lines > 0 then
+            if (kind == "C" or kind == "S") and W.WouldTry(lines, facts, name, now) then
+                local fresh = {}
+                for _, line in ipairs(lines) do
+                    local action = W.LineAction(line.args, facts)
+                    if line.kind == "castsequence" and action and not moved[action] then fresh[#fresh + 1] = line; moved[action] = true end
+                end
+                W.SequenceCast(fresh, facts, name, kind, now)
+            end
+            W.SequencePressed(lines, facts, now)
+        end
+    end
+end
+
+-- Whether a press of these lines would try the spell (as its global-cooldown try or any off-GCD line).
+function W.WouldTry(lines, facts, name, now)
+    local gcd = W.MacroNext(lines, facts, function() return true end, now)
+    if gcd == name then return true end
+    for _, line in ipairs(lines) do
+        local action = W.LineAction(line.args, facts)
+        local spell = action
+        if action and line.kind == "castsequence" then spell = W.SequenceNext(action, now) end
+        if spell == name and OFF_GCD[name] then return true end
+    end
+    return false
 end
 
 function W.FightCount() return #DB().fights end

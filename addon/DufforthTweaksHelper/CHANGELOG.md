@@ -2,6 +2,122 @@
 
 Newest first. Every release on the website gets an entry here.
 
+## 4.37.5 (2026-11-25)
+
+- **Money tab.** A new tab with money ideas for your realm and faction at the latest auction prices: listings well
+  under their usual price on items that sell every day (buy and post again), trainer and vendor recipes that sell for
+  more than their materials, listings cheaper than what a vendor pays, and the open-world monsters whose drops are worth
+  the most per hour. It shows how old the prices are; at the auction house, Search opens the item there and you buy
+  with the game's own buttons. The ideas are worked out with each hourly price update (`tools/money_finder.py`) and
+  come with the addon download. New files: restart the game fully.
+
+- **Hunter pet guide.** Hunters get a "Pets" view on the Class tab: the best pets (solo leveling, tanking, groups),
+  each family's health, damage and armor, its skills with the rank you can have now and the level of the next one, and
+  the beasts of that family you can tame now (closest to your level, with zone and spot, rare and elite marked). It
+  also lists the fast attackers you can tame (a tamed beast keeps its attack speed: Broken Tooth in the Badlands hits
+  every 1.0 s). Beasts and family stats come from the Classic database (465 tameable beasts); skill ranks are Classic's
+  and the guide says to check a beast with Beast Lore before taming. New files: restart the game fully.
+
+- **Hunter fight log.** Hunters get a "Hunter fight log" view on the Class tab. It records your last 300 fights: every
+  spell sent, cast, refused (with the error) or interrupted, each cast's target and how many Summon Hawks were out,
+  Hunter's Mark per target (catches double marks), Mongoose Bite chances used or missed, Auto Shots, your pet, mana and
+  whether you won. It never casts or changes your macro. `tools/analyze_hunter_fights.py` turns the log into numbers and
+  advice (shared Hawk/Arcane cooldown use, wasted hawks, repeated marks, missed Mongoose Bites, interrupted Aimed
+  Shots, "Target too close", mana). New file: restart the game fully.
+
+- **Leveling routes now follow RestedXP's Forever guide.** Every route (Durotar, Mulgore, Tirisfal Glades; Speed, Safe
+  and Explorer, with and without dungeons) takes RestedXP's order from 1 to 60: its quests, flights, hearthstones and
+  where it sets your hearthstone, with our quest data for names and places and RestedXP's own map points where its guide
+  has one (made for Forever, where some quest givers moved). Dungeon routes follow RestedXP's dungeon guide. Gaps: quests
+  our data doesn't know and pick-ups with no place are left out; flight paths and other classes' quests are still added
+  where you pass. Measured with the same time model: 22-60 now takes 65 h (RestedXP's own guide: 65 h; our old
+  planner: 74 h) and 1-22 about 10.7-12.1 h (was 12.5-13.5 h). Safe routes now go through the same zones as Speed,
+  including contested ones. Route data from RestedXP Guides, CC BY-NC-SA 4.0 (see LICENSE-DATA.md).
+
+- **Guide no longer bounces between two "Go to" steps.** A wide objective left open in an earlier zone (done along the
+  way until its hand-in) made "Go to The Barrens" and "Go to Dustwallow Marsh" take turns forever.
+
+- **Warrior: two buttons, single target and AoE, that never mix.** "DTH Warrior" now only hits one enemy: Heroic Strike
+  is its filler even in a group (no Cleave), and Whirlwind left it. The new "DTH Warrior AoE" macro only uses spells
+  that hit everything around you: Thunder Clap (Battle), Whirlwind (Berserker), Revenge with a shield (Defensive),
+  Cleave, Demoralizing Shout and Sweeping Strikes once a fight; no Rend, Heroic Strike, Mortal Strike or Sunder Armor.
+  The Warrior tab has "Single target on cursor" and "AoE on cursor"; each button shows its own next spell, and the icon
+  follows the AoE button and says "press DTH Warrior AoE" once 2 or more enemies are on you.
+
+- **Flight time no longer runs over the zone title.** While flying, the bar refits every second: with little room it
+  shows only "Landing in 1:40" instead of the whole "Flying to Camp Taurajo, The Barrens: landing in 1:40" on top of
+  "17-20 The Barrens".
+
+- **One-button Druid macro.** Druids get the "DTH Druid" macro on the Class tab, built like the Warrior's: one key that
+  fights in the form you're in and never changes form. Bear: Maul every press, Enrage and Demoralizing Roar once a fight,
+  Swipe in a group. Cat: Tiger's Fury once, then Rake, Claw x3 and Rip or Ferocious Bite. Caster: Faerie Fire and Moonfire
+  once, then Wrath. Only spells you know; the addon rewrites it between fights. A 255-character macro can't hold everything,
+  so Faerie Fire (levels 24-31) or Tiger's Fury (32+) is left out, and the tab says which. Same options as the Warrior:
+  Put it on my cursor, the next spell on the button, the next-ability icon with your combo points, and a fight log. The icon
+  flashes red for Bash (enemy casting), a heal (low health) and "press Claw once" when the target died just before the
+  finisher. New file: restart the game fully.
+
+- **Forever's new zones and quests in the leveling routes.** The routes now take 602 of Forever's own quests from
+  Questie's Forever database (QuestieDB, GPL-3.0: real quest givers, monster places and experience), up from 150 placed
+  with RestedXP's guides. Riverglades (36-44) and Mount Hyjal (55-60) are now in the zone plan, plus Forever's quests in
+  the old zones (the Barrens from level 10, Tirisfal, Silverpine, Desolace...). Quests the data can't time stay out: an
+  objective with no place, or work in the text ("Acquire 15 Silithus Venom Samples and 20 gold") with no objectives.
+  Planner fixes: riding to a flight master is timed at mount speed from 40 (it was timed running), and a kill now takes
+  30 s, measured from 287 of your solo fights (30-37 s with looting and walking; it was 20 s, which made grinding look
+  better than questing: the Undercity route ground levels 15-28 in Hillsbrad instead of going to the Barrens). The
+  routes now grind 1-4 levels instead of 6-9. Hours to 60 are higher because each kill now takes longer, so compare
+  under the same 30 s kills: speed routes Durotar 93.4 -> 90.8, Mulgore 94.0 -> 92.8, Tirisfal 95.0 -> 93.4; with
+  dungeons 97.5 / 98.7 / 99.4 -> 91.5 / 93.3 / 96.1 (under the old 20 s kills the same changes gave 73.2 / 73.9 / 74.5 ->
+  72.1 / 72.9 / 71.6). 22-60 scorecard (its own model, unchanged): 71.4 / 71.7 / 73.0 -> 71.8 / 72.8 / 73.7 h (Zygor
+  Forever 74.0, RestedXP Forever 90.6). Shen'dralas is in the plan but unused: its chain starts
+  after Desolace's Magram quest "Ongeku" (not on the routes) and Questie has no objectives for most of its quests yet.
+  Tried and not kept: hand-ins up to 400 yards off the way (better on the inflated data, ~1 h slower on the real data),
+  weighing a whole zone across the sea before grinding (+1.5-3 h), handing in chain quests early, bigger batches and
+  pick-up radius (no gain).
+
+- **Routes from the guide log: no grinding steps, real sea crossings, which zeppelin.** From your three characters'
+  logs: (1) the Speed and Explorer routes no longer tell you to grind a level (they had 3-9 such steps; grinding is the
+  Grind tab, for when you're bored of quests). The Safe routes keep 2-4, at levels 27-35, where no quest fits outside
+  the PvP zones. (2) A sea crossing now costs the way to the dock, the ride and the way on from the landing; it was a
+  flat 10 minutes from anywhere, and your Barrens to Hillsbrad trip took about 35, so routes hopped between continents.
+  (3) The zeppelin step says which one: "Go to Orgrimmar: Undercity zeppelin" (you boarded the Grom'gol one). The
+  builder also plans each route with hand-ins across the sea waiting for the hubs on your continent and keeps the faster
+  plan (Tirisfal: 17 -> 11 crossings at the same hours). Hours to 60 with the real crossings (30 s kills): Durotar 92.1,
+  Mulgore 92.5, Tirisfal 95.4; with grinding allowed they'd be 93.1 / 93.7 / 94.4 with 5 grind levels each. Safe routes
+  are 101-105 h with 24-33 sea crossings (few quests outside PvP zones and no grinding to fill the gaps).
+
+- **No gray pick-ups.** Routes skip quests that are already gray (5+ levels below you) when you'd pick them up, unless their chain
+  leads to a quest still worth doing. Gray hand-ins: Durotar 37 -> 21, Mulgore 48 -> 37, Tirisfal 76 -> 57 (Mulgore +0.3 h,
+  Tirisfal +1.2 h to 60, Durotar unchanged).
+
+- **Your step stays put until it's done.** Walking near another objective no longer switches the current step, so the box stops
+  changing while you move.
+- **Other quests in your log fold into one row** ("[+] 10 other quests in your log"); open it to list them.
+
+- **The guide box fits the screen and stays in your zone.** The trip shows at most 6 cards (your step and the nearest ones, in route
+  order), only from the zone you're in; "along the way" objectives from other zones no longer appear (Barrens steps showed in
+  Hillsbrad).
+
+### Sell or disenchant advice in tooltips
+- **Fixed: the advice and the disenchant list didn't work on most PCs.** The game client has no `GetItemInfo` of its own;
+  it only worked where another addon (GearQuest Forever) added it back. Both now use the game's own item lookup, and an item
+  the game hasn't loaded yet is asked for and shows on the next hover.
+- **One verdict line first:** "Best: Auction house 1g 20s", "Best: Disenchant ~85s" or "Best: Vendor 30s", in gold, green or
+  gray, then short lines for the auction house (after the 5% cut), the vendor and disenchanting, with the prices aligned.
+- **For every character and every item with an auction price**, not only weapons and armor. Disenchanting shows only when it's
+  worth knowing; without the skill it says which Enchanting level it needs.
+- Realms whose market isn't in the download (another region, for example) now use the closest prices for your faction.
+- **New settings** in Disenchant > Settings: details or the verdict only, the disenchant odds, and details only while holding Shift.
+- The Disenchant tab now shows for every character. **Craft to disenchant** shows for any Blacksmith, Leatherworker, Tailor,
+  Engineer or Enchanter, so a crafter can make the gear and send it to a disenchanting alt. Without a crafting profession the
+  tab holds only these tooltip settings; the disenchant list settings still need Enchanting.
+
+### Disenchant list
+- **Its own flat dark window**, in the addon's style, that opens beside the main window instead of on top of it, or where you
+  last dragged it (remembered). A spot that's off your screen is ignored.
+- Refreshes when the game finishes loading item details, so new PCs don't show an empty list.
+- No chat messages: the keep list shows in each row's hover, and the in-combat notice shows on screen.
+
 ## 4.37.4 (2026-11-15)
 
 ### One-click fishing

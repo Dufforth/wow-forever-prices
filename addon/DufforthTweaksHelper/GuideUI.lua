@@ -329,10 +329,12 @@ function UI.FlightStarted(from, to, estimate)
     end
 end
 
-function UI.FlightText()
+-- short = true: only the time ("Landing in 1:40"), for a narrow box.
+function UI.FlightText(short)
     local fl = UI.flight
     if not fl then return nil end
     local left = DufforthTweaksHelperGuide.FlightLeft(fl.startedAt, fl.total, GetTime and GetTime() or 0)
+    if short then return string.format(L["Landing in %d:%02d"], math.floor(left / 60), left % 60) end
     return string.format(L["Flying to %s: landing in %d:%02d"], fl.to or "?", math.floor(left / 60), left % 60)
 end
 
@@ -352,10 +354,10 @@ function UI.FlightCheck()
         if UI.flightTicker and UI.flightTicker.Cancel then UI.flightTicker:Cancel() end
         UI.flightTicker = nil
     end
+    -- Refit the whole bar each second: setting only the right-hand text let a long flight text run
+    -- over the zone title (user screenshot, 2026-11-21).
     local f = DufforthTweaksHelperGuideBox -- (the box's local is declared further down)
-    if f and f.progress and f.progress.pace then
-        f.progress.pace:SetText(UI.flight and UI.FlightText() or (UI.PaceText(false) or ""))
-    end
+    if f and f.progress and f.progress.pace then UI.FitProgress(f) end
 end
 
 -- Every flight you take: from the node you stand at to the one you picked, with the best estimate.
@@ -1791,7 +1793,7 @@ local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
             if useHint then advice = useHint .. (advice ~= "" and ("\n" .. advice) or "") end
             local legs = isCurrent and model:Directions(group[1])
             if legs then
-                -- One line (user, 2026-11-15: less text): "Route: Go to Orgrimmar (zeppelin) › Zeppelin to Undercity › Fly to ..."
+                -- One line (user, 2026-11-15: less text): "Route: Go to Orgrimmar: Undercity zeppelin › Zeppelin to Undercity › Fly to ..."
                 local parts = {}
                 for _, leg in ipairs(legs) do parts[#parts + 1] = leg.text end
                 advice = advice .. (advice ~= "" and "\n" or "") .. L["|cff80b3ffRoute:|r "] .. "|cffd0d0d0" .. table.concat(parts, " > ") .. "|r"
@@ -1857,8 +1859,15 @@ local function ExtraItems(model)
     end
     -- Quests in your log the route doesn't plan (a random drop started it, you took it on your own): a row each; a
     -- click points the arrow at its next objective, or at the NPC once it's complete (user, 2026-11-14).
-    for _, e in ipairs(model:OffRoute()) do
-        items[#items + 1] = { text = string.format(L["|cffffd100Your quest:|r %s |cffaaaaaa(%s)|r"], e.title, e.giver or "?"),
+    -- Folded into one row (user, 2026-11-15 screenshot: ten "Your quest" rows crowded the box); open on demand.
+    local off = model:OffRoute()
+    if #off > 0 then
+        items[#items + 1] = { toggle = "showOff", tipTitle = L["Other quests in your log"],
+            text = string.format(L["|cffffd100%s %d other quests in your log|r"], db.showOff and "[-]" or "[+]", #off),
+            tip = { L["Quests in your log this route doesn't plan. Click to list them; click one for the arrow."] } }
+    end
+    for _, e in ipairs(db.showOff and off or {}) do
+        items[#items + 1] = { text = string.format(L["    |cffffd100Your quest:|r %s |cffaaaaaa(%s)|r"], e.title, e.giver or "?"),
             entry = e, kind = "Your quest", tipTitle = e.title,
             tip = { L["In your log, but not in this route (it starts from a random drop, or you took it yourself)."],
                     e.zone and (L["Next: "] .. (e.giver or "?") .. ", " .. Where2(e) .. ".") or L["Its place isn't in the data: read the quest text."],
@@ -2045,7 +2054,8 @@ end
 local function AlongText(model, adapter)
     local parts = {}
     for _, i in ipairs(model:Along()) do
-        if UI.inTopBlock and UI.inTopBlock[i] then
+        local here = adapter and adapter.zone and adapter.zone()
+        if (UI.inTopBlock and UI.inTopBlock[i]) or (here and here ~= "" and model.steps[i][3] ~= here) then -- shown, or another zone
             -- already in the top block (the whole trip)
         else
             local action, lines = StepText(model, i, adapter)
@@ -2085,26 +2095,42 @@ local function DrawProgress(f, model, current, w, top)
     f.progress.routeText = string.format(L["Whole route: %d%% done (step %d of %d)."], route, current or #model.steps, #model.steps)
     -- Side by side, never on top of each other (user, 2026-11-14): with little room the zone %, then the guide name,
     -- then "Level up in" go first; whatever is left is cut with "...".
-    local guide, zonePct = "|cffffd100" .. UI.GuideLabel() .. "|r", string.format(L["zone %d%%"], math.floor(pct * 100 + 0.5))
-    local pace = (UI.flight and UI.FlightText()) or UI.PaceText(false) or "" -- flying: when you land
-    local shortPace = string.gsub(pace, "^Level up in ", "")
+    f.progress.title, f.progress.pct, f.progress.barW = title, pct, w - 2 * PAD + 8
+    UI.FitProgress(f)
+    return top - PROGRESS - 4
+end
+
+-- The bar's two texts side by side, never on top of each other (user, 2026-11-14 and 2026-11-21):
+-- with little room the zone %, then the guide name, then the long pace or flight text go first;
+-- whatever is left is cut with "...". Runs on each redraw and each second of a flight.
+function UI.FitProgress(f)
+    local bar = f.progress
+    if not bar.title or not bar.barW then return end
+    local title, barW = bar.title, bar.barW
+    local guide, zonePct = "|cffffd100" .. UI.GuideLabel() .. "|r", string.format(L["zone %d%%"], math.floor((bar.pct or 0) * 100 + 0.5))
+    local pace, shortPace
+    if UI.flight then -- flying: when you land
+        pace, shortPace = UI.FlightText(), UI.FlightText(true)
+    else
+        pace = UI.PaceText(false) or ""
+        shortPace = string.gsub(pace, "^Level up in ", "")
+    end
     local tries = {
         { guide .. "   " .. title .. "   " .. zonePct, pace }, { guide .. "   " .. title, pace },
-        { guide .. "   " .. title, shortPace }, { title, shortPace }, { title, "" },
+        { guide .. "   " .. title, shortPace }, { title, pace }, { title, shortPace }, { title, "" },
     }
-    local barW = w - 2 * PAD + 8
     UI.barWidth = barW
     local measure = UI.TextWidth or UI.MeasureText
     local pick = tries[#tries]
     for _, t in ipairs(tries) do
-        local paceW = t[2] ~= "" and measure(f.progress.pace, t[2]) + 8 or 0
-        if measure(f.progress.label, t[1]) + paceW + 4 <= barW then pick = t; break end
+        local paceW = t[2] ~= "" and measure(bar.pace, t[2]) + 8 or 0
+        if measure(bar.label, t[1]) + paceW + 4 <= barW then pick = t; break end
     end
-    f.progress.pace:SetText(pick[2])
-    local paceW = pick[2] ~= "" and measure(f.progress.pace, pick[2]) + 8 or 0
-    f.progress.label:SetWidth(math.max(20, barW - paceW - 8))
-    f.progress.label:SetText(pick[1])
-    return top - PROGRESS - 4
+    bar.pace:SetText(pick[2])
+    local paceW = pick[2] ~= "" and measure(bar.pace, pick[2]) + 8 or 0
+    bar.label:SetWidth(math.max(20, barW - paceW - 8))
+    bar.label:SetText(pick[1])
+    UI.progressPick = pick
 end
 
 local function DrawList(f, model, adapter, current, w, top, bottom)

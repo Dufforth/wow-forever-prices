@@ -57,6 +57,10 @@ local function object(kind, name)
   function o:SetBackdrop(b) self.backdrop = b end
   function o:GetEffectiveScale() return 1 end
   function o:GetCenter() return 0, 0 end
+  function o:GetLeft() return rawget(self, "left") end
+  function o:GetTop() return rawget(self, "top") end
+  function o:GetRight() return rawget(self, "right") end
+  function o:GetBottom() return rawget(self, "bottom") end
   function o:SetPoint(...) self.point = { ... } end
   function o:CreateFontString() local f = object("FontString"); ALL[#ALL+1] = f; return f end
   function o:CreateTexture() return object("Texture") end
@@ -65,7 +69,7 @@ local function object(kind, name)
 end
 function CreateFrame(kind, name, parent, template)
   local f = object(kind, name)
-  f.template = template
+  f.template, f.parent = template, parent
   if kind ~= "Frame" or name then f.shown = true end
   ALL[#ALL+1] = f
   if name then _G[name] = f end
@@ -213,8 +217,8 @@ def tabs():
 rawget_tab = lua.eval("function(f) return rawget(f, 'isTab') end")
 check("redesign: flat dark window like the guide, not the game's dialog frame (user)",
       menu.template == "BackdropTemplate" and menu.backdrop is not None)
-check("redesign: tabs Disenchant, Leveling, Zone, Grind and your class; no Gather or Crafting tab (user)",
-      tabs() == ["Disenchant", "Leveling", "Zone", "Grind", "Warrior"], tabs())
+check("redesign: tabs Disenchant, Leveling, Zone, Grind, Money and your class; no Gather or Crafting tab (user)",
+      tabs() == ["Disenchant", "Leveling", "Zone", "Grind", "Money", "Warrior"], tabs())
 check("redesign: the window can be made narrower and shorter (user: cannot resize smaller)",
       menu.bounds is not None and menu.bounds[1] <= 440 and menu.bounds[2] <= 320, menu.bounds and list(menu.bounds.values()))
 g.DufforthTweaksHelperMenu_Toggle("crafting")
@@ -277,13 +281,28 @@ for f in g.ALL.values():
         child = f
         break
 check("sections: items under a title are indented with a guide line", child is not None)
-# No Enchanting: the Disenchant tab goes away (user: only show disenchant if the toon has enchanting).
-lua.execute("GetProfessionInfo = function() return 'Tailoring', nil, 100, 300, nil, nil, 197, 0 end")
+# No Enchanting: the Disenchant tab shows only its Settings, for the tooltip advice (user, 2026-11-15: "Yes, settings only").
+def first_with_text(text):
+    return [f for f in g.ALL.values() if f.text == text and f.kind == "Button"][0]
+lua.execute("GetProfessionInfo = function() return 'Herbalism', nil, 100, 300, nil, nil, 182, 0 end")
+g.DufforthTweaksHelperDB.deView = "craft"
 g.DufforthTweaksHelperMenu_Toggle("disenchant")
-check("no Enchanting: no Disenchant tab", "Disenchant" not in tabs(), tabs())
-check("no Enchanting: a Disenchant command opens Leveling instead", g.DufforthTweaksHelperDB.menuTab == "Leveling")
+check("no Enchanting: the Disenchant tab stays", "Disenchant" in tabs() and g.DufforthTweaksHelperDB.menuTab == "Disenchant", tabs())
+check("no Enchanting: only the Settings view", g.DufforthTweaksHelperDB.deView == "settings"
+      and first_with_text("Craft to disenchant").shown is False and first_with_text("Settings").shown is False)
+check("no Enchanting: no disenchant list section", first_with_text("Open disenchant list").parent.shown is False)
+# A crafter without Enchanting still gets Craft to disenchant: craft and send to a disenchanting alt (user, 2026-11-16).
+lua.execute("GetProfessionInfo = function() return 'Tailoring', nil, 100, 300, nil, nil, 197, 0 end")
+g.DufforthTweaksHelperDB.deView = "craft"
+g.DufforthTweaksHelperMenu_Toggle("leveling"); g.DufforthTweaksHelperMenu_Toggle("disenchant")
+g.DufforthTweaksHelperMenu_Toggle("crafting")
+check("crafter without Enchanting: Craft to disenchant shows", g.DufforthTweaksHelperDB.deView == "craft"
+      and first_with_text("Craft to disenchant").shown is True and first_with_text("Settings").shown is True)
+check("crafter without Enchanting: still no disenchant list section", first_with_text("Open disenchant list").parent.shown is False)
 lua.execute("GetProfessionInfo = function() return 'Enchanting', nil, 100, 300, nil, nil, 333, 0 end")
 g.DufforthTweaksHelperMenu_Toggle("leveling"); g.DufforthTweaksHelperMenu_Toggle("leveling")
+check("Enchanting: view buttons and the list section come back", first_with_text("Craft to disenchant").shown is True
+      and first_with_text("Open disenchant list").parent.shown is True)
 check("Enchanting learned: the tab comes back", "Disenchant" in tabs(), tabs())
 check("the minimap button is the round guide icon (user)", 'GuideIcon" -- the round guide icon' in source("Menu.lua"))
 
@@ -325,6 +344,63 @@ g.DufforthTweaksHelperMenu_ApplySize(440, 320)
 check("resize: the size is remembered", g.DufforthTweaksHelperDB.menuSize[1] == 440 and g.DufforthTweaksHelperDB.menuSize[2] == 320)
 check("resize: narrower pages are rebuilt for the new width",
       any(f.kind == "FontString" and rawget_w(f) == 440 - 16 - 24 for f in g.ALL.values()))
+
+
+# ---- Disenchant list: its own flat window beside the menu (user screenshot: it covered the Settings view) ----
+de = g.DufforthTweaksHelperDEFrame
+check("DE list: flat dark window like the menu", de.template == "BackdropTemplate" and de.backdrop is not None, de.template)
+same = lua.eval("function(a, b) return rawequal(a, b) end")
+own = [f for f in g.ALL.values() if f.kind in ("Button", "Frame", "CheckButton") and same(f.parent, de)]
+check("DE list: no Blizzard gray buttons", own and not any("UIPanelButtonTemplate" in str(f.template or "") for f in own),
+      [f.template for f in own])
+check("DE list: the cast button is a plain secure button", button.template == "SecureActionButtonTemplate", button.template)
+check("DE list: refreshes when the game loads item details", de.events["GET_ITEM_INFO_RECEIVED"] is True)
+
+P = AUTO.Place
+def place(menu=None, saved=None):
+    return P(lua.table_from(menu) if menu else None, 360, 382, 1920, 1080, lua.table_from(saved) if saved else None)
+M = {"left": 500, "top": 800, "right": 1020, "bottom": 280}
+check("place: beside the menu, on its right", place(M) == (1028, 800), place(M))
+check("place: left of the menu when the right has no room", place({"left": 1200, "top": 800, "right": 1700, "bottom": 280}) == (832, 800))
+check("place: where you moved it", place({"left": 1200, "top": 800, "right": 1720, "bottom": 280}, {"left": 100, "top": 900}) == (100, 900))
+check("place: never on top of the menu", place(M, {"left": 600, "top": 700}) == (1028, 800))
+check("place: a saved spot off the screen is ignored", place(None, {"left": 5000, "top": 900}) == (780, 731))
+check("place: no menu, nothing saved: centered", place() == (780, 731))
+
+menu = g.DufforthTweaksHelperMenu
+menu.shown = True
+menu.left, menu.top, menu.right, menu.bottom = 500, 800, 1020, 280
+g.UIParent.width, g.UIParent.height = 1920, 1080
+de.shown = False
+AUTO.Toggle()
+check("open: beside the open menu", de.shown and de.point[3] == "BOTTOMLEFT" and de.point[4] == 1028 and de.point[5] == 800, list(de.point.values()))
+de.left, de.top = 40, 700
+de.scripts.OnDragStop(de)
+check("drag: the spot is remembered", AUTO.Options().pos.left == 40 and AUTO.Options().pos.top == 700)
+AUTO.Toggle(); AUTO.Toggle()
+check("reopen: where you left it", de.point[4] == 40 and de.point[5] == 700, list(de.point.values()))
+
+# Another PC: no global GetItemInfo (GearQuest Forever adds it on the user's PC).
+lua.execute("OLD_GII = GetItemInfo; GetItemInfo = nil; C_Item = { GetItemInfo = OLD_GII }")
+rows = AUTO.Rows()
+check("no global GetItemInfo: the list still finds the items", len(rows) == 4, len(rows))
+lua.execute("GetItemInfo = OLD_GII; C_Item = nil")
+
+# Tooltip settings in the Disenchant tab's Settings view, saved in DufforthTweaksHelperDB.deTooltip.
+g.DufforthTweaksHelperMenu_Toggle("disenchant")
+items = list(g.ALL.values())
+details_box = box_for("Show the details, not only the verdict")
+odds_box = box_for("Show the disenchant odds")
+shift_box = box_for("Details only while holding Shift")
+check("settings: tooltip options are in the Settings view", details_box is not None and odds_box is not None and shift_box is not None)
+odds_box.checked = True
+odds_box.scripts.OnClick(odds_box)
+shift_box.checked = True
+shift_box.scripts.OnClick(shift_box)
+details_box.checked = False
+details_box.scripts.OnClick(details_box)
+T = g.DufforthTweaksHelperDB.deTooltip
+check("settings: saved", T.odds is True and T.shift is True and T.details is False)
 
 if fails:
     sys.exit(f"{len(fails)} failed")

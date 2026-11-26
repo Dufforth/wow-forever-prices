@@ -60,13 +60,31 @@ class XpModel:
 
 class TravelModel:
     RUN, MOUNT, MOUNT_LEVEL = 7.0, 10.5, 40  # yards per second; Classic mount at 40
-    SHIP = 300                               # seconds on top of walking to the dock: boat or zeppelin wait and ride (about 10 min in all)
+    SHIP = 300                               # seconds: the wait for a boat or zeppelin and the ride
+
+    def __init__(self, docks=()):
+        """docks: [(point, point)] the two ends of each boat or zeppelin line (both ways)."""
+        self.docks = [(a, b) for a, b in docks] + [(b, a) for a, b in docks]
+
+    def crossing(self, a, b):
+        """(dock on a's continent, landing on b's) of the line with the shortest way in all; None on one continent or
+        when no line joins them."""
+        if a is None or b is None or a[0] == b[0]:
+            return None
+        lines = [(da, db) for da, db in self.docks if da[0] == a[0] and db[0] == b[0]]
+        return min(lines, key=lambda l: distance(a, l[0]) + distance(l[1], b), default=None)
 
     def seconds(self, a, b, level):
+        speed = self.MOUNT if level >= self.MOUNT_LEVEL else self.RUN
         d = distance(a, b)
         if d == math.inf:
-            return self.SHIP + 300
-        return d / (self.MOUNT if level >= self.MOUNT_LEVEL else self.RUN)
+            # Another continent (guide log, 2026-11-16: Barrens to Hillsbrad took ~35 min, not a flat 10): the way to the
+            # dock, the ride, and the way from the landing. Without dock data, the old flat time.
+            line = self.crossing(a, b)
+            if line is None:
+                return self.SHIP + 300
+            return distance(a, line[0]) / speed + self.SHIP + distance(line[1], b) / speed
+        return d / speed
 
 
 class Eligibility:
@@ -114,7 +132,7 @@ class Eligibility:
 class HubScorer:
     """Experience per second for the quests at a hub: getting there, the objectives (there and back,
     shared by the hub's quests), the kills, and the turn-ins."""
-    KILL_SECONDS = 20
+    KILL_SECONDS = 30  # measured: the user's 287 solo fights, about 30-37 s per kill with looting and walking (was 20, 2026-11-16)
     OVERHEAD = 60
 
     def value(self, quests, here, hub, level, xp, travel, extra_seconds=0):
@@ -177,8 +195,10 @@ class Shortcuts:
         best = min(self.inns, key=lambda i: distance(i[1], point), default=None)
         return best if best and distance(best[1], point) <= self.INN_NEAR else None
 
-    def best(self, a, b, walk, now):
-        """Cheapest way from a to b: ("walk", seconds) | ("fly", seconds, from, to) | ("hearth", seconds)."""
+    def best(self, a, b, walk, now, speed=None):
+        """Cheapest way from a to b: ("walk", seconds) | ("fly", seconds, from, to) | ("hearth", seconds).
+        speed: yards per second to and from the flight masters and after the hearthstone (running unless mounted)."""
+        speed = speed or TravelModel.RUN
         options = [("walk", walk)]
         if len(self.known) >= 2 and a and b and a[0] == b[0]:
             same = [self.flights[k] for k in self.known if self.flights[k][1][0] == a[0]]
@@ -186,11 +206,11 @@ class Shortcuts:
                 f1 = min(same, key=lambda f: distance(f[1], a))
                 f2 = min(same, key=lambda f: distance(f[1], b))
                 if f1 is not f2:
-                    t = (distance(a, f1[1]) + distance(f2[1], b)) / TravelModel.RUN \
+                    t = (distance(a, f1[1]) + distance(f2[1], b)) / speed \
                         + distance(f1[1], f2[1]) * self.FLY_DETOUR / self.FLY_SPEED + self.FLY_OVERHEAD
                     options.append(("fly", t, f1, f2))
         if self.home and now >= self.ready_at and b and self.home[1][0] == b[0]:
-            options.append(("hearth", self.HEARTH_CAST + distance(self.home[1], b) / TravelModel.RUN))
+            options.append(("hearth", self.HEARTH_CAST + distance(self.home[1], b) / speed))
         pick = min(options, key=lambda o: o[1])
         return pick if pick[0] == "walk" or pick[1] + self.MIN_SAVING < walk else options[0]
 
@@ -199,11 +219,11 @@ class RoutePlanner:
     NEAR = 120        # yards: givers this close are the same quest hub (one town)
     TALK = 40         # yards: a turn-in this close is where you stand
     MAX_ACTIVE = 40   # Forever's quest log holds 40 (conquestcapped.com, 2026-11-14; the addon logs the real C_QuestLog.GetMaxNumQuestsCanAccept)
-    KILL_SECONDS = 20
+    KILL_SECONDS = 30  # same measured kill time as HubScorer (user chose it, 2026-11-16: grinding was overrated at 20 s)
     DROP_NEAR = 250   # yards: a quest-starting drop is picked up while working this close to its monsters
     WORTH = 0.5       # a quest must give at least this share of grinding's experience per second (user: fast leveling)
     SHARED_WALK = 0.5 # share of a quest's walk counted against it (the rest is shared with the hub's other quests)
-    DETOUR = 40       # yards: a turn-in that adds less than this to the next walk is done on the way
+    DETOUR = 40       # yards: a turn-in that adds less than this to the next walk is done on the way (400 tried 2026-11-16: ~1 h slower in all)
     ZONE_CHANGE = 300 # seconds: what leaving your zone costs on top of walking (loading, flights, boats)
     STAY = 0.5        # stay in your zone while its best hub is worth at least half of the best elsewhere
     start_level = 1   # the route can be planned from any level
@@ -219,7 +239,17 @@ class RoutePlanner:
     # necessary"): an objective farther than LONE_FAR with nothing else you carry near it waits until you're high enough
     # for the quests around it, while other work exists.
     LONE_FAR = 700
+    GRAY_AT, CHAIN_PAYS = 5, 2  # gray: this many levels below you; worth it if its chain reaches within CHAIN_PAYS of you
     WAIT_LEVELS = 3
+    # Tried 2026-11-16: weighing the whole zone across the sea (not only its first hub) before grinding: 1.5-3 h slower.
+    # A hub across the sea must give this share of grinding's experience per second, or you grind a level. 0: the route
+    # never grinds to avoid a crossing (user, 2026-11-16: grinding is the Grind tab's job, for when you're bored of
+    # quests, not part of the guide to follow). It was 1.0: 3-9 "grind a level" steps per route.
+    SEA_WORTH = 0.0
+    # Hand-ins across the sea wait while this continent still has a quest hub. Off by default: on the speed routes it cut
+    # sea crossings 16 -> 10 but cost 2-4 h (the quests held go stale); build_route plans with and without it and keeps
+    # the faster plan.
+    SEA_TURNIN_WAITS = False
 
     def __init__(self, quests, where, eligibility, xp, travel, scorer, zone_plan=None, shortcuts=None, avoid=()):
         self.shortcuts = shortcuts or Shortcuts()
@@ -234,6 +264,11 @@ class RoutePlanner:
                 self.groups[q.exclusive].append(q.id)
         self.most_active = 0
         self.needed = {abs(q.prev) for q in quests if q.prev}  # quests another quest needs: kept for their chain
+        self.followers = defaultdict(list)  # quest -> quests that need it first
+        for q in quests:
+            if q.prev > 0:
+                self.followers[q.prev].append(q.id)
+        self._chain_cache = {}
 
     # -- state helpers --
     def _available(self, q, stretch=False):
@@ -259,8 +294,25 @@ class RoutePlanner:
                                [d[0], round(d[1], 1), round(d[2], 1)] if d else None))
 
     def _go(self, point):
+        """To a point; across the sea by the dock (each land leg may fly), unless the hearthstone is quicker."""
+        line = self.travel.crossing(self.pos, point)
+        if line is not None:
+            home = self.shortcuts.home
+            hearth = (home and self.me.time >= self.shortcuts.ready_at and home[1][0] == point[0]
+                      and Shortcuts.HEARTH_CAST + self.travel.seconds(home[1], point, self.me.level) + Shortcuts.MIN_SAVING
+                      < self.travel.seconds(self.pos, point, self.me.level))
+            if not hearth:
+                self._leg(line[0])
+                self.me.time += self.travel.SHIP
+                self.pos = line[1]
+                self.shortcuts.learn(self.pos)
+                self.crossings += 1
+        self._leg(point)
+
+    def _leg(self, point):
         walk = self.travel.seconds(self.pos, point, self.me.level)
-        way = self.shortcuts.best(self.pos, point, walk, self.me.time) if walk > self.shortcuts.MIN_SAVING else ("walk", walk)
+        speed = self.travel.MOUNT if self.me.level >= self.travel.MOUNT_LEVEL else self.travel.RUN
+        way = self.shortcuts.best(self.pos, point, walk, self.me.time, speed) if walk > self.shortcuts.MIN_SAVING else ("walk", walk)
         if way[0] == "fly":
             _, seconds, f1, f2 = way
             self._step("fly", 0, f1[1], f"Fly from {f1[0]} to {f2[0]}", dest=f2[1])
@@ -314,6 +366,10 @@ class RoutePlanner:
     def _worth(self, q):
         """Enough experience for its time (walk to its objectives and back, kills) compared with grinding;
         quests that lead on in a chain are always worth it."""
+        # Already gray when you'd pick it up: skipped, unless its chain leads to a quest still worth doing (user, 2026-11-15:
+        # "Yes, skip gray pickups"; 31 of Durotar's 37 gray hand-ins were gray at pickup).
+        if self.me.level - q.level >= self.GRAY_AT and self._chain_top(q.id) < self.me.level - self.CHAIN_PAYS:
+            return False
         if q.next_in_chain or q.id in self.needed or q.start_drop:
             return True
         walk, here = 0.0, q.start
@@ -474,6 +530,21 @@ class RoutePlanner:
         # Only a short wait (up to WAIT_LEVELS): longer and its quests lose experience (Tirisfal +3.9 h with no limit).
         return self.me.level < area <= self.me.level + self.WAIT_LEVELS
 
+    def _chain_top(self, qid, hops=6):
+        """The highest quest level a chain reaches from this quest (its follow-ups, up to `hops` deep)."""
+        if qid in self._chain_cache:
+            return self._chain_cache[qid]
+        q = self.quests.get(qid)
+        top = q.level if q else 0
+        if q and hops > 0:
+            nxt = [q.next_in_chain] if q.next_in_chain else []
+            nxt += self.followers.get(qid, [])
+            for n in nxt:
+                if n in self.quests and n != qid:
+                    top = max(top, self._chain_top(n, hops - 1))
+        self._chain_cache[qid] = top
+        return top
+
     def _on_the_way(self, stop, target):
         """True when stopping at `stop` adds almost nothing to the walk to `target`."""
         detour = distance(self.pos, stop) + distance(stop, target) - distance(self.pos, target)
@@ -482,7 +553,7 @@ class RoutePlanner:
     def plan(self, start, race_bit, max_level=60):
         self.me, self.pos, self.race_bit, self.max_level = Character(level=self.start_level), start, race_bit, max_level
         self.done, self.active, self.steps = set(), {}, []
-        self.flights_taken = self.hearths_used = 0
+        self.flights_taken = self.hearths_used = self.crossings = 0
         self.runs = set()
         self.shortcuts.learn(start)
         self.stretching = False
@@ -504,7 +575,15 @@ class RoutePlanner:
                     self.picked.add(pickup)
                     self._go(pickup)  # collect more quests first: one trip for several
                     continue
+                # Tried 2026-11-15 (user: "split the zone in quadrants"): finishing the quarter you're in first gave MORE
+                # returns to an area (Durotar 117 -> 125, Mulgore 118 -> 122, Tirisfal 130 -> 136) at the same hours, so
+                # nearest-first stays.
+                # Tried 2026-11-15 (user: "lower level quests first before they go gray"): green objectives counted as 0.6
+                # as far changed nothing on Durotar/Mulgore and made Tirisfal 3.8 h slower; 31 of Durotar's 37 gray hand-ins
+                # were already gray when picked up (chains), only 6 went gray while carried. Nearest-first stays.
                 qid, goal = min(todo, key=lambda t: (distance(t[1].point, self.pos), t[0]))
+                # Tried 2026-11-16: handing in first a finished quest whose follow-up you can take (within 500 or 1000 yd)
+                # gave no gain (within 0.5 h, either way).
                 if nearest_end and self._on_the_way(nearest_end, goal.point):
                     self._go(nearest_end)  # a turn-in on the way comes first
                     continue
@@ -517,6 +596,13 @@ class RoutePlanner:
                 local = None
                 if self._zone(nearest_end) != self._zone(self.pos) and len(self.active) < self.MAX_ACTIVE:
                     local = self._best_hub(zone=self._zone(self.pos))
+                    if local is not None and distance(local, self.pos) <= self.NEAR:
+                        local = None
+                if local is None and self.SEA_TURNIN_WAITS and nearest_end[0] != self.pos[0] and len(self.active) < self.MAX_ACTIVE:
+                    # Every hand-in left is across the sea: it waits while this continent still has a hub (guide log,
+                    # 2026-11-16: a crossing is 15-35 minutes; routes crossed for one hand-in).
+                    zone, _ = self._best_zone(continent=self.pos[0])
+                    local = self._best_hub(zone=zone) if zone is not None else None
                     if local is not None and distance(local, self.pos) <= self.NEAR:
                         local = None
                 self._go(local or nearest_end)
@@ -538,7 +624,7 @@ class RoutePlanner:
             if hub is None:
                 self._grind("no quests fit your level now")
                 continue
-            if hub[0] != self.pos[0] and self.hub_value < self._grind_rate():
+            if hub[0] != self.pos[0] and self.hub_value < self.SEA_WORTH * self._grind_rate():
                 # Only a sea crossing is weighed against grinding: those trips are what make a route hop.
                 self._grind("the next quests aren't worth the trip yet")
                 continue

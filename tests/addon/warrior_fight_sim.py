@@ -35,7 +35,7 @@ MOCK, source = _env["MOCK"], _env["source"]
 STANCE_IDS = {"battle": 2457, "defensive": 71, "berserker": 2458}
 
 
-def build(spells, stances, level, shield=True, group=False, buffs=()):
+def build(spells, stances, level, shield=True, group=False, buffs=(), aoe=False):
     lua = L.LuaRuntime(unpack_returned_tuples=True)
     for _loc in ("Locale.lua", "LocaleES.lua"): lua.execute((__import__("pathlib").Path(__file__).resolve().parents[2] / "addon" / "DufforthTweaksHelper" / _loc).read_text(encoding="utf-8"))
     lua.execute(MOCK)
@@ -50,7 +50,7 @@ def build(spells, stances, level, shield=True, group=False, buffs=()):
     g.IsInGroup = lambda: group
     w = g.DufforthTweaksHelperWarrior
     w.Update()
-    return g.MACROS[w.MACRO_NAME], [], None
+    return g.MACROS[w.MACRO_AOE if aoe else w.MACRO_NAME], [], None
 
 
 # ---- A tiny model of the fight ----
@@ -62,6 +62,7 @@ SPELL = {
     "Victory Rush": (0, 0, True), "Execute": (15, 0, True), "Shield Slam": (20, 6, True),
     "Mortal Strike": (30, 6, True), "Bloodthirst": (30, 6, True), "Whirlwind": (25, 10, True),
     "Intercept": (10, 15, False), "Sweeping Strikes": (30, 30, True),
+    "Thunder Clap": (20, 4, True), "Demoralizing Shout": (10, 0, True),
     "Bloodrage": (0, 60, False),  # +10 rage now and +10 over 10 s, costs some health
 }
 GCD = 1.5
@@ -106,7 +107,7 @@ class Fight:
         stance = self.stance_names[self.form - 1] if 0 < self.form <= len(self.stance_names) else "?"
         allowed = {"Rend": ("battle", "defensive"), "Revenge": ("defensive",), "Shield Block": ("defensive",),
                    "Shield Slam": ("defensive", "battle", "berserker"), "Overpower": ("battle",),
-                   "Execute": ("battle", "berserker"), "Whirlwind": ("berserker",), "Intercept": ("berserker",)}
+                   "Execute": ("battle", "berserker"), "Whirlwind": ("berserker",), "Thunder Clap": ("battle",), "Intercept": ("berserker",)}
         if spell in allowed and stance not in allowed[spell]: return False
         if spell in ("Shield Block", "Shield Slam") and not self.shield: return False
         if spell in ("Charge",) and self.in_combat: return False
@@ -147,7 +148,7 @@ class Fight:
         if spell == "Overpower": self.overpower_until = 0; self.hit(10)
         if spell == "Rend": self.rend_until = self.t + 15
         if spell == "Victory Rush": self.victorious = False; self.hit(10)
-        if spell in ("Sunder Armor", "Execute", "Shield Slam", "Mortal Strike", "Bloodthirst", "Whirlwind"): self.hit(8)
+        if spell in ("Sunder Armor", "Execute", "Shield Slam", "Mortal Strike", "Bloodthirst", "Whirlwind", "Thunder Clap"): self.hit(8)
         self.in_combat = True
 
     def hit(self, amount):
@@ -286,7 +287,7 @@ for name, (text, never, seen) in REPLAYS.items():
     check(f"replay {name}: the model casts what the game cast and never what it never cast", ok_never and ok_seen, str(total))
 
 def run(name, spells, stances, level, form, shield, seeds=range(1, 11), **kw):
-    body, steps, click = build(spells, stances, level, shield=shield, group=kw.get("group", False), buffs=kw.pop("buffs", ()))
+    body, steps, click = build(spells, stances, level, shield=shield, group=kw.get("group", False), buffs=kw.pop("buffs", ()), aoe=kw.pop("aoe", False))
     total, errors, capped, kills, seconds = {}, {}, 0.0, 0, 0
     for seed in seeds:
         f = Fight(body, steps, click, form, stances, shield, seed=seed, **kw).play()
@@ -320,7 +321,11 @@ check("3 enemies: the extra rage goes into Heroic Strike", per.get("Heroic Strik
 check("3 enemies: rage stays under 80% most of the time", cap < 0.25, s)
 
 per, cap, s, body, _ = run("defensive, shield, group", LEVEL25, ["battle", "defensive"], 25, 2, True, group=True, enemies=2)
-check("in a group: Cleave instead of Heroic Strike", "Cleave" in body and per.get("Heroic Strike", 0) == 0 and per.get("Cleave", 0) >= 1, s)
+check("in a group the single button keeps Heroic Strike, never Cleave", "Cleave" not in body and per.get("Cleave", 0) == 0 and per.get("Heroic Strike", 0) >= 1, s)
+per, cap, s, body, _ = run("AoE button, defensive, shield, 3 enemies", LEVEL25, ["battle", "defensive"], 25, 2, True, enemies=3, aoe=True)
+check("AoE button, defensive: Revenge and Cleave, no Heroic Strike", per.get("Cleave", 0) >= 2 and per.get("Revenge", 0) >= 4 and per.get("Heroic Strike", 0) == 0, s)
+per, cap, s, body, _ = run("AoE button, battle, Thunder Clap", LEVEL25 + ["Thunder Clap", "Demoralizing Shout"], ["battle", "defensive"], 25, 1, True, enemies=3, aoe=True, buffs=("Battle Shout",))
+check("AoE button, battle: Thunder Clap keeps going, Demoralizing Shout once, no Rend", per.get("Thunder Clap", 0) >= 4 and per.get("Demoralizing Shout", 0) == 1 and per.get("Rend", 0) == 0, s)
 
 per, cap, s, *_ = run("defensive, no shield", LEVEL25, ["battle", "defensive"], 25, 2, False)
 check("defensive without a shield: no Shield Block, Rend and Sunder instead", per.get("Shield Block", 0) == 0 and per.get("Sunder Armor", 0) >= 3, s)

@@ -15,7 +15,7 @@ mock = src[src.index('MOCK = r"""') + len('MOCK = r"""'):]
 mock = mock[:mock.index('"""')]
 lua = L.LuaRuntime(unpack_returned_tuples=True)
 lua.execute(mock)
-lua.execute(r'''
+PATCH = r'''
 GetRealmName = function() return "Forever PvP" end
 UnitName = function() return "Duff" end
 UnitFactionGroup = function() return "Horde" end
@@ -45,7 +45,8 @@ end
 PROFS = { [1] = { "Tailoring", nil, 87, 150, 0, 0, 197, 0 }, [5] = { "Cooking", nil, 40, 75, 0, 0, 185, 0 } }
 GetProfessions = function() return 1, nil, nil, nil, 5, nil end
 GetProfessionInfo = function(i) return unpack(PROFS[i], 1, 8) end
-''')
+'''
+lua.execute(PATCH)
 toc = open(os.path.join(ADDON, "DufforthTweaksHelper.toc"), encoding="utf-8").read().splitlines()
 ns = lua.table()
 bad = False
@@ -92,6 +93,25 @@ try:
 except Exception as e:
     fish_ok = False
     print("FISHING ERROR", str(e)[:300])
-ok = not bad and "error" not in texts.lower() and "crafts" in texts and grind_ok and fish_ok
+# A druid: the Class tab opens on the DTH Druid macro view.
+druid_ok = True
+try:
+    lua2 = L.LuaRuntime(unpack_returned_tuples=True)
+    lua2.execute(mock)
+    lua2.execute(PATCH)
+    lua2.execute('UnitClass = function() return "Druid", "DRUID" end')
+    ns2 = lua2.table()
+    for f in [l.strip() for l in toc if l.strip().endswith(".lua")]:
+        code = open(os.path.join(ADDON, f), encoding="utf-8").read()
+        lua2.eval("function(src, name, ns) local fn, err = loadstring(src, name); if not fn then error(err) end; fn('DufforthTweaksHelper', ns) end")(code, f, ns2)
+    lua2.execute('DufforthTweaksHelperMenu_Toggle("druid")')
+    header = lua2.eval('(function() for _, f in ipairs(ALL) do if rawget(f, "text") == "One button for your druid" then return true end end return false end)()')
+    view = lua2.eval("DufforthTweaksHelperDB.classView")
+    print("druid class tab: macro view", view, "header", header)
+    druid_ok = header is True and view == "macro"
+except Exception as e:
+    druid_ok = False
+    print("DRUID ERROR", str(e)[:300])
+ok = not bad and "error" not in texts.lower() and druid_ok and "crafts" in texts and grind_ok and fish_ok
 print("all passed" if ok else "FAILED")
 sys.exit(0 if ok else 1)

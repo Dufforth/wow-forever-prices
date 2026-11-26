@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Dufforth Tweaks Helper
 ## Notes: Disenchanting, crafting and leveling help. Says in item tooltips whether to disenchant, sell on the auction house or sell to a vendor, disenchants BoE gear one click at a time, recommends gear worth crafting to disenchant, plans the cheapest way to level a profession, keeps a one-button warrior macro up to date, recommends consumables and gear upgrades for your class, and says what's worth doing in your zone.
-## Version: 4.37.4
+## Version: 4.37.5
 ## X-License: Leveling route data CC BY-NC-SA 4.0 (Forever quest places from RestedXP Guides)
 ## X-Credits: RestedXP Guides (Forever quest places), CMaNGOS Classic database
 ## IconTexture: Interface\AddOns\DufforthTweaksHelper\Media\GuideIcon
@@ -18,6 +18,12 @@ Crafting.lua
 LevelingData.lua
 Leveling.lua
 Warrior.lua
+Druid.lua
+Hunter.lua
+PetData.lua
+Pets.lua
+MoneyData.lua
+Money.lua
 ConsumablesData.lua
 Consumables.lua
 ZoneData.lua

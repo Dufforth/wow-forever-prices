@@ -73,6 +73,8 @@ jobs:
           python tests/addon/full_load_sim.py > /dev/null
           python tests/addon/warrior_sim.py > /dev/null
           python tests/addon/warrior_fight_sim.py > /dev/null
+          python tests/addon/druid_sim.py > /dev/null
+          python tests/addon/druid_fight_sim.py > /dev/null
           python tests/addon/consumables_sim.py > /dev/null
           python tests/addon/zone_sim.py > /dev/null
           python tests/addon/grind_sim.py > /dev/null
@@ -127,6 +129,7 @@ jobs:
           python tools/build_addon_gear.py addon/DufforthTweaksHelper/GearData.lua
           python tools/build_addon_guide.py addon/DufforthTweaksHelper/GuideData.lua
           python tools/build_addon_prices.py state addon/DufforthTweaksHelper/Prices.lua || true
+          (cd tools && python build_addon_money.py ../state ../addon/DufforthTweaksHelper/MoneyData.lua) || true
           python tools/build_addon_zip.py _site/downloads
           cp -r state/. _site/data/ || true
 

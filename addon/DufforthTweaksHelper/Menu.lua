@@ -7,9 +7,10 @@ local PREFIX = L["|cff66ccffDufforth Tweaks Helper:|r "]
 local ICON = "Interface\\AddOns\\DufforthTweaksHelper\\Media\\GuideIcon" -- the round guide icon (user, 2026-11-14)
 local ROW = 26
 -- The last tab is your class (named after it): consumables for everyone, the macro for warriors.
--- Disenchant holds the craft-to-disenchant list too, and shows only with Enchanting (user, 2026-11-14).
+-- Disenchant holds the craft-to-disenchant list too, for every gear crafter (user, 2026-11-16). Its
+-- Settings are for every character (tooltip advice); the disenchant list part needs Enchanting.
 -- Fishing shows only for a character that knows Fishing (user, 2026-11-15).
-local TABS = { "Disenchant", "Leveling", "Zone", "Grind", "Fishing", "Class" }
+local TABS = { "Disenchant", "Leveling", "Zone", "Grind", "Fishing", "Money", "Class" }
 -- A flat dark window like the leveling guide, with slim flat tabs, resizable both ways (user, 2026-11-14).
 local WIDTH, HEIGHT = 520, 520
 local MIN_W, MAX_W, MIN_H, MAX_H = 420, 900, 300, 1000
@@ -34,9 +35,20 @@ local function HasEnchanting()
     return professions.Enchanting ~= nil
 end
 
--- Tabs that need a profession: Disenchant (Enchanting), Fishing (Fishing).
+-- Craft to disenchant for any character that crafts gear, Enchanting or not: it can send the
+-- gear to a disenchanting alt (user, 2026-11-16). When professions can't be read, it stays.
+local GEAR_CRAFTS = { "Blacksmithing", "Leatherworking", "Tailoring", "Engineering", "Enchanting" }
+local function CraftsGear()
+    local professions = DufforthTweaksHelper.Professions and DufforthTweaksHelper.Professions()
+    if professions == nil then return true end
+    for _, name in ipairs(GEAR_CRAFTS) do
+        if professions[name] then return true end
+    end
+    return false
+end
+
+-- Tabs that need a profession: Fishing (Fishing).
 local function TabShown(name)
-    if name == "Disenchant" then return HasEnchanting() end
     if name == "Fishing" then
         if not DufforthTweaksHelperFishing then return false end
         local ok, spell = pcall(DufforthTweaksHelperFishing.Spell)
@@ -196,9 +208,21 @@ end
 local function BuildDisenchant(page)
     local y = -4
     y = Header(page, y, L["Item tooltips"])
-    y = Check(page, y, L["Disenchant advice in item tooltips"], L["Weapon and armor tooltips show the disenchant materials with their chances and prices, the average value, and a colored tag that says what pays most: disenchant (green), auction house (gold) or vendor (gray). Same as /dufforth de."],
+    y = Check(page, y, L["Disenchant advice in item tooltips"], L["Item tooltips start with one line that says what pays most: auction house after its 5% cut (gold), vendor (gray) or disenchant (green), with the price. Works for every character; disenchanting shows only when it's worth knowing. Same as /dufforth de."],
         function() return DB().showDisenchant ~= false end, function(on) DufforthTweaksHelperDE.Toggle(on and "on" or "off") end)
+    local tip = DufforthTweaksHelperDE.TooltipOptions
+    y = Check(page, y, L["Show the details, not only the verdict"], L["Under the verdict, one line each for the auction house, the vendor and disenchanting, with the prices aligned. Untick for the verdict line alone."],
+        function() return tip().details end, function(on) tip().details = on end)
+    y = Check(page, y, L["Show the disenchant odds"], L["Each material disenchanting can give, with its chance, amount and price."],
+        function() return tip().odds end, function(on) tip().odds = on end)
+    y = Check(page, y, L["Details only while holding Shift"], L["Keeps tooltips short: the verdict always, the details while you hold Shift."],
+        function() return tip().shift end, function(on) tip().shift = on end)
     y = y - 8
+    -- The disenchant list settings, only for a character with Enchanting.
+    local bags = CreateFrame("Frame", nil, page)
+    bags:SetPoint("TOPLEFT", 0, y); bags:SetPoint("BOTTOMRIGHT", 0, 0)
+    refreshers[#refreshers + 1] = function() bags:SetShown(HasEnchanting()) end
+    page, y = bags, 0
     y = Header(page, y, L["Disenchant from your bags"])
     local auto = DufforthTweaksHelperAutoDE
     y = Stepper(page, y, L["Disenchant up to"], L["Higher qualities start unticked in the disenchant list. Uncommon (green) is the safe default; epics need a deliberate choice."],
@@ -225,7 +249,7 @@ local DE_VIEWS = {
     { key = "settings", label = L["Settings"], width = 70, tip = L["Disenchant advice in tooltips and the disenchant list."] },
 }
 local function ShowDisenchantView(view)
-    if not deViews[view] then view = "settings" end
+    if not deViews[view] or (view == "craft" and not CraftsGear()) then view = "settings" end
     for key, frame in pairs(deViews) do frame:SetShown(key == view) end
     DB().deView = view
     RefreshMenu()
@@ -249,7 +273,15 @@ local function BuildDisenchantTab(page)
         else DufforthTweaksHelperCrafting.BuildPanel(frame, PAGE_WIDTH) end
     end
     refreshers[#refreshers + 1] = function()
-        for key, b in pairs(buttons) do SetOn(b, DB().deView == key) end
+        local crafter = CraftsGear()
+        if not crafter and DB().deView ~= "settings" then ShowDisenchantView("settings") end
+        for key, b in pairs(buttons) do
+            b:SetShown(crafter) -- no gear crafting: there is only Settings, so no view buttons
+            SetOn(b, DB().deView == key)
+        end
+        -- Without the view buttons the settings move up.
+        deViews.settings:ClearAllPoints()
+        deViews.settings:SetPoint("TOPLEFT", 0, crafter and -26 or 0); deViews.settings:SetPoint("BOTTOMRIGHT", 0, 0)
     end
     ShowDisenchantView(DB().deView or "settings")
 end
@@ -268,14 +300,15 @@ local function BuildWarrior(page)
         Text(60):SetText(L["|cffff5555The warrior part of the addon didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon."])
         return
     end
-    Text(70):SetText(L["|cffffd100How to use it:|r 1. Click |cffffd100Put it on my cursor|r. 2. Drop it on your action bar. 3. Press only that key in fights while you move.\nIt's the |cffffd100DTH Warrior|r macro (Esc > Macros > Character Specific Macros). After every fight the addon rewrites it for the spells you know, your stances and your Battle Shout."])
+    Text(70):SetText(L["|cffffd100How to use it:|r two buttons that never mix. |cffffd100DTH Warrior|r hits one enemy; |cffffd100DTH Warrior AoE|r hits every enemy around you (Thunder Clap, Whirlwind, Cleave, Demoralizing Shout, Sweeping Strikes). Put each on your action bar and press the AoE one when 2 or more enemies are on you; the icon tells you. After every fight the addon rewrites both for the spells you know, your stances and your Battle Shout."])
     local status = Text(28)
     refreshers[#refreshers + 1] = function() status:SetText(warrior.state.status or "") end
-    local preview = Text(160, "GameFontDisableSmall")
+    local preview = Text(250, "GameFontDisableSmall")
     refreshers[#refreshers + 1] = function()
         if not warrior.state.lines and not (InCombatLockdown and InCombatLockdown()) then warrior.SafeUpdate() end
         local lines = warrior.state.lines
-        preview:SetText(lines and (L["The macro. The game tries one global-cooldown spell per press, so each stance has one line that steps through its spells. Victory Rush, Execute and Shield Bash go on their own keys; the icon flashes red when to press them:\n"] .. table.concat(lines, "\n")) or "")
+        preview:SetText(lines and (L["The macro. The game tries one global-cooldown spell per press, so each stance has one line that steps through its spells. Victory Rush, Execute and Shield Bash go on their own keys; the icon flashes red when to press them:\n"] .. table.concat(lines, "\n")
+            .. "\n|cffffd100" .. warrior.MACRO_AOE .. ":|r\n" .. table.concat(warrior.state.aoeLines or {}, "\n")) or "")
     end
     local function Rebuild() warrior.state.body = nil; warrior.SafeUpdate() end
     y = Check(page, y, L["Keep the DTH Warrior macro up to date"], L["Rewrites the macro after each fight, when you learn a spell or get a new stance, and when Battle Shout is about to run out. Turn it off to edit the macro yourself."],
@@ -288,7 +321,8 @@ local function BuildWarrior(page)
         function() return warrior.Options().hint end, function(on) warrior.Options().hint = on end)
     y = Check(page, y, L["Log my fights"], L["Saves your last 300 fights: each cast with your rage, the target's health and how many enemies were on you, what the icon showed, error messages, who hit you and for how much, and whether you won. The game writes it to your SavedVariables file on /reload or logout, so the macro can be improved from real fights."],
         function() return warrior.Options().log end, function(on) warrior.Options().log = on end)
-    Button(page, y, L["Put it on my cursor"], L["Builds the DTH Warrior macro and picks it up so you can drop it on your action bar. Only out of combat."], function() warrior.PickUp() end)
+    Button(page, y, L["Single target on cursor"], L["Builds the DTH Warrior macro and picks it up so you can drop it on your action bar. Only out of combat."], function() warrior.PickUp() end)
+    Button(page, y - 56, L["AoE on cursor"], L["Builds the DTH Warrior AoE macro and picks it up so you can drop it on your action bar. Only out of combat."], function() warrior.PickUp("aoe") end)
     local move = Button(page, y, L["Move the icon"], L["Shows the icon so you can drag it where you like. Click again to lock it."], function()
         warrior.SetHintUnlocked(not warrior.HintUnlocked())
     end, 184, 150)
@@ -298,7 +332,69 @@ local function BuildWarrior(page)
     refreshers[#refreshers + 1] = function() clear:SetText(L["Clear fight log ("] .. warrior.FightCount() .. ")") end
 end
 
--- Your class's tab: consumables for every class; warriors also get the macro, with a switch between them.
+-- The druid's macro view: same options as the warrior's, minus Charge.
+local function BuildDruid(page)
+    local druid = DufforthTweaksHelperDruid
+    local y = -4
+    y = Header(page, y, L["One button for your druid"])
+    local function Text(height, font)
+        local text = page:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", 12, y); text:SetWidth(PAGE_WIDTH - 34); text:SetJustifyH("LEFT")
+        y = y - height
+        return text
+    end
+    if not druid or not druid.state then
+        Text(60):SetText(L["|cffff5555The druid part of the addon didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon."])
+        return
+    end
+    Text(70):SetText(L["|cffffd100How to use it:|r 1. Click |cffffd100Put it on my cursor|r. 2. Drop it on your action bar. 3. Press only that key in fights. It never changes your form: shift on your stance bar and the button fights in that form.\nIt's the |cffffd100DTH Druid|r macro (Esc > Macros > Character Specific Macros). After every fight the addon rewrites it for the spells and forms you know."])
+    local status = Text(28)
+    refreshers[#refreshers + 1] = function() status:SetText(druid.state.status or "") end
+    local preview = Text(160, "GameFontDisableSmall")
+    refreshers[#refreshers + 1] = function()
+        if not druid.state.lines and not (InCombatLockdown and InCombatLockdown()) then druid.SafeUpdate() end
+        local lines = druid.state.lines
+        preview:SetText(lines and (L["The macro. Bear: Maul every press, Enrage and Demoralizing Roar once a fight, Swipe in a group. Cat: Tiger's Fury once, then Rake, Claw x3 and the finisher. Caster: Faerie Fire and Moonfire once, then Wrath. Bash and heals go on their own keys; the icon flashes red when to press them:\n"] .. table.concat(lines, "\n")) or "")
+    end
+    local function Rebuild() druid.state.body = nil; druid.SafeUpdate() end
+    y = Check(page, y, L["Keep the DTH Druid macro up to date"], L["Rewrites the macro after each fight, when you learn a spell or a form, and when you join or leave a group. Turn it off to edit the macro yourself."],
+        function() return druid.Options().enabled end, function(on) druid.Options().enabled = on; if on then Rebuild() end end)
+    y = Check(page, y, L["Show the next spell on the button"], L["The game's own macro icon shows the first spell that matches, not the one the press will cast. This puts the picture of the spell your next press will cast on the DTH Druid button itself, in every form."],
+        function() return druid.Options().buttonIcon end, function(on) druid.Options().buttonIcon = on; druid.RefreshButtons() end)
+    y = Check(page, y, L["Show the next-ability icon"], L["While you have an enemy targeted or are in a fight, an icon shows what your button will cast next, your combo points in Cat Form and how many enemies are on you."],
+        function() return druid.Options().hint end, function(on) druid.Options().hint = on end)
+    y = Check(page, y, L["Log my fights"], L["Saves your last 300 fights: every spell the button tried, each cast with your form and combo points, what the icon showed, error messages and whether you won. The game writes it to your SavedVariables file on /reload or logout, so the macro can be improved from real fights."],
+        function() return druid.Options().log end, function(on) druid.Options().log = on end)
+    Button(page, y, L["Put it on my cursor"], L["Builds the DTH Druid macro and picks it up so you can drop it on your action bar. Only out of combat."], function() druid.PickUp() end)
+    local move = Button(page, y, L["Move the icon"], L["Shows the icon so you can drag it where you like. Click again to lock it."], function()
+        druid.SetHintUnlocked(not druid.HintUnlocked())
+    end, 184, 150)
+    refreshers[#refreshers + 1] = function() move:SetText(druid.HintUnlocked() and L["Lock the icon"] or L["Move the icon"]) end
+    Button(page, y - 28, L["Build it now"], L["Rewrites the macro right away. Only out of combat."], Rebuild)
+    local clear = Button(page, y - 28, L["Clear fight log"], L["Deletes every saved fight."], function() druid.ClearLog() end, 184, 150)
+    refreshers[#refreshers + 1] = function() clear:SetText(L["Clear fight log ("] .. druid.FightCount() .. ")") end
+end
+
+-- The hunter's view: the fight log only (your macro stays yours; tools/analyze_hunter_fights.py reads the log).
+local function BuildHunter(page)
+    local hunter = DufforthTweaksHelperHunter
+    local y = -4
+    y = Header(page, y, L["Hunter fight log"])
+    local text = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("TOPLEFT", 12, y); text:SetWidth(PAGE_WIDTH - 34); text:SetJustifyH("LEFT")
+    y = y - 84
+    if not hunter then
+        text:SetText(L["|cffff5555The hunter part of the addon didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon."])
+        return
+    end
+    text:SetText(L["Saves your last 300 fights: every spell you sent, cast or had refused (with the error), each cast's target and how many hawks were out, Hunter's Mark per target, Mongoose Bite chances used or missed, Auto Shots, your pet, mana and whether you won. It never casts or changes your macro. The game writes it to your SavedVariables file on /reload or logout; then it can be analyzed to improve your rotation."])
+    y = Check(page, y, L["Log my fights"], L["Turn it off to stop recording fights."],
+        function() return hunter.Options().log end, function(on) hunter.Options().log = on end)
+    local clear = Button(page, y, L["Clear fight log"], L["Deletes every saved fight."], function() hunter.ClearLog() end)
+    refreshers[#refreshers + 1] = function() clear:SetText(L["Clear fight log ("] .. hunter.FightCount() .. ")") end
+end
+
+-- Your class's tab: consumables for every class; warriors and druids also get the macro, with a switch between them.
 local classViews = {}
 local function ShowClassView(view)
     for key, frame in pairs(classViews) do frame:SetShown(key == view) end
@@ -308,7 +404,10 @@ end
 
 -- Views of the class tab, in button order. Every view gets small buttons (top right) to the others.
 local CLASS_VIEWS = {
-    { key = "macro", label = L["Macro"], tip = L["The one-button DTH Warrior macro."], warriorOnly = true },
+    { key = "macro", label = L["Macro"], tip = L["The one-button DTH Warrior macro."],
+      classes = { WARRIOR = L["The one-button DTH Warrior macro."], DRUID = L["The one-button DTH Druid macro."],
+                  HUNTER = L["Your fight log, to improve your rotation."] } },
+    { key = "pets", label = L["Pets"], classes = { HUNTER = L["Which pet to tame, its skills and where to learn new ranks."] } },
     { key = "consumables", label = L["Consumables"], tip = L["Food, elixirs and potions worth buying for your class, with AH prices."] },
     { key = "gear", label = L["Gear"], tip = L["Upgrades for what you wear, from the auction house and from quests you can do now."] },
 }
@@ -324,12 +423,16 @@ local function BuildClass(page)
     if UnitClass then token = select(2, UnitClass("player")) end
     local views = {}
     for _, v in ipairs(CLASS_VIEWS) do
-        if not v.warriorOnly or token == "WARRIOR" then
+        if not v.classes or v.classes[token] then
             local frame = CreateFrame("Frame", nil, page)
             frame:SetAllPoints(page)
             classViews[v.key] = frame
+            if v.classes then v = { key = v.key, label = v.label, tip = v.classes[token] } end
             views[#views + 1] = v
-            if v.key == "macro" then BuildWarrior(frame)
+            if v.key == "macro" then
+                if token == "DRUID" then BuildDruid(frame) elseif token == "HUNTER" then BuildHunter(frame) else BuildWarrior(frame) end
+            elseif v.key == "pets" then
+                if DufforthTweaksHelperPets then DufforthTweaksHelperPets.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, "the pet guide") end
             elseif v.key == "consumables" then
                 if DufforthTweaksHelperConsumables then DufforthTweaksHelperConsumables.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, "consumables") end
             elseif v.key == "gear" then
@@ -351,7 +454,7 @@ local function BuildClass(page)
         end
     end
     local wanted = DB().classView
-    if not classViews[wanted] then wanted = token == "WARRIOR" and "macro" or "consumables" end
+    if not classViews[wanted] then wanted = classViews.macro and "macro" or "consumables" end
     ShowClassView(wanted)
 end
 
@@ -382,6 +485,10 @@ local builders = {
     Fishing = function(page)
         if not DufforthTweaksHelperFishing then Note(page, RESTART); return end
         DufforthTweaksHelperFishing.BuildPanel(page, PAGE_WIDTH)
+    end,
+    Money = function(page)
+        if not DufforthTweaksHelperMoney then Note(page, RESTART); return end
+        DufforthTweaksHelperMoney.BuildPanel(page, PAGE_WIDTH)
     end,
     Class = function(page) BuildClass(page) end,
 }
@@ -509,11 +616,11 @@ local function Build()
 end
 
 local TAB_NAMES = { disenchant = "Disenchant", crafting = "Disenchant", leveling = "Leveling", zone = "Zone",
-    grind = "Grind", fishing = "Fishing", fish = "Fishing", warrior = "Class", class = "Class", consumables = "Class", gear = "Class" }
+    grind = "Grind", fishing = "Fishing", fish = "Fishing", warrior = "Class", druid = "Class", class = "Class", consumables = "Class", gear = "Class" }
 local function ToggleMenu(tab)
     if not menu then Build() end
     if tab and TAB_NAMES[tab] then
-        if tab == "warrior" and classViews.macro then ShowClassView("macro")
+        if (tab == "warrior" or tab == "druid") and classViews.macro then ShowClassView("macro")
         elseif (tab == "consumables" or tab == "gear") and classViews[tab] then ShowClassView(tab)
         elseif tab == "crafting" then ShowDisenchantView("craft")
         elseif tab == "disenchant" then ShowDisenchantView("settings") end

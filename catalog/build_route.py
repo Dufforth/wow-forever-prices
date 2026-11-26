@@ -28,10 +28,12 @@ from route_guides import guides  # noqa: E402
 from route_merge import merge_talks, stops  # noqa: E402
 from route_data import SCRIPT_TABLES, instance_entrances  # noqa: E402
 from route_class import insert_class_quests  # noqa: E402
-from route_forever import load_recorded, load_rxp  # noqa: E402
+from route_forever import load_questie, load_recorded, load_rxp  # noqa: E402
 from route_styles import STYLES, PVP_ZONES, ExplorerScorer, explorer_bands, farm_spots, insert_farm_stops, route_name, safe_bands  # noqa: E402
 from route_planner import Shortcuts  # noqa: E402
-from route_score import score, zone_boxes  # noqa: E402
+from route_score import score, world, zone_boxes  # noqa: E402
+from route_from_rxp import rows_from_events  # noqa: E402
+from rxp_route import band_table, band_text, load_steps  # noqa: E402
 from route_zones import hinted_where, quest_zone_hints  # noqa: E402
 from route_height import Heights  # noqa: E402
 from route_travel import service_points, FLIGHT_MASTER  # noqa: E402
@@ -45,6 +47,7 @@ TABLES = build_farm.TABLES + ("item_template", "gameobject_questrelation", "game
 STARTS = {"Durotar": ("Orc", "Troll"), "Mulgore": ("Tauren",), "Tirisfal Glades": ("Undead",)}
 RACE_BITS = {"Orc": 2, "Undead": 16, "Tauren": 32, "Troll": 128}
 CITIES = {"Orgrimmar", "Thunder Bluff", "Undercity"}
+USE_QUESTIE = True  # Forever's own quests from Questie's Forever database (catalog/forever_questie_quests.json)
 # Which zones fit each level band for the Horde (general leveling knowledge, not taken from any guide).
 # Bands overlap so the planner can finish a zone; the planner picks hubs and order inside them.
 HORDE_BANDS = [
@@ -53,13 +56,15 @@ HORDE_BANDS = [
     (20, 25, ["Hillsbrad Foothills", "Stonetalon Mountains", "Ashenvale", "The Barrens"]),
     (24, 30, ["Ashenvale", "Thousand Needles", "Hillsbrad Foothills"]),
     (28, 34, ["Thousand Needles", "Desolace", "Arathi Highlands", "Stranglethorn Vale"]),
-    (32, 38, ["Stranglethorn Vale", "Dustwallow Marsh", "Arathi Highlands", "Desolace", "Swamp of Sorrows"]),
-    (36, 42, ["Badlands", "Swamp of Sorrows", "Stranglethorn Vale", "Dustwallow Marsh", "Desolace"]),
-    (40, 46, ["Tanaris", "Feralas", "Stranglethorn Vale", "The Hinterlands"]),
+    # Forever's new zones (Questie's Forever data, 2026-11-16): Riverglades 36-44, Shen'dralas 35-45, Mount Hyjal 55-60.
+    # Measured with them (speed routes): Durotar 70.7 -> 70.1 h... see CHANGELOG 4.37.5.
+    (32, 38, ["Stranglethorn Vale", "Dustwallow Marsh", "Arathi Highlands", "Desolace", "Swamp of Sorrows", "Shen'dralas"]),
+    (36, 42, ["Badlands", "Swamp of Sorrows", "Stranglethorn Vale", "Dustwallow Marsh", "Desolace", "Riverglades", "Shen'dralas"]),
+    (40, 46, ["Tanaris", "Feralas", "Stranglethorn Vale", "The Hinterlands", "Riverglades"]),
     (44, 50, ["Feralas", "The Hinterlands", "Searing Gorge", "Tanaris", "Azshara"]),
     (48, 53, ["Un'Goro Crater", "Azshara", "Felwood", "Searing Gorge", "Blasted Lands"]),
     (51, 56, ["Felwood", "Burning Steppes", "Winterspring", "Un'Goro Crater"]),
-    (54, 60, ["Winterspring", "Western Plaguelands", "Eastern Plaguelands", "Silithus", "Burning Steppes"]),
+    (54, 60, ["Winterspring", "Western Plaguelands", "Eastern Plaguelands", "Silithus", "Burning Steppes", "Mount Hyjal"]),
 ]
 START_BANDS = {"Durotar": [(1, 11, ["Durotar"])], "Mulgore": [(1, 11, ["Mulgore"])],
                "Tirisfal Glades": [(1, 11, ["Tirisfal Glades"]), (9, 13, ["Silverpine Forest"])]}
@@ -150,6 +155,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cache", type=Path, help="folder to keep downloads in")
     parser.add_argument("--commit", help="classic-db commit (default: newest)")
+    parser.add_argument("--out", type=Path, default=ROOT / "catalog" / "route.json", help="where to write (default catalog/route.json)")
     args = parser.parse_args()
     cache = args.cache
     if cache:
@@ -180,9 +186,15 @@ def main():
         if q.xp:
             by_level.setdefault(q.level, []).append(q.xp)
     xp_by_level = {lv: sorted(v)[len(v) // 2] for lv, v in by_level.items()}
+    # Forever's own quests from Questie's Forever database (GPL-3.0, tools/extract_questie_forever.py): real givers,
+    # spawn places and experience; they come before RestedXP's (which only fill the quests Questie can't place).
+    questie = load_questie(ROOT / "catalog" / "forever_questie_quests.json", boxes, {q.id for q in every}) if USE_QUESTIE else []
+    for q in questie:
+        q.xp = q.xp or xp_by_level.get(q.level, 0)
+    every += questie
     rxp = load_rxp(ROOT / "catalog" / "forever_rxp_quests.json", boxes, {q.id for q in every}, xp_by_level)
     every += rxp
-    print(f"Forever quests: {len(recorded)} recorded in game, {len(rxp)} from RestedXP's Forever guides")
+    print(f"Forever quests: {len(recorded)} recorded in game, {len(questie)} from Questie, {len(rxp)} from RestedXP's Forever guides")
     # The route only uses quests it can place; questline guides take them all.
     quests = [q for q in every if all(g.point is not None for g in q.goals)]
     by_id = {q.id: q for q in every}
@@ -195,8 +207,14 @@ def main():
     side = lambda f: side_of(factions.get(f))  # noqa: E731
     flight_points, inn_points = service_points(tables, side, FLIGHT_MASTER), service_points(tables, side, INNKEEPER)
     flights = flight_masters(tables, side, where)
+    # Boats and zeppelins as world points: a sea crossing costs the way to the dock, the ride and the way on.
+    docks = [(world(boxes, a[1], a[2], a[3]), world(boxes, b[1], b[2], b[3])) for _, a, b in TRANSPORTS]
     farm = farm_spots(json.loads((ROOT / "site" / "farm.json").read_text(encoding="utf-8")))  # explorer's farming stops
-    routes = {}
+    routes, scorecards = {}, {}
+    try:  # RestedXP's guide chains (tools/extract_rxp_route.py, CC BY-NC-SA 4.0, see LICENSE-DATA.md)
+        rxp_chains = json.loads((ROOT / "catalog" / "rxp_routes.json").read_text(encoding="utf-8")).get("routes", {})
+    except (OSError, ValueError):
+        rxp_chains = {}
     for zone, races in STARTS.items():
         race_bit = RACE_BITS[races[0]]
         race_bits = sum(RACE_BITS[r] for r in races)
@@ -208,15 +226,39 @@ def main():
                 bands = safe_bands(bands)
             elif style == "explorer":
                 bands = explorer_bands(bands)
-            def make_planner(wait_levels):
-                p = RoutePlanner(quests, where=where, eligibility=eligibility, xp=XpModel(), travel=TravelModel(),
+            def make_planner(wait_levels, sea_waits=False):
+                p = RoutePlanner(quests, where=where, eligibility=eligibility, xp=XpModel(), travel=TravelModel(docks),
                                  scorer=ExplorerScorer() if style == "explorer" else HubScorer(),
                                  zone_plan=ZonePlan(bands, cities=CITIES), shortcuts=Shortcuts(flight_points, inn_points),
                                  avoid=PVP_ZONES if style == "safe" else ())
                 p.WAIT_LEVELS = wait_levels
+                p.SEA_TURNIN_WAITS = sea_waits
                 if style == "explorer":
                     p.ZONE_CHANGE, p.STAY = 150, 0.3  # moves on to new zones sooner: more of the world, more flight paths
                 return p
+            # Every route follows RestedXP's Forever guide (user, 2026-11-24: "base our route on RestedXP's route",
+            # every route, follow its order and fill gaps); the planner below is only the fallback without that file.
+            chain = rxp_chains.get(zone, {}).get("dungeons" if dungeons else "main")
+            if chain:
+                rows, stats = rows_from_events(chain, by_id, where)
+                rows = merge_talks(rows, quests)
+                rows = insert_class_quests(rows, quests, where, race_bits)
+                rows = add_flight_steps(rows, flights)
+                if style == "explorer":
+                    rows = insert_farm_stops(rows, farm)
+                name = route_name(zone, style, dungeons)
+                whole = score(rows, by_id, boxes, 60, class_bit=1)
+                routes[name] = {"races": list(races), "reached": 60 if max(r[5] for r in rows) >= 59 else max(r[5] for r in rows), "hours": round(whole["hours"], 1),
+                                "dungeons": dungeons, "style": style, "steps": rows, "base": "RestedXP"}
+                card = score(rows, by_id, boxes, 22, class_bit=1)
+                rxp_steps = load_steps(ROOT / "catalog" / "rxp_forever_route.json")
+                if rxp_steps:
+                    scorecards[name] = band_table(rows, rxp_steps, by_id, boxes)
+                print(f"{name}: RestedXP base, {len(rows)} steps, about {routes[name]['hours']} h to 60 (scorecard model); "
+                      f"left out: {stats['unknown']} events of quests we don't know, {stats['not_picked_up']} hand-ins never picked up, {stats['no_place']} pick-ups with no place; "
+                      f"{stats['unnamed_objectives']} objectives the guide gathers along the way; 1-22: {card['hours']} h"
+                      + (f"; vs RestedXP Forever: {band_text(scorecards[name])}" if name in scorecards else ""))
+                continue
             # Planned with and without waiting for the quests around a far lonely objective (user, 2026-11-14: no long walk
             # for one quest); the faster plan is kept, so the rule never makes a route slower (Tirisfal was +4.6 h with it).
             start = start_point(quests, zone, race_bit, where)
@@ -226,6 +268,12 @@ def main():
             plain_steps, plain_me = plain.plan(start=start, race_bit=race_bit)
             if plain_me.level >= me.level and plain_me.time < me.time:
                 planner, steps, me = plain, plain_steps, plain_me
+            # And with hand-ins across the sea waiting for this continent's hubs (fewer crossings): kept when faster.
+            for wait_levels in (RoutePlanner.WAIT_LEVELS, 0):
+                other = make_planner(wait_levels, sea_waits=True)
+                other_steps, other_me = other.plan(start=start, race_bit=race_bit)
+                if other_me.level >= me.level and other_me.time < me.time:
+                    planner, steps, me = other, other_steps, other_me
             rows = [[s.kind, s.quest, s.zone, s.x, s.y, s.level, s.text, s.goal, s.dest] for s in steps]
             rows = merge_talks(rows, quests)                               # one stop per NPC visit
             rows = insert_class_quests(rows, quests, where, race_bits)     # class quests where the route passes their giver
@@ -237,9 +285,16 @@ def main():
                             "style": style, "steps": rows}
             card = score(rows, by_id, boxes, 22, class_bit=1)
             late = score(rows, by_id, boxes, 60, class_bit=1, start=22)
+            # 22-60 band by band against RestedXP's Forever guide, same time model (user, 2026-11-24: "extend to 60").
+            rxp_steps = load_steps(ROOT / "catalog" / "rxp_forever_route.json")
+            if rxp_steps:  # every start here is Horde, like the guide
+                scorecards[name] = band_table(rows, rxp_steps, by_id, boxes)
+                print(f"{name} vs RestedXP Forever: {band_text(scorecards[name])}")
             print(f"{name}: {len(rows)} steps, level {me.level}, about {routes[name]['hours']} h to 60, {planner.flights_taken} flights, "
-                  f"{planner.hearths_used} hearthstones; scorecard 1-22 (warrior): {card}  (reference RestedXP 12.4 h, Zygor 14.3 h); "
+                  f"{planner.hearths_used} hearthstones, {planner.crossings} sea crossings; scorecard 1-22 (warrior): {card}  (reference RestedXP 12.4 h, Zygor 14.3 h); "
                   f"22-60: {late['hours']} h (reference Zygor Forever 74.0 h, RestedXP Forever 90.6 h)")
+    if scorecards:  # kept for reading later without rebuilding (reports/, not shipped)
+        (ROOT / "reports" / "route-scorecard-22-60.json").write_text(json.dumps(scorecards, indent=1), encoding="utf-8")
     ui_maps = {r["Name_lang"]: int(r["ID"]) for r in wago["UiMap"] if r["Type"] == "3"}
     spawns = [(int(num(r["map"])), num(r["position_x"]), num(r["position_y"]), num(r["position_z"]))
               for table in ("creature", "gameobject") for r in build_farm.as_dicts(tables[table])]
@@ -260,7 +315,7 @@ def main():
     map_names = {int(r["ID"]): r["MapName_lang"] for r in wago["Map"]}
     data["extras"]["dungeonOf"] = {str(q.id): map_names[g.point[0]] for q in quests if q.kind == "dungeon"
                                    for g in q.goals[:1] if g.point and g.point[0] not in (0, 1) and g.point[0] in map_names}
-    path = ROOT / "catalog" / "route.json"
+    path = args.out
     path.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     print(f"route.json: {len(data['quests'])} quests, {path.stat().st_size // 1024} KB")
 

@@ -34,6 +34,8 @@ def zone_boxes(ui_map_rows, assignment_rows):
 
 
 def world(boxes, zone, x, y):
+    if isinstance(zone, int) and not isinstance(zone, bool):
+        return (zone, float(x), float(y))  # already a world point: (continent, x, y), e.g. RestedXP's guide steps
     b = boxes.get(zone)
     if not b or x is None:
         return None

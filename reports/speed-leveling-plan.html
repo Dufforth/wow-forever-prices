@@ -1,0 +1,228 @@
+<title>Speed Leveling Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Layout: one reading column; a stage tracker on top, then each stage's findings as it completes. */
+:root {
+  --bg: #f4f3ef; --panel: #ffffff; --fg: #1d1c1a; --muted: #6b665c; --line: #e2ded4;
+  --accent: #9a5b12; --good: #2f7d43; --wait: #8a8578; --run: #b26a00;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif; --body: "Source Sans 3", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151412; --panel: #1e1c19; --fg: #ece8df; --muted: #a39d90; --line: #33302a; --accent: #e3a04f; --good: #6cc983; --wait: #8d877a; --run: #f0b55f; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #151412; --panel: #1e1c19; --fg: #ece8df; --muted: #a39d90; --line: #33302a; --accent: #e3a04f; --good: #6cc983; --wait: #8d877a; --run: #f0b55f; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--body); }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 22px; }
+h1, h2 { font-family: var(--display); letter-spacing: .01em; text-wrap: balance; margin: 0; }
+h1 { font-size: 2.3rem; line-height: 1.05; }
+h2 { font-size: 1.45rem; }
+.lede { color: var(--muted); margin: 6px 0 0; max-width: 65ch; }
+.stages { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.stage { display: flex; gap: 12px; align-items: baseline; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.pill { font: 600 .72rem/1 var(--body); text-transform: uppercase; letter-spacing: .08em; padding: 4px 8px; border-radius: 99px; border: 1px solid currentColor; flex: none; }
+.done .pill { color: var(--good); } .running .pill { color: var(--run); } .waiting .pill { color: var(--wait); }
+.stage b { font-weight: 600; } .stage span.note { color: var(--muted); }
+section { display: grid; gap: 10px; }
+section p, section li { max-width: 68ch; }
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font: 600 .78rem var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+.win { color: var(--good); font-weight: 600; }
+code { font-family: var(--mono); font-size: .88em; }
+.small { color: var(--muted); font-size: .9rem; }
+</style>
+<div class="wrap">
+  <header>
+    <h1>Speed leveling plan for WoW Forever</h1>
+    <p class="lede">Which of the two sample guides saves more time, what Forever's own data changes, how our route compares, and the plan for a faster guide. Every number comes from a script run on the data, with the same time model for all three routes.</p>
+  </header>
+  <ol class="stages">
+    <li class="stage done"><span class="pill">Done</span><div><b>1. RestedXP vs Zygor</b> <span class="note">RestedXP saves the most time on 1-22</span></div></li>
+    <li class="stage done"><span class="pill">Done</span><div><b>2. Forever's data</b> <span class="note">Classic experience, new zones and 1,821 quests of its own</span></div></li>
+    <li class="stage done"><span class="pill">Done</span><div><b>3. Our route against both</b> <span class="note">39 shared quests missing, no travel tricks</span></div></li>
+    <li class="stage done"><span class="pill">Done</span><div><b>4. The plan</b> <span class="note">seven changes, measured against RestedXP's 12.4 hours</span></div></li>
+  </ol>
+  <p class="small">Analysis finished, and all seven steps are built in addon 4.32.0 (see section 5).</p>
+
+  <section id="stage-1">
+    <h2>1. Which sample guide saves more time</h2>
+    <p>RestedXP's free guides stop at level 22, so all three routes are compared on the same stretch: an Orc Warrior from level 1 in Durotar to level 22 (Durotar, the Barrens, Stonetalon, Ashenvale). Each route goes through the same time model:</p>
+    <ul>
+      <li>running at 7 yards a second between steps;</li>
+      <li>flights at 25 yards a second, plus 20 seconds;</li>
+      <li>10 seconds per NPC talk and 20 seconds per objective kill;</li>
+      <li>a hearthstone is 15 seconds;</li>
+      <li>grinding at the end for any experience the quests don't cover.</li>
+    </ul>
+    <p>The guides add walking waypoints between stops and our route doesn't, so the fair comparison counts one map point per step for all three.</p>
+    <div class="table"><table>
+      <thead><tr><th>Orc Warrior, 1 to 22</th><th>RestedXP</th><th>Zygor</th><th>Ours today</th></tr></thead>
+      <tbody>
+        <tr><td>Estimated hours to 22</td><td class="win">12.4</td><td>14.3</td><td>13.7</td></tr>
+        <tr><td>Running, km</td><td class="win">136</td><td>206</td><td>185</td></tr>
+        <tr><td>Flights taken</td><td>26</td><td>0</td><td>0</td></tr>
+        <tr><td>Hearthstone uses</td><td>12</td><td>0</td><td>0</td></tr>
+        <tr><td>Quests handed in</td><td>147</td><td class="win">175</td><td>118</td></tr>
+        <tr><td>Quest and objective experience</td><td class="win">231,700</td><td>218,400</td><td>201,600</td></tr>
+        <tr><td>Reaches 22 on quests alone</td><td>Yes</td><td>Yes</td><td>No (34 min of grinding)</td></tr>
+        <tr><td>Objective kills</td><td>840</td><td>756</td><td>764</td></tr>
+        <tr><td>Guide steps</td><td>1,443</td><td>679</td><td>369</td></tr>
+      </tbody>
+    </table></div>
+    <p><b>RestedXP saves the most time:</b> about 1.9 hours less than Zygor (13%) and 1.3 hours less than our route. It's quicker because it runs a third less. It flies 26 times and uses the hearthstone 12 times, so long walks back to town become a cast or a flight. Zygor does the most quests but walks everywhere.</p>
+    <p>Our route is shorter than Zygor's but does too few quests: it falls about 14,000 experience short of 22 and has to grind. The fix isn't fewer quests; it's RestedXP's travel tricks on top of a fuller quest list.</p>
+    <p class="small">Totals only; no step or text of either guide is copied. Quest experience is Classic's (paid out at full value), and the time model is a simplification applied equally to all three routes.</p>
+  </section>
+
+  <section id="stage-2">
+    <h2>2. What Forever's own data says</h2>
+    <p>Forever's game tables (build 1.60.1.70938) compared with Classic Era's (1.15.9.70576):</p>
+    <div class="table"><table>
+      <thead><tr><th>What</th><th>Forever</th><th>Classic Era</th><th>What it means for the guide</th></tr></thead>
+      <tbody>
+        <tr><td>Quest experience table</td><td>same 100 rows</td><td>100 rows</td><td style="text-align:left">Classic quest experience still holds</td></tr>
+        <tr><td>First mount</td><td>level 40</td><td>level 40</td><td style="text-align:left">No early mount; walking time matters until 40</td></tr>
+        <tr><td>Flight points</td><td>101</td><td>87</td><td style="text-align:left">New ones in Mount Hyjal and Riverglades</td></tr>
+        <tr><td>Flight routes</td><td>328</td><td>294</td><td style="text-align:left">34 more ways to fly</td></tr>
+        <tr><td>Quests</td><td>6,626</td><td>4,807</td><td style="text-align:left">1,821 quests exist only in Forever</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><b>New zones.</b> Mount Hyjal (Summit of Eternity, Tainted Foothills), Riverglades (Rog'mar, Powderfuse Port, Farholde Keep) and Zephras Isle have flight points in Forever's data. No Classic guide knows them, and that includes Zygor and RestedXP.</li>
+      <li><b>Forever's own quests have no public details.</b> The client lists their numbers only: no names, levels, NPCs or places. No guide can plan them from public data today. Our addon already shows them from your quest log, and it could <b>record them as you play</b> (who gives them, where, what they ask, where they're handed in). That would make ours the only guide covering Forever's own content.</li>
+      <li><b>Forever's experience boosts.</b> Well Fed foods add 5% kill experience on top of their stat. An "Elixir of Endless Experience" (+200%) and a "Burst of Experience" exist in the data; the elixir isn't sold on the auction house.</li>
+    </ul>
+  </section>
+
+  <section id="stage-3">
+    <h2>3. Where our route loses time</h2>
+    <p>On 1-22, 84 quests are in all three routes. Another <b>39 quests are in both sample guides but not in ours</b>. Together they're worth 43,100 quest experience, about a fifth of what it takes to reach 22. That's why our route has to grind.</p>
+    <div class="table"><table>
+      <thead><tr><th>Why we miss them</th><th>Quests</th><th style="text-align:left">Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Our planner judged them not worth it</td><td>23</td><td style="text-align:left">Count the experience of the objective kills, not only the quest reward, and stop dropping quests both guides keep</td></tr>
+        <tr><td>Monster is summoned (no spawn in the data)</td><td>7</td><td style="text-align:left">Place them where the summoning script puts the monster (CMaNGOS script tables)</td></tr>
+        <tr><td>Class quests kept beside the route</td><td>5</td><td style="text-align:left">Put them in the route at the right time</td></tr>
+        <tr><td>Started by an item</td><td>4</td><td style="text-align:left">Add the item-started quests that drop on the way</td></tr>
+      </tbody>
+    </table></div>
+    <p>The best of them include Deviate Eradication, Cry of the Thunderhawk, Enraged Thunder Lizards, Deviate Hides, Hidden Enemies and Returning the Lost Satchel. Both guides also take the Wailing Caverns quests around levels 17-22, a large experience boost for anyone running the dungeon.</p>
+    <p>The second loss is travel. Our planner never plans a flight or a hearthstone. RestedXP's 26 flights and 12 hearthstones are why it runs 50 km less than we do on the same levels.</p>
+  </section>
+
+  <section id="stage-4">
+    <h2>4. The plan</h2>
+    <p>The goal is to beat RestedXP's 12.4 hours on 1-22 with the same time model, then carry the same rules through 60, with Zygor as the 22-60 yardstick. Every route build prints the scorecard, so each change is measured instead of guessed.</p>
+    <ol>
+      <li><b>Keep the experience both guides keep.</b> Value quests by quest experience plus objective-kill experience against time, and treat a quest both reference guides use as a strong hint to look at why we drop it. Target: at least the quest experience RestedXP gets, so 22 comes without grinding.</li>
+      <li><b>Hearthstone batching.</b> The planner sets the hearthstone at the hub it returns to most, and plans "use your Hearthstone" whenever the walk back is longer than the cast. The addon already says when it's ready.</li>
+      <li><b>Flights in the plan.</b> Model the 328 flight routes from Forever's data. Fly whenever the flight plus the walk to the flight master beats walking.</li>
+      <li><b>Place summoned monsters.</b> Read the summoning scripts in the Classic database to place the 7 missing quests and others like them later in the game.</li>
+      <li><b>Class quests and training in the route.</b> Train when you pass your trainer at a new level, and take class quests when they're on the way.</li>
+      <li><b>Optional dungeon paths.</b> A "with dungeons" route that takes Wailing Caverns, Shadowfang Keep and the others with their quests, for players who group. The solo route stays the default.</li>
+      <li><b>Forever's own content.</b> The addon records Forever's own quests as you play them: where you got each one, its objectives, and where you handed it in. Recorded quests join the route. Add Mount Hyjal and Riverglades as soon as their quests are known. Neither sample guide can do this.</li>
+    </ol>
+    <p class="small">Steps 1 to 3 are where most of the time is. With all 39 missing quests and RestedXP's travel tricks, the model puts our 1-22 at about 11.5 to 12 hours, an estimate to confirm with the scorecard after each change.</p>
+  </section>
+
+  <section id="stage-5">
+    <h2>5. Built: what the scorecard says now</h2>
+    <p>All seven steps are in addon 4.32.0. Each change was scored on Orc Warrior 1-22 with the same model as above:</p>
+    <div class="table"><table>
+      <thead><tr><th>Change</th><th>Hours to 22</th><th>Running</th><th>Shared quests kept</th></tr></thead>
+      <tbody>
+        <tr><td>Before</td><td>13.5</td><td>182 km</td><td>84 of 123</td></tr>
+        <tr><td>Chains kept, outdoor "dungeon" quests allowed</td><td>12.6</td><td>152 km</td><td>93</td></tr>
+        <tr><td>+ flights and hearthstone</td><td class="win">12.1</td><td class="win">133 km</td><td>93</td></tr>
+        <tr><td>+ class quests where the route passes their giver</td><td>12.2</td><td>138 km</td><td>98</td></tr>
+        <tr><td>Final route (with learn-flight-path stops)</td><td>12.5</td><td>143 km</td><td>98</td></tr>
+        <tr><td>RestedXP / Zygor, for reference</td><td>12.4 / 14.3</td><td>136 / 206 km</td><td></td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><b>1-22 is now level with RestedXP and 1.8 hours faster than Zygor.</b> The stops to learn flight paths cost about 0.2 hours on these levels; they pay back later, when the route flies 43 times and uses the hearthstone 19 times.</li>
+      <li><b>The whole route to 60 dropped from about 90 hours to about 80</b> (planner estimate).</li>
+      <li>Class quests now sit in the route where it passes their giver, and the addon only shows them to that class. A "Include dungeons" switch in the guide's Menu picks a route that also takes dungeon quests.</li>
+      <li>The addon now records Forever's own quests as you play. <code>tools/import_recorded_quests.py</code> imports them, and the next route build adds them.</li>
+    </ul>
+    <p class="small">The quickest next win: learn flight paths without a detour (only when the route passes within a short walk), which should bring 1-22 back to about 12.1 hours.</p>
+  </section>
+
+  <section id="stage-6">
+    <h2>6. The Forever editions of both guides</h2>
+    <p>Two newer samples turned out to be Forever versions: RestedXP 4.11.34 (with Forever guides and a Forever database) and Zygor Guides Viewer Forever. Same Orc Warrior 1-22 comparison. Forever-only quests aren't in the Classic data, so their experience is estimated as the average of the known quests in the same route.</p>
+    <div class="table"><table>
+      <thead><tr><th>Orc Warrior, 1 to 22</th><th>RestedXP Forever</th><th>Zygor Forever</th><th>Ours 4.32</th></tr></thead>
+      <tbody>
+        <tr><td>Estimated hours to 22</td><td class="win">12.4</td><td>14.0</td><td>12.8</td></tr>
+        <tr><td>Running, km</td><td class="win">124</td><td>167</td><td>153</td></tr>
+        <tr><td>Flights and hearthstones</td><td>12 and 7</td><td>0 and 0</td><td>7 and 3</td></tr>
+        <tr><td>Forever-only quests used</td><td>44</td><td>41</td><td>0</td></tr>
+        <tr><td>Classic quests used</td><td>133</td><td>180</td><td>149</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><b>Forever changed the early game.</b> Both Forever guides use about 40 quests that exist only in Forever, 33 of them in both. Zygor picks up 30 of its Forever-only quests in Durotar alone. Our route can't see them: Forever's public data has only their numbers.</li>
+      <li><b>Both send Orcs and Trolls to Tirisfal and Silverpine</b> around levels 10-15, which the Classic guides didn't.</li>
+      <li><b>RestedXP still travels best:</b> 12 flights and 7 hearthstones by 22.</li>
+      <li><b>New content we don't cover yet:</b> a Zephras Isle start (levels 1-13, RestedXP's "Skyborne" guide) and Forever-only dungeons (Hall of Thanes, Ruins of Lordaeron, Excavation Site: Wetlands, City of Dalaran).</li>
+    </ul>
+    <p><b>What would improve ours most:</b></p>
+    <ol>
+      <li><b>Forever's own quests.</b> The addon's recorder (4.32) learns them as you play, and the route picks them up after each import. A faster path: RestedXP's guides and database are under a Creative Commons non-commercial, share-alike licence. We could use their Forever quest places with credit, but only if our addon is shared under the same licence. That's your call; Zygor's data stays off limits.</li>
+      <li><b>Learn flight paths only when they're on the way</b>, and set the hearthstone at every hub the route returns to. That closes most of the travel gap with RestedXP.</li>
+      <li><b>Say so when there's no route for your start</b> (Zephras Isle, Forever dungeons) instead of falling back to Durotar.</li>
+    </ol>
+  </section>
+
+  <section id="stage-7">
+    <h2>7. Forever's own quests in our routes (addon 4.33)</h2>
+    <p>With your go-ahead, our routes now include Forever's own quests, placed with RestedXP's Forever guides under its CC BY-NC-SA licence. The credit and licence are in LICENSE-DATA.md, the README and the addon. From those guides: 333 Forever-only quests, 292 with a pick-up and a hand-in place. For the Horde, 150 are usable, 47 of them at level 22 or above. Their experience isn't published, so the median Classic quest of the same level stands in.</p>
+    <div class="table"><table>
+      <thead><tr><th>Route</th><th>Hours to 60 (planner)</th><th>1-22 scorecard</th><th>Quests to 22</th></tr></thead>
+      <tbody>
+        <tr><td>Durotar</td><td>78.1</td><td class="win">12.4 h, no grinding</td><td>151</td></tr>
+        <tr><td>Mulgore</td><td>78.4</td><td>12.5 h</td><td>142</td></tr>
+        <tr><td>Tirisfal Glades</td><td>78.8</td><td>13.2 h</td><td>186</td></tr>
+      </tbody>
+    </table></div>
+    <p><b>22 to 60</b> (Horde, same model; Forever-only quests valued at each route's average quest):</p>
+    <div class="table"><table>
+      <thead><tr><th>22 to 60</th><th>RestedXP Forever</th><th>Zygor Forever</th><th>Ours 4.33</th></tr></thead>
+      <tbody>
+        <tr><td>Estimated hours</td><td>90.6</td><td class="win">74.0</td><td>76.2</td></tr>
+        <tr><td>Running, km</td><td>702</td><td>761</td><td class="win">600</td></tr>
+        <tr><td>Flights / hearthstones</td><td>152 / 41</td><td>0 / 0</td><td>41 / 15</td></tr>
+        <tr><td>Quests</td><td>831</td><td>624</td><td>492</td></tr>
+        <tr><td>Grinding in the estimate</td><td>none</td><td>1.5 h</td><td>10 h</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li>Ours runs the least, thanks to flights and the hearthstone, but does fewer quests than either guide, so the model has it grinding about 10 hours. That's the next thing to fix: keep more quests at 22-60, the same way the missing chains were fixed for 1-22.</li>
+      <li>RestedXP's Forever route does far more quests than it needs on this model. Its 22-60 parts include class and race steps that a simple filter can't fully separate, so treat its number as rough.</li>
+      <li>Not covered yet: the Zephras Isle start (Skyborne) and Forever's own dungeons.</li>
+    </ul>
+  </section>
+
+  <section id="stage-8">
+    <h2>8. Fewer trips at 22-60 (addon 4.34)</h2>
+    <p>Settings tried on the Durotar route, each scored on 1-22 and 22-60 with the same model:</p>
+    <div class="table"><table>
+      <thead><tr><th>Planner setting</th><th>1-22</th><th>22-60</th></tr></thead>
+      <tbody>
+        <tr><td>Before (quests up to 3 levels above you)</td><td>12.42 h</td><td>76.8 h</td></tr>
+        <tr><td>Keep quests worth less (worth threshold 0.3 or 0)</td><td>12.1-12.7 h</td><td>77.0-79.1 h</td></tr>
+        <tr><td>Up to 4 levels above you, at every level</td><td>12.75 h</td><td>72.6 h</td></tr>
+        <tr><td>Up to 4 above, from level 22 only</td><td>12.42 h</td><td>72.7 h</td></tr>
+        <tr><td><b>Up to 5 above, from level 22 only (chosen)</b></td><td class="win">12.42 h</td><td class="win">71.9 h</td></tr>
+        <tr><td>Up to 6 above, from level 22</td><td>12.42 h</td><td>73.5 h</td></tr>
+      </tbody>
+    </table></div>
+    <p>From level 22 the route now takes quests up to 5 levels above you, so a hub's harder quests are done in the same visit instead of on a second trip. <b>22-60 dropped from 76.8 to 71.9 hours</b>, ahead of Zygor Forever (74.0) and RestedXP Forever (90.6) on this model, with 1-22 unchanged. The planner's own estimate to 60 is now about 73.6 hours for Durotar, 73.9 for Mulgore and 74.5 for Tirisfal (it was about 78).</p>
+    <p class="small">Quests a few levels above you are harder: the guide's tips say the monsters' levels, and an elite warning shows when it applies.</p>
+  </section>
+</div>

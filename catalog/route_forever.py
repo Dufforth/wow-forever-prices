@@ -32,12 +32,17 @@ def to_quest(row, boxes):
         spots = [p for p in ((int(s[0]), float(s[1]), float(s[2])) if isinstance(s[0], int) else world(boxes, *s)
                              for s in o.get("spots", [])) if p and p[0] == start[0]]
         point = (start[0], sum(p[1] for p in spots) / len(spots), sum(p[2] for p in spots) / len(spots)) if spots else start
-        kind = {"monster": "kill", "item": "collect", "object": "use"}.get(o.get("kind"), "kill")
+        kind = {"monster": "kill", "item": "collect", "object": "use", "event": "explore"}.get(o.get("kind"), "kill")
         count = int(o.get("count") or 0) or (8 if kind == "kill" else 6 if kind == "collect" else 1)  # guides don't say: typical
-        goals.append(Goal(kind, o.get("text") or "the objective", point, count, float(row.get("level") or 1), guessed=not spots))
+        mob = float(o.get("mobLevel") or 0) if "mobLevel" in o else (float(row.get("level") or 1) if kind in ("kill", "collect") else 0)
+        goals.append(Goal(kind, o.get("text") or "the objective", point, count, mob, source=o.get("source", ""),
+                          elite=bool(o.get("elite")), guessed=not spots or bool(o.get("guessed"))))
     level = int(row.get("level") or 1)
-    return Quest(int(row["id"]), row.get("title", "?"), level, max(1, level - 4), start, row["giver"].get("name", "?"),
-                 end, row["turnIn"].get("name", "?"), goals, int(row.get("xp") or 0))
+    # Questie rows also carry the minimum level, races, classes and chain links; recorded and RestedXP rows don't.
+    return Quest(int(row["id"]), row.get("title", "?"), level, int(row.get("min_level") or max(1, level - 4)), start,
+                 row["giver"].get("name", "?"), end, row["turnIn"].get("name", "?"), goals, int(row.get("xp") or 0),
+                 races=int(row.get("races") or 0), classes=int(row.get("classes") or 0), kind=row.get("kind", ""),
+                 prev=int(row.get("prev") or 0), next_in_chain=int(row.get("next") or 0), exclusive=int(row.get("exclusive") or 0))
 
 
 HORDE_RACES = 2 | 16 | 32 | 128
@@ -64,6 +69,25 @@ def load_rxp(path, boxes, known_ids=(), xp_by_level=None, side="H"):
             q.races = HORDE_RACES if side == "H" else 0
             q.start_name = q.start_name or "the quest giver"
             q.end_name = q.end_name or "the quest giver"
+            out.append(q)
+    return out
+
+
+def load_questie(path, boxes, known_ids=(), side=HORDE_RACES):
+    """Forever's own quests from Questie's Forever database (tools/extract_questie_forever.py, GPL-3.0): the ones a
+    `side` character can take, not already known, with a placed pick-up and hand-in. [] when the file is missing."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    known, out = set(known_ids), []
+    for row in data.get("quests", []):
+        if int(row["id"]) in known or (row.get("races") and not int(row["races"]) & side):
+            continue
+        if any(not o.get("spots") for o in row.get("objectives", [])):
+            continue  # an objective with no place at all: the route can't time it (kept out, 2026-11-16)
+        q = to_quest(row, boxes)
+        if q:
             out.append(q)
     return out
 

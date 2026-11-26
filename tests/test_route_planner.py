@@ -173,7 +173,9 @@ class ZonePlanTest(unittest.TestCase):
 class RoutePlannerTest(unittest.TestCase):
     def test_takes_every_quest_at_the_hub_then_does_the_nearest_objective_first(self):
         qs = [quest(1, goals=[kill((0, 300, 0))]), quest(2, goals=[kill((0, 100, 0))])]
-        steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=2)
+        p = planner(qs)
+        p.DETOUR = 40  # pinned: on this small map a wider detour puts every hand-in "on the way"
+        steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=2)
         self.assertEqual(kinds(steps)[:4], [("accept", 1), ("accept", 2), ("do", 2), ("do", 1)])
 
     def test_each_objective_step_says_which_objective_it_is(self):
@@ -209,6 +211,22 @@ class RoutePlannerTest(unittest.TestCase):
         self.assertLess(k.index(("accept", 2)), k.index(("do", 1)), k)
         self.assertEqual(k[k.index(("do", 1)) - 1], ("accept", 2), "both objectives in one trip")
 
+    def test_skips_a_quest_already_gray_when_picked_up(self):
+        # User (2026-11-15): "Yes, skip gray pickups". At level 10, a level 4 quest gives almost nothing.
+        p = planner([quest(1, level=4, min_level=1, start=(0, 0, 0), goals=[kill((0, 100, 0))], next_in_chain=0)])
+        p.start_level = 10
+        p.eligibility.BELOW = p.eligibility.BELOW_HIGH = 9  # inside the level window, so only the gray rule decides
+        steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=11)
+        self.assertNotIn(("accept", 1), kinds(steps))
+
+    def test_takes_a_gray_quest_whose_chain_pays(self):
+        p = planner([quest(1, level=4, min_level=1, start=(0, 0, 0), goals=[kill((0, 100, 0))], next_in_chain=2),
+                     quest(2, level=10, min_level=1, prev=1, start=(0, 0, 0), goals=[kill((0, 120, 0), name="Wolf")])])
+        p.start_level = 10
+        p.eligibility.BELOW = p.eligibility.BELOW_HIGH = 9
+        steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=11)
+        self.assertIn(("accept", 1), kinds(steps), "its follow-up is level 10")
+
     def test_a_far_lonely_objective_waits_for_the_quests_around_it(self):
         # User (2026-11-14): "DO NOT MAKE ME WALK FOR ONLY ONE QUEST only if is absolutely necessary" / "wait until I reach
         # the level needed to do all quests around". Quest 1's objective is far, alone; a level 4 quest is given there.
@@ -216,7 +234,9 @@ class RoutePlannerTest(unittest.TestCase):
         qs = [quest(1, level=1, start=(0, 0, 0), goals=[kill((0, 0, 1500))]),
               quest(3, level=4, min_level=3, start=(0, 50, 1450), goals=[kill((0, 0, 1520), name="Wolf")]),
               quest(2, level=1, start=(0, 0, 400), goals=[kill((0, 0, 450), name="Crab", count=40)], xp=3000)]
-        steps, _ = planner(qs).plan(start=(0, 0, 0), race_bit=ORC, max_level=5)
+        p = planner(qs)
+        p.DETOUR = 40  # pinned: on this small map a wider detour puts quest 2's hand-in on the way
+        steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=5)
         k = kinds(steps)
         self.assertLess(k.index(("do", 2)), k.index(("do", 1)), k)
         self.assertEqual(k[k.index(("do", 1)):k.index(("do", 1)) + 3], [("do", 1), ("accept", 3), ("do", 3)],
@@ -329,8 +349,9 @@ class RoutePlannerTest(unittest.TestCase):
         accepted = [s.quest for s in steps if s.kind == "accept"]
         self.assertEqual(accepted[1], 2, accepted)
 
-    def test_grinds_here_rather_than_sailing_for_a_poor_hub(self):
-        # Level 10, nothing left at home; one small quest across the sea. Killing monsters here pays more.
+    def test_sails_for_a_poor_hub_rather_than_grinding(self):
+        # Level 10, nothing left at home; one small quest across the sea. User (2026-11-16): the guide doesn't tell you
+        # to grind levels (the Grind tab is for when you're bored of quests); it was "grind here" before.
         def w(point):
             m, x, y = point
             return ("Overseas" if m == 1 else "Start Vale"), 0, 0
@@ -338,7 +359,10 @@ class RoutePlannerTest(unittest.TestCase):
         p = RoutePlanner(qs, where=w, eligibility=Eligibility(), xp=XpModel(), travel=TravelModel(), scorer=HubScorer())
         p.start_level = 10
         steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=11)
-        self.assertEqual(steps[0].kind, "grind", [s.text for s in steps[:3]])
+        self.assertNotIn("grind", [s.kind for s in steps[:3]], [s.text for s in steps[:3]])
+        p.SEA_WORTH = 1.0  # the old rule is still there as a setting
+        steps, _ = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=11)
+        self.assertEqual(steps[0].kind, "grind")
 
     def test_sails_for_a_rich_hub(self):
         def w(point):
@@ -387,6 +411,36 @@ class HordePlanTest(unittest.TestCase):
         self.assertTrue(tauren.allows("Tanaris", 44))
 
 
+class SeaCrossingTest(unittest.TestCase):
+    """The guide log (2026-11-16): Barrens to Hillsbrad took about 35 minutes (flight to Orgrimmar, the zeppelin, the run
+    from Undercity); the model charged 10 from anywhere, so routes hopped between continents."""
+    DOCKS = [((1, 0, 0), (0, 0, 0)), ((1, 9000, 0), (0, 9000, 0))]
+
+    def test_a_crossing_is_the_way_to_the_dock_the_ride_and_the_way_from_the_landing(self):
+        t = TravelModel(docks=self.DOCKS)
+        self.assertAlmostEqual(t.seconds((1, 700, 0), (0, 1400, 0), level=20), 700 / 7 + TravelModel.SHIP + 1400 / 7)
+
+    def test_takes_the_ship_with_the_shortest_way_in_all(self):
+        t = TravelModel(docks=self.DOCKS)
+        self.assertEqual(t.crossing((1, 8000, 0), (0, 8500, 0)), ((1, 9000, 0), (0, 9000, 0)))
+        self.assertEqual(t.crossing((0, 100, 0), (1, 200, 0)), ((0, 0, 0), (1, 0, 0)), "both ways")
+        self.assertIsNone(t.crossing((1, 0, 0), (1, 500, 0)), "same continent")
+
+    def test_without_docks_a_crossing_is_a_flat_time(self):
+        self.assertEqual(TravelModel().seconds((0, 0, 0), (1, 0, 0), level=20), TravelModel.SHIP + 300)
+
+    def test_the_planner_pays_for_the_way_to_the_dock(self):
+        def w(point):
+            return ("Overseas" if point[0] == 1 else "Start Vale"), 0, 0
+        qs = [quest(1, level=10, min_level=10, start=(1, 2100, 0), xp=9000, goals=[kill((1, 2100, 50), mob_level=10)])]
+        p = RoutePlanner(qs, where=w, eligibility=Eligibility(), xp=XpModel(), travel=TravelModel(docks=[((0, 1400, 0), (1, 0, 0))]),
+                         scorer=HubScorer())
+        p.start_level = 10
+        steps, me = p.plan(start=(0, 0, 0), race_bit=ORC, max_level=11)
+        self.assertEqual([s.kind for s in steps[:2]], ["travel", "accept"])
+        self.assertGreaterEqual(me.time, 1400 / 7 + TravelModel.SHIP + 2100 / 7)
+
+
 class ShortcutsTest(unittest.TestCase):
     """Flights and the hearthstone (2026-11-14: RestedXP flies and hearths, and runs a third less)."""
 
@@ -402,6 +456,16 @@ class ShortcutsTest(unittest.TestCase):
         s = Shortcuts(flights=[("A", (1, 0, 0)), ("B", (1, 5000, 0))])
         s.learn((1, 0, 0))
         self.assertEqual(s.best((1, 0, 0), (1, 5000, 0), 5000 / 7, 0)[0], "walk")
+
+    def test_mounted_you_ride_to_and_from_the_flight_masters(self):
+        # 2026-11-16: the walk to the flight masters was timed at running speed even on a mount.
+        from route_planner import Shortcuts, TravelModel
+        s = Shortcuts(flights=[("A", (1, 2000, 0)), ("B", (1, 8000, 0))])
+        s.learn((1, 2000, 0)); s.learn((1, 8000, 0))
+        run = s.best((1, 0, 0), (1, 10000, 0), 10000 / 7, 0)
+        ride = s.best((1, 0, 0), (1, 10000, 0), 10000 / TravelModel.MOUNT, 0, speed=TravelModel.MOUNT)
+        self.assertEqual((run[0], ride[0]), ("fly", "fly"))
+        self.assertAlmostEqual(run[1] - ride[1], 4000 / 7 - 4000 / TravelModel.MOUNT)
 
     def test_hearthstone_when_ready_and_home_is_near_the_target(self):
         from route_planner import Shortcuts

@@ -1,8 +1,8 @@
--- Disenchant values in item tooltips: what weapons and armor can turn into, the chance of
--- each material, its price, the average value, and one colored tag that says what pays most:
--- disenchant (green), sell on the auction house (gold) or sell to a vendor (gray). Uses the same Classic tables as the
--- Forever Prices page. Prices are Blizzard's, bundled with each download (Prices.lua).
--- Turn it off with /dufforth de off.
+-- Sell or disenchant advice in item tooltips, for every player: one colored verdict line with
+-- what pays most (auction house after its 5% cut, vendor, or disenchant), then short detail lines
+-- with the prices aligned. Disenchanting shows only when it's worth knowing, with a note when you
+-- lack the Enchanting skill. Uses the same Classic tables as the Forever Prices page. Prices are
+-- Blizzard's, bundled with each download (Prices.lua). Settings: the Disenchant tab or /dufforth de off.
 
 local L = DufforthTweaksHelperL or setmetatable({}, { __index = function(_, k) return k end })
 local PREFIX = L["|cff66ccffDufforth Tweaks Helper:|r "]
@@ -93,9 +93,19 @@ local function SkillNeeded(item)
     return math.max(25, (math.ceil(level / 5) - 4) * 25)
 end
 
+-- The prices for a market. A market missing from the download (another region, a house the
+-- page doesn't scan) uses the same ruleset and faction in the US, then the normal ruleset.
+local function MarketPrices(market, shipped)
+    if not shipped then return nil end
+    if shipped[market] then return shipped[market] end
+    local ruleset, faction = string.match(market or "", "^forever%.([^.]+)%.([^.]+)%.")
+    if not faction then return nil end
+    return shipped["forever." .. ruleset .. "." .. faction .. ".us"] or shipped["forever.normal." .. faction .. ".us"]
+end
+
 -- Auction price of one item for your market, from the prices bundled with the download, or nil.
 local function Price(id, market, shipped)
-    local prices = shipped and shipped[market]
+    local prices = MarketPrices(market, shipped)
     return prices and prices[id] or nil
 end
 
@@ -120,8 +130,17 @@ local function Money(copper)
     return string.format("|cffeda55f%dc|r", rest)
 end
 
+-- Forever's client has only C_Item.GetItemInfo: the global GetItemInfo is missing unless another
+-- addon adds it back, which is why the advice showed on one PC and not on others.
+local function ItemInfoFunction()
+    if C_Item and C_Item.GetItemInfo then return C_Item.GetItemInfo end
+    if type(GetItemInfo) == "function" then return GetItemInfo end
+end
+
 local function MaterialName(id)
-    local name = (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)) or (GetItemInfo and GetItemInfo(id))
+    local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
+    local info = ItemInfoFunction()
+    if not name and info then name = info(id) end
     return name or NAMES[id] or (L["Item "] .. id)
 end
 
@@ -135,9 +154,9 @@ end
 -- (vendor, then auction house, then disenchant).
 -- Returns { key = "vendor" | "ah" | "de", label, value, r, g, b }, or nil when nothing is known.
 local ADVICE = {
-    vendor = { label = L["Best: sell to a vendor"], r = 0.75, g = 0.75, b = 0.75 },
-    ah = { label = L["Best: sell on the auction house"], r = 1, g = 0.82, b = 0 },
-    de = { label = L["Best: disenchant it"], r = 0.3, g = 1, b = 0.4 },
+    vendor = { label = L["Best: Vendor"], r = 0.8, g = 0.8, b = 0.8 },
+    ah = { label = L["Best: Auction house"], r = 1, g = 0.82, b = 0 },
+    de = { label = L["Best: Disenchant"], r = 0.3, g = 1, b = 0.4 },
 }
 local function Advice(deValue, ahNet, vendor)
     local best
@@ -151,48 +170,83 @@ local function Advice(deValue, ahNet, vendor)
     return best
 end
 
+-- Tooltip settings, saved in DufforthTweaksHelperDB.deTooltip: details (verdict and details, or the
+-- verdict only), odds (each material's chance), shift (details only while Shift is held).
+local TOOLTIP_DEFAULTS = { details = true, odds = false, shift = false }
+local function TooltipOptions()
+    DufforthTweaksHelperDB = DufforthTweaksHelperDB or {}
+    local o = DufforthTweaksHelperDB.deTooltip
+    if type(o) ~= "table" then o = {}; DufforthTweaksHelperDB.deTooltip = o end
+    for key, value in pairs(TOOLTIP_DEFAULTS) do
+        if o[key] == nil then o[key] = value end
+    end
+    return o
+end
+
+local GRAY, DETAIL, MISSING = { 0.5, 0.5, 0.5 }, { 0.8, 0.8, 0.8 }, { 1, 0.5, 0.4 }
+
 -- The lines added to a tooltip: { left, right, r, g, b } each. Kept apart from the tooltip so tests can read them.
--- The game (and other addons) already show the vendor and auction prices, so this adds only
--- what disenchanting gives and one colored tag: disenchant (green), auction house (gold) or vendor (gray).
--- item: { id, quality, level, classID, slot, sellPrice, bindType }.
-local function TooltipLines(item, market, shipped, now, skill)
+-- First one verdict line (what pays most, with its value), then short detail lines with the
+-- prices aligned on the right. Shown for any item with an auction price or a disenchant value.
+-- item: { id, quality, level, classID, slot, sellPrice, bindType, stack }.
+-- skill: your Enchanting (number), false (none) or nil (unknown: treated as enough).
+-- opts: { details, odds, shift, shiftDown }; nil means the defaults.
+local function TooltipLines(item, market, shipped, now, skill, opts)
+    if not item then return nil end
+    opts = opts or TOOLTIP_DEFAULTS
     local outcomes = Outcomes(item)
-    if not outcomes then return nil end
-    local need = SkillNeeded(item)
+    local need = outcomes and SkillNeeded(item)
     local function priceOf(id) return Price(id, market, shipped) end
-    local value = ExpectedValue(outcomes, priceOf)
+    local deValue = outcomes and ExpectedValue(outcomes, priceOf)
     local ah = item.id and priceOf(item.id)
     local ahNet = (ah and item.bindType ~= 1) and ah * (1 - AUCTION_CUT) or nil
     local vendor = item.sellPrice and item.sellPrice > 0 and item.sellPrice or nil
-    local lacking = need and need > 1 and skill ~= nil and (skill == false or skill < need)
+    if not ahNet and not deValue then return nil end -- nothing to decide
+    local lacking = need ~= nil and (skill == false or (type(skill) == "number" and skill < need))
 
-    local lines = {}
-    local header = L["Disenchants into"]
-    local r, g, b = 0.4, 0.8, 1
-    if need and need > 1 then
-        header = header .. string.format(L[" (Enchanting %d)"], need)
-        if lacking then r, g, b = 1, 0.35, 0.35 end
+    -- The verdict picks among what you can do yourself; without the skill, disenchanting
+    -- still shows when nothing else pays (an enchanter friend can do it).
+    local advice = Advice(not lacking and deValue or nil, ahNet, vendor)
+    local deUseful = deValue and deValue > 0 and (not lacking or not advice or deValue > advice.value)
+    if not advice and deUseful then
+        advice = Advice(deValue, nil, nil)
+        advice.label = string.format(L["Best: Disenchant (Enchanting %d)"], need)
+        advice.r, advice.g, advice.b = 1, 0.6, 0.2
     end
-    lines[#lines + 1] = { header, nil, r, g, b }
-    for _, o in ipairs(outcomes) do
-        if o.chance > 0 then
-            local amount = o.min == o.max and tostring(o.min) or (o.min .. "-" .. o.max)
-            local chance = o.chance >= 0.995 and "" or (string.format("%g%%", math.floor(o.chance * 1000 + 0.5) / 10) .. "  ")
-            local price = priceOf(o.id)
-            lines[#lines + 1] = { "  " .. chance .. amount .. "x " .. MaterialName(o.id), price and (Money(price) .. L[" each"]) or L["no price"], 1, 1, 1 }
+    if not advice then return nil end
+
+    local each = (item.stack or 1) > 1 and L[" each"] or ""
+    local lines = {}
+    local function Line(left, right, color) lines[#lines + 1] = { left, right, color[1], color[2], color[3] } end
+    local verdictValue = (advice.key == "de" and "~" or "") .. Money(advice.value) .. each
+    lines[1] = { advice.label, verdictValue, advice.r, advice.g, advice.b }
+
+    if opts.details == false then return lines, advice end
+    if opts.shift and not opts.shiftDown then
+        Line(L["  Hold Shift for details"], nil, GRAY)
+        return lines, advice
+    end
+    if ahNet then Line(L["  Auction house (after 5% cut)"], Money(ahNet) .. each, DETAIL) end
+    if vendor then Line(L["  Vendor"], Money(vendor) .. each, DETAIL) end
+    if deUseful then
+        if lacking then
+            Line(string.format(L["  Disenchant (needs Enchanting %d)"], need), "~" .. Money(deValue), MISSING)
+        else
+            Line(L["  Disenchant (average)"], "~" .. Money(deValue), DETAIL)
+        end
+        if opts.odds then
+            for _, o in ipairs(outcomes) do
+                if o.chance > 0 then
+                    local amount = o.min == o.max and tostring(o.min) or (o.min .. "-" .. o.max)
+                    local chance = o.chance >= 0.995 and "" or (string.format("%g%%", math.floor(o.chance * 1000 + 0.5) / 10) .. "  ")
+                    local price = priceOf(o.id)
+                    Line("    " .. chance .. amount .. "x " .. MaterialName(o.id), price and (Money(price) .. L[" each"]) or L["no price"], GRAY)
+                end
+            end
         end
     end
-    if value then
-        local age = shipped and shipped.at and now - shipped.at or 0
-        local note = age > OLD_PRICES_SECONDS and string.format(L[" (prices %d days old)"], math.floor(age / 86400)) or ""
-        lines[#lines + 1] = { L["  Average value"] .. note, Money(value), 0.6, 1, 0.6 }
-    end
-    local advice = Advice(value, ahNet, vendor)
-    if advice then
-        local tag = advice.label
-        if advice.key == "de" and lacking then tag = tag .. L[" (needs Enchanting "] .. need .. ")" end
-        lines[#lines + 1] = { tag, nil, advice.r, advice.g, advice.b }
-    end
+    local age = shipped and shipped.at and now and now - shipped.at or 0
+    if age > OLD_PRICES_SECONDS then Line(string.format(L["  Prices are %d days old"], math.floor(age / 86400)), nil, GRAY) end
     return lines, advice
 end
 
@@ -206,7 +260,7 @@ end
 DufforthTweaksHelperDE = {
     Outcomes = Outcomes, SkillNeeded = SkillNeeded, Price = Price, ExpectedValue = ExpectedValue, Advice = Advice,
     TooltipLines = TooltipLines, ValueFor = ValueFor, EnchantingSkill = EnchantingSkill, Money = Money, MaterialName = MaterialName,
-    AUCTION_CUT = AUCTION_CUT,
+    TooltipOptions = TooltipOptions, MarketPrices = MarketPrices, AUCTION_CUT = AUCTION_CUT,
 }
 
 -- ---- Tooltip ----
@@ -214,19 +268,25 @@ local function Enabled()
     return not (DufforthTweaksHelperDB and DufforthTweaksHelperDB.showDisenchant == false)
 end
 
+-- An item's details by ID, or nil when the game hasn't loaded it yet (it is then asked to).
 local function ItemFromID(id)
-    if not id then return nil end
-    local name, _, quality, level, _, _, _, _, slot, icon, sellPrice, classID, _, bindType = GetItemInfo(id)
-    if not quality then return nil end
-    return { id = id, name = name, icon = icon, quality = quality, level = level, classID = classID, slot = slot, sellPrice = sellPrice, bindType = bindType }
+    local info = ItemInfoFunction()
+    if not id or not info then return nil end
+    local name, _, quality, level, _, _, _, stack, slot, icon, sellPrice, classID, _, bindType = info(id)
+    if not quality then
+        if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+        return nil
+    end
+    return { id = id, name = name, icon = icon, quality = quality, level = level, classID = classID, slot = slot, sellPrice = sellPrice, bindType = bindType, stack = stack }
 end
 DufforthTweaksHelperDE.ItemFromID = ItemFromID
 
-local function AddToTooltip(tooltip, id)
-    if not Enabled() or not tooltip or not id then return end
-    if tooltip.dufforthDE == id then return end -- some tooltips fire twice for one item
+local function ShiftDown() return IsShiftKeyDown and IsShiftKeyDown() and true or false end
+
+local function AddLines(tooltip, id)
+    local o = TooltipOptions()
     local lines = TooltipLines(ItemFromID(id), DufforthTweaksHelper and DufforthTweaksHelper.MarketName and DufforthTweaksHelper.MarketName() or "",
-        DufforthTweaksHelperPrices, time(), EnchantingSkill())
+        DufforthTweaksHelperPrices, time(), EnchantingSkill(), { details = o.details, odds = o.odds, shift = o.shift, shiftDown = ShiftDown() })
     if not lines then return end
     tooltip.dufforthDE = id
     for _, line in ipairs(lines) do
@@ -239,29 +299,53 @@ local function AddToTooltip(tooltip, id)
     tooltip:Show()
 end
 
-local function IdFromLink(link)
-    return link and tonumber(string.match(link, "item:(%d+)"))
+local function AddToTooltip(tooltip, id)
+    if not Enabled() or not tooltip or not id then return end
+    if issecretvalue and issecretvalue(id) then return end
+    if tooltip.dufforthDE == id then return end -- some tooltips fire twice for one item
+    pcall(AddLines, tooltip, id) -- never break someone's tooltip
 end
 
+local function IdFromLink(link)
+    if not link or (issecretvalue and issecretvalue(link)) then return nil end
+    return tonumber(string.match(link, "item:(%d+)"))
+end
+
+-- Frame names, not text: never translated.
+local TOOLTIPS = { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }
 if TooltipDataProcessor and Enum and Enum.TooltipDataType then
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
         local id = data and data.id
-        if not id and tooltip.GetItem then id = IdFromLink(select(2, tooltip:GetItem())) end
+        if (not id or (issecretvalue and issecretvalue(id))) and tooltip.GetItem then id = IdFromLink(select(2, tooltip:GetItem())) end
         AddToTooltip(tooltip, id)
     end)
 else
-    for _, name in ipairs({ L["GameTooltip"], L["ItemRefTooltip"], L["ShoppingTooltip1"], L["ShoppingTooltip2"] }) do
+    for _, name in ipairs(TOOLTIPS) do
         local tooltip = _G[name]
         if tooltip and tooltip.HookScript then
             tooltip:HookScript("OnTooltipSetItem", function(self) AddToTooltip(self, IdFromLink(select(2, self:GetItem()))) end)
         end
     end
 end
-for _, name in ipairs({ L["GameTooltip"], L["ItemRefTooltip"], L["ShoppingTooltip1"], L["ShoppingTooltip2"] }) do
+for _, name in ipairs(TOOLTIPS) do
     local tooltip = _G[name]
     if tooltip and tooltip.HookScript then
         tooltip:HookScript("OnTooltipCleared", function(self) self.dufforthDE = nil end)
     end
+end
+
+-- "Hold Shift for details": redraw the item tooltip when Shift goes down or up.
+if CreateFrame then
+    local watcher = CreateFrame("Frame")
+    pcall(watcher.RegisterEvent, watcher, "MODIFIER_STATE_CHANGED")
+    watcher:SetScript("OnEvent", function()
+        if not (Enabled() and TooltipOptions().shift and TooltipOptions().details) then return end
+        local tip = GameTooltip
+        if tip and tip.IsShown and tip:IsShown() and tip.dufforthDE and tip.RefreshData then
+            tip.dufforthDE = nil
+            pcall(tip.RefreshData, tip)
+        end
+    end)
 end
 
 -- /dufforth de [on|off] goes through Core.lua's slash command.

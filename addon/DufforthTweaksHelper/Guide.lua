@@ -96,10 +96,12 @@ function Model:Worth(id)
     return self:ChainTop(id) >= level - 1
 end
 
--- The next step that isn't settled, from i on, for a travel step's look-ahead.
+-- The next step that isn't settled, from i on, for a travel step's look-ahead. Wide objectives (done along the way
+-- until their hand-in) don't count, like in Current: one left open in the Barrens sent the guide back and forth
+-- between "Go to The Barrens" and "Go to Dustwallow Marsh" (RestedXP-based route, 2026-11-24).
 function Model:NextOpenAfter(i, assume)
     for j = i + 1, #self.steps do
-        if self.steps[j][S_KIND] ~= "travel" and not self:Settled(j, assume) then return j end
+        if self.steps[j][S_KIND] ~= "travel" and not self:Wide(j) and not self:Settled(j, assume) then return j end
     end
 end
 
@@ -269,7 +271,16 @@ function Model:Current()
     for i = start, limit - 1 do
         if self:Wide(i) and not self:Settled(i) and self:Deadline(i) <= limit then return i end -- must be done now
     end
-    return self:Nearest(first)
+    local pick = self:Nearest(first)
+    -- Sticky: an objective you're on stays your step until it's done; walking near another one doesn't switch it (user,
+    -- 2026-11-15: "the quest log is changing while I'm moving so I cannot finish any quest").
+    local s = self.saved.stickyStep -- in the saved route data: the box builds a new model on every refresh
+    if s and s ~= pick and first and self.steps[s] and self.steps[s][S_KIND] == "do" and not self:Settled(s)
+        and self.game.inLog(self.steps[s][S_QUEST]) and self:SectionOf(s) == self:SectionOf(first) then
+        return s
+    end
+    self.saved.stickyStep = pick
+    return pick
 end
 
 -- Of the objectives of quests in your log in this part of the route, the one nearest to you (user, 2026-11-13:
@@ -404,6 +415,7 @@ end
 
 -- The next n blocks: upcoming steps, with steps you can do as one put together.
 Guide.TRIP_MAX = 8 -- objectives shown together in the first block
+Guide.TRIP_SHOW = 6 -- trip cards at most (fits the screen)
 -- flat: one block per step (user, 2026-11-15: "do not group the steps, show all of them in different rows"); the result's
 -- .trip says how many of the first blocks are this trip (the steps to do before the next hand-in).
 function Model:Blocks(n, flat)
@@ -415,6 +427,24 @@ function Model:Blocks(n, flat)
         if grouped[1] and self.steps[grouped[1][1]][S_KIND] == "do" then
             for _, i in ipairs(self:Along()) do add(i) end -- along the way: part of this trip
         end
+        -- Only your zone (user, 2026-11-15: Barrens steps showed while in Hillsbrad), and at most TRIP_SHOW cards so it fits
+        -- the screen: your step and the nearest ones in route order.
+        local current = self:Current()
+        local zone = (self.game.zone and self.game.zone()) or (current and self.steps[current][S_ZONE])
+        local kept = {}
+        for _, b in ipairs(out) do
+            if b[1] == current or self.steps[b[1]][S_ZONE] == zone then kept[#kept + 1] = b end
+        end
+        if #kept > Guide.TRIP_SHOW then
+            table.sort(kept, function(a, b)
+                local da, db = math.abs(a[1] - (current or a[1])), math.abs(b[1] - (current or b[1]))
+                if da ~= db then return da < db end
+                return a[1] < b[1]
+            end)
+            for k = #kept, Guide.TRIP_SHOW + 1, -1 do seen[kept[k][1]] = nil; table.remove(kept, k) end
+        end
+        for k = #out, 1, -1 do out[k] = nil end
+        for k, b in ipairs(kept) do out[k] = b end
         out.trip = #out
         -- In step order, so the route reads top to bottom (user, 2026-11-15: rows 390, 373, 368 were impossible to follow);
         -- the step the arrow points at is marked by the view, wherever it sits.
@@ -1292,7 +1322,8 @@ function Model:Directions(i)
         -- Short (user, 2026-11-15: "reduce the amount of text, like go to the Ratchet dock: go to Ratchet"); the arrow
         -- points at each leg, so no coordinates in the text.
         local function town(name) return (string.gsub(string.gsub(name or "?", " zeppelin tower$", ""), " dock$", "")) end
-        legs[#legs + 1] = Leg(string.format(pick.kind == "boat" and L["Go to %s (boat)"] or L["Go to %s (zeppelin)"], town(pick.a[1])), pick.a[2], pick.a[3], pick.a[4])
+        -- Which zeppelin (guide log, 2026-11-16: "Go to Orgrimmar (zeppelin)" and the user boarded the Grom'gol one).
+        legs[#legs + 1] = Leg(string.format(pick.kind == "boat" and L["Go to %s: %s boat"] or L["Go to %s: %s zeppelin"], town(pick.a[1]), town(pick.b[1])), pick.a[2], pick.a[3], pick.a[4])
         legs[#legs + 1] = Leg(string.format(pick.kind == "boat" and L["Boat to %s"] or L["Zeppelin to %s"], town(pick.b[1])), pick.b[2], pick.b[3], pick.b[4])
         from, fromX, fromY = pick.b[2], pick.b[3], pick.b[4]
     end

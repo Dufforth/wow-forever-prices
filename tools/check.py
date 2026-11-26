@@ -19,7 +19,12 @@ UNIT = ROOT / "tests"
 # Changed file (or folder prefix) -> test files to run. Addon files without a match run the full-load test.
 MAP = {
     "addon/DufforthTweaksHelper/Guide": ["guide_sim"], "addon/DufforthTweaksHelper/QuestAuto": ["quest_auto_sim"],
-    "addon/DufforthTweaksHelper/Warrior": ["warrior_sim", "warrior_fight_sim"],
+    "addon/DufforthTweaksHelper/Warrior": ["warrior_sim", "warrior_fight_sim", "druid_sim", "druid_fight_sim", "hunter_sim"],
+    "addon/DufforthTweaksHelper/Druid": ["druid_sim", "druid_fight_sim", "full_load_sim"],
+    "addon/DufforthTweaksHelper/Hunter": ["hunter_sim", "full_load_sim", "menu_sim"],
+    "addon/DufforthTweaksHelper/Pet": ["pets_sim", "full_load_sim", "menu_sim"],
+    "addon/DufforthTweaksHelper/Money": ["money_sim", "full_load_sim", "menu_sim"], "tools/money_finder": ["test_money_finder", "money_sim"],
+    "tools/build_addon_money": ["test_money_finder", "money_sim"], "catalog/build_pets": ["test_build_pets"],
     "addon/DufforthTweaksHelper/Consumables": ["consumables_sim"], "addon/DufforthTweaksHelper/Gear": ["gear_sim"],
     "addon/DufforthTweaksHelper/Zone": ["zone_sim"], "addon/DufforthTweaksHelper/Grind": ["grind_sim"], "addon/DufforthTweaksHelper/Fishing": ["fishing_sim"], "catalog/build_fishing": ["fishing_sim"],
     "catalog/build_grind": ["test_grind"], "addon/DufforthTweaksHelper/Leveling": ["leveling_sim"],
@@ -27,6 +32,8 @@ MAP = {
     "addon/DufforthTweaksHelper/AutoDisenchant": ["de_sim"],
     "addon/DufforthTweaksHelper/Menu": ["menu_sim"], "addon/DufforthTweaksHelper/Locale": ["locale_sim", "full_load_sim"], "addon/DufforthTweaksHelper/Core": ["menu_sim", "full_load_sim"],
     "addon/DufforthTweaksHelper/DufforthTweaksHelper.toc": ["full_load_sim"],
+    "catalog/route_questie": ["test_route_questie"], "catalog/route_forever": ["test_route_forever", "test_route_questie"],
+    "tools/extract_questie": ["test_route_questie"],
     "catalog/route_data": ["test_route_data"], "catalog/route_planner": ["test_route_planner"],
     "catalog/route_travel": ["test_route_travel"], "catalog/route_guides": ["test_route_guides"],
     "catalog/route_model": ["test_route_data", "test_route_planner"], "catalog/build_route": ["test_route_travel", "test_route_guides"],
