@@ -35,13 +35,22 @@ class AnalyzeTest(unittest.TestCase):
         self.assertIn("two hawks already out", text)
         self.assertIn("Aimed Shot was interrupted 1 times", text)
         self.assertIn("Out of mana 2 times", text)
-        self.assertIn("/castsequence reset=target Hunter's Mark,nil", text)  # the macro of the last fight with one
+        self.assertIn("/castsequence reset=target Hunter's Mark,nil", text)
+        self.assertIn("Auto Shot every 2.00 s on its own", text)
+        self.assertIn("Arcane Shot: no delay (2.00 s, 1 times)", text)
+        self.assertIn("Aimed Shot: delays your next Auto Shot by 1.00 s (3.00 s, 1 times)", text)  # the macro of the last fight with one
 
     def test_no_fights(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             A.report([], {})
         self.assertIn("No hunter fights saved yet", out.getvalue())
+
+    def test_clipping_needs_times(self):
+        fights, _ = A.load(str(self.game))
+        for f in fights:
+            f["autoTimes"] = []
+        self.assertIsNone(A.clipping(fights))
 
 
 if __name__ == "__main__":

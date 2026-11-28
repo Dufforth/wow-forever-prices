@@ -2,6 +2,127 @@
 
 Newest first. Every release on the website gets an entry here.
 
+## 4.37.6 (2026-11-28)
+
+- **Minimap button opens the window.** A left-click on the minimap button now always opens the Dufforth Tweaks
+  Helper window, also while the guide is minimized. The minimized guide opens from its round icon on screen.
+- **Alts tab: every character's rested XP.** A new top tab (`/dth alts` or `/dth rested`) lists this character and
+  every alt below 60, one row each: name, level, rested XP now (amount and % of a level), the level it reaches,
+  resting in an inn or city or outside, and time until full. Alts already full (rest wasted) are marked red and
+  alts full within a day gold, with their names on top, so you know whom to log in. Hover a row for details.
+  An alt shows after it logs in once with this version. (Replaces the "Rested" view of the class tab.)
+- **Fix: characters with the same first name.** Rested XP was saved by first name only, so two characters
+  named the same overwrote each other. Each character is now saved by its own id, with first and last name.
+
+- **Cleaner guide box.** The target and quest item buttons now sit in a row under the guide box instead of a
+  column on its left, so you see them even with the box at the left edge of the screen. The top strip keeps only
+  the step arrows, Best, Menu and minimize: "Show step list" and "Back to my step" moved into the Menu.
+- **Leveling log.** The addon now saves what you do while leveling, per character: quests (accepted, objective
+  progress, completed, turned in, abandoned), level ups, hearthstone, flights, deaths and corpse runs, vendor, trainer
+  and inn visits, zone changes, the guide's own moves (step done, skipped by hand, back, part change), idle and AFK
+  time, and XP from kills vs quests and rested XP used. Each event has the time, your level, XP, zone, map position and
+  the guide's route, part and step. It keeps the last 5,000 events per character and never writes to chat. See it in
+  the Class tab under **Log** (on/off, what it kept, Clear). `tools/analyze_leveling_log.py "<game folder>"` reads it
+  and reports time per guide part and step, steps skipped most, steps where you wandered off, deaths per zone, quests
+  taken off the guide, dead time, and guide fixes. New file: restart the game fully.
+
+- **The guide sits on the same step as RestedXP and reads like it.** When RestedXP runs next to it, the guide
+  follows RestedXP's saved place (part, step and the side steps it closed), and steps are numbered per part the way
+  RestedXP numbers them ("26-28 Ashenvale", step 36). Each line shows RestedXP's own text with its colours (monsters,
+  friendly NPCs, loot, warnings) and icons, in RestedXP's order; lines RestedXP shows no text for are left out, and
+  names replace quest and item numbers ("Abandon Jin'Zil's Forest Magic", "Etched Phial: 0/1").
+- **The guide box is RestedXP's size** (about 230 px wide, was 340): no top strip or step counter (the "2899" was our
+  own row number; the card already says "Step 6"), the card first, then one small line with the part and the time to
+  level. Menu ("=") and minimize ("_") are small icons in the corner; Previous step, Skip this step and Best step for
+  my level are in the Menu. Your saved box size starts over once.
+- **No "Arrow on: Step 806" bar for the step you're on.** A click on a card no longer moves the arrow (every card is
+  a step you're on, and the arrow already goes through them, like RestedXP). A step you pin from the list says
+  RestedXP's number, and the bar stops short of the "=" and "_" icons.
+- **Pins and the round icon use RestedXP's step number** in the part (the minimap showed "2870").
+- **Cards are your active steps only**, side steps first, then yours with its "Step N" tag, like RestedXP's current
+  steps frame; the steps ahead are in the list below, under the part's name and its group ("Speedrun Guide 22-30").
+- **Each character has its own place in the guide.** Two characters of the same start used to share one pointer.
+- **Fixed: the guide stuck at the end of a part** when a "travel with the next step" side step was still open (it
+  waited at "24-26 Southern Barrens/Stonetalon" while RestedXP was already in Ashenvale).
+- **Fixed: wrong zone names where two zone maps overlap.** A point is now placed on the zone map RestedXP names for
+  it, so the river into Ashenvale no longer says "Azshara" (map pins and the arrow use the right zone map too).
+- **Fixed: a character joining the guide mid-way was sent back** to the end of the previous part to finish its old
+  side steps. Joining, picking a part or following RestedXP now stays on that part's first step.
+- **The Money tab explains itself.** Each view has a one-line legend that says what to do and what the green number
+  means. Vendor flips show the profit per item in exact coins ("+1s 7c each", "buy at 4s 83c, a vendor pays 5s
+  90c") instead of the total for every listing; hovering a row gives the total if you buy them all and what to do.
+  Underpriced, Crafts and Farming rows get the same exact coins and hovers. The view buttons are plain tabs (gold line
+  under the open one) instead of red buttons. Flips under 1s an item are left out, and the money ideas are rebuilt
+  from today's prices.
+- **Fixed: tabs drawn past the close button.** With the Alts tab, your class's tab ("Paladin") ran past the X and
+  out of the window. Every tab now fits left of the X at any window width: tabs are as wide as their names, shrink
+  together when space is short, and a cut name shows in full on hover.
+- **Fixed: "You're at your cap" showed twice** on the Professions tab (small and large). It shows once.
+- **The Leveling tab is now called Professions** (Profesiones in Spanish): it plans profession skill-ups, not
+  character levels. `/dth professions` opens it; `/dth leveling` and a saved "Leveling" tab still open it.
+- **A cleaner, modern window.** Slate background with a thin border, a darker tab strip and footer with hairlines,
+  grey text on closed tabs and white with a gold line on the open one. Every button in every tab is flat with a
+  thin border instead of the game's red beveled one; section titles get a faint gold rule. On the Professions tab,
+  Plan / Shopping list is a two-way toggle (the open view is highlighted, both stay clickable) and every price lines
+  up in one money column, also next to rows with a Craft or Search button.
+- **The guide box now looks and works like RestedXP's.** Each card lists every line of its step with its own check
+  box: lines the game already counts as done are ticked and locked, the others you can tick and untick. The step
+  list has one row per RestedXP step (its lines together, its check box ticks the whole step); steps for other
+  classes or races are left out. The Guides menu lists each route (your start, with and without dungeons, and the
+  other starts) with RestedXP's parts; a click on a part takes the guide to its first step.
+- **Map and minimap pins at every point of your current steps**, numbered by step, the arrow's step in gold, with a
+  line along each step's points. Points you reach go away. Minimap pins use HereBeDragons (Questie ships it).
+- **Rare monster alert.** When a rare monster of your current steps shows on a nameplate (or under the mouse), the
+  guide plays a sound and flashes the game's icon, once a minute per monster, and the target button goes for it
+  first. Menu > Automation > "Sound for rare monsters" turns the sound off. No raid marks: RestedXP doesn't put
+  them on Forever either.
+- **Less memory.** At login only your start's routes stay loaded (about 17 MB of Lua memory instead of 45-60 MB).
+  Picking another start in the Guides menu needs a /reload, and the menu says so.
+- **Full rested XP in the guide's progress bar.** The game's XP bar stops at the end of your level; the bar now says
+  how far all your rested XP reaches ("Rested to 23 + 83%") when there's room. Its hover gives the total, the share
+  of this level, about how many kills of your level it covers (rested doubles kill XP), how long until it's full
+  (4x slower outside an inn or city), and each alt's estimated rested and time until full. Estimates use Classic
+  rules (5% of a level per 8 hours, 1.5 levels at most). New file: restart the game fully once.
+- **The leveling guide follows RestedXP's Forever guide exactly.** Every step of RestedXP's chain for your start
+  (Durotar, Mulgore, Tirisfal Glades), in its order: the same quests, hubs, flights, hearthstones and objectives,
+  its optional steps included. Nothing of ours is added (no merged talks, extra flight steps, class quests or farm
+  stops), and no step is skipped because a quest looks too low. A step without a RestedXP map point has no
+  waypoint; a quest our data doesn't know keeps its step under its title. "Include dungeons" switches to
+  RestedXP's dungeon guide.
+- **The guide now moves you through the steps the way RestedXP does.** One saved step pointer that only moves
+  forward: a step is done when all of its lines are done (take quests, objectives, hand-ins, go to a spot, train,
+  buy, collect, use an item, learn a flight path, abandon a quest, grind to a level, circle a loop), or when its
+  condition says it isn't for you right now. Side steps (along the way) stay on screen next to your step until
+  done, and a step that needs one waits for it. Steps for other classes or races are left out. Each RestedXP step is
+  one card with its step number. The arrow walks a step's points in order, and when you're dead it points at your
+  corpse, or at the nearest Spirit Healer on a "die and respawn" step. Auto accept and turn-in now handle only the
+  quests of the steps you're on (a choice of rewards is still always yours), and the guide skips the gossip
+  RestedXP skips. The Target button and a "DTH Target" macro target every NPC and monster of your steps; the item
+  bar puts the steps' items first. Skip and Back move the step pointer; "Continue from here" moves it to any step.
+  New files: restart the game fully once.
+- **One guide per start.** The Speed, Safe and Explorer styles are gone, and so is the Guide style row in the Menu.
+- **No more advice of our own in the guide box.** The buy food/water, repair, train and class-quest reminders, the
+  dungeon-quest, other-quests, Forever-quest and abandon-gray rows, and "Also here" are gone from RestedXP's routes.
+  Questline guides (Cozy Sleeping Bag, attunements) are unchanged.
+- **One button for your hunter.** The Class tab's Macro view now builds the **DTH Hunter** macro and keeps it up to
+  date for the spells you know (after every fight, and when you learn a spell or a talent). Put it on your bar with
+  "Put it on my cursor". It was built from 300 logged fights: Hunter's Mark once a fight (no modifier keys), then Summon Hawk, Summon Hawk (they work in melee too), Aimed Shot, Arcane Shot, starting over with a hawk on every pull (only one Aimed Shot per loop,
+  early while you're still at range, because enemies reach you after about 6 s and Aimed Shot was interrupted 46% of
+  the time after that), with Raptor Strike, Auto Shot and Mongoose Bite on every press. It always fits the game's
+  255-character limit (your old macro was 256, so the game had cut its Auto Shot line). The fight log is still there.
+- **DTH Hunter plans each pull.** Your pet attacks first, the first press summons a hawk, and Hunter's Mark goes on
+  while the hawk cooldown runs. Between pulls the addon rewrites the order from the hawks you still have out, so a
+  quick next pull starts with the mark and Arcane Shot instead of a third hawk. Aimed Shot is out of the button:
+  farming fights are short, and it stalled the button in melee.
+- **The DTH Hunter button shows the spell your next press casts** (Hunter's Mark, Summon Hawk, Aimed Shot,
+  Arcane Shot, or Raptor Strike / Auto Shot when nothing else can go), grey when it can't go yet. The game's own icon
+  only shows the first spell in the macro. Option "Show the next spell on the button" on the Macro view.
+- **Hunter fight log keeps the whole fight.** In melee the game's Auto Shot repeat fails about 20 times every 0.1 s,
+  and those lines filled the log within 11 s. They're now counted (`autoFails`), and a repeated error is listed at
+  most once a second.
+- **Hunter fight log: Auto Shot times.** Each fight now keeps the time of every Auto Shot, so
+  `tools/analyze_hunter_fights.py` can measure whether Arcane, Aimed or Multi-Shot delays your next Auto Shot.
+
 ## 4.37.5 (2026-11-25)
 
 - **Money tab.** A new tab with money ideas for your realm and faction at the latest auction prices: listings well

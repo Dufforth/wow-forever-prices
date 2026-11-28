@@ -25,6 +25,18 @@ class MoneyTest(unittest.TestCase):
         self.assertEqual(list(v.index), [1])
         self.assertEqual(v.loc[1, "profit_all"], 2000)
 
+    def test_flip_worth_the_time_only(self):
+        # User (2026-11-27): "buy at 5s, a vendor pays 5s" rows showed a profit of copper per item. Flips need at least
+        # MIN_FLIP_EACH per item and MIN_FLIP_MARGIN of the price, or buying, carrying and selling isn't worth it.
+        df = pd.DataFrame([
+            {"id": 6, "name": "Hide", "vendor_pays": 250, "vendor_sells": None, "lowest": 248, "market": 250, "listed": 2000, "week": 250, "sold7": 50, "bop": 0},
+            {"id": 7, "name": "Pants", "vendor_pays": 8700, "vendor_sells": None, "lowest": 8600, "market": 8700, "listed": 191, "week": 8700, "sold7": 5, "bop": 0},
+            {"id": 8, "name": "Feather", "vendor_pays": 303, "vendor_sells": None, "lowest": 180, "market": 300, "listed": 50, "week": 300, "sold7": 5, "bop": 0},
+        ]).set_index("id")
+        v = M.vendor_flips(df)
+        self.assertEqual(list(v.index), [8])
+        self.assertGreaterEqual(M.MIN_FLIP_EACH, 100)
+
     def test_underpriced(self):
         u = M.underpriced(items())
         self.assertEqual(list(u.index), [2])

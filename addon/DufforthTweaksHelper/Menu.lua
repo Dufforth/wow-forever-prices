@@ -1,4 +1,4 @@
--- One window with a tab per feature (Disenchant, Leveling, Zone, your class), opened from the
+-- One window with a tab per feature (Disenchant, Professions, Zone, your class), opened from the
 -- minimap button, /dufforth, or the game's Options > AddOns. Changes go through the same
 -- commands as the slash commands, so the window and the commands always agree.
 
@@ -10,8 +10,14 @@ local ROW = 26
 -- Disenchant holds the craft-to-disenchant list too, for every gear crafter (user, 2026-11-16). Its
 -- Settings are for every character (tooltip advice); the disenchant list part needs Enchanting.
 -- Fishing shows only for a character that knows Fishing (user, 2026-11-15).
-local TABS = { "Disenchant", "Leveling", "Zone", "Grind", "Fishing", "Money", "Class" }
+-- Professions plans profession skill-ups; it was called Leveling until the user said "this is not
+-- leveling is profesion leveling" (2026-11-27). Saved "Leveling" and /dth leveling still open it.
+-- Alts lists every character's rested XP (user, 2026-11-27: "i want to see all my alts reste experience amount in a tab").
+local TABS = { "Disenchant", "Professions", "Zone", "Grind", "Fishing", "Money", "Alts", "Class" }
 -- A flat dark window like the leveling guide, with slim flat tabs, resizable both ways (user, 2026-11-14).
+-- 4.37.6 modern look (user: "the interface looks rusty"): slate background with a thin border, a darker
+-- tab strip and footer with hairlines, flat bordered buttons (the game's red panel buttons are
+-- flattened in every tab by Skin), gold section titles with a faint rule.
 local WIDTH, HEIGHT = 520, 520
 local MIN_W, MAX_W, MIN_H, MAX_H = 420, 900, 300, 1000
 local PAGE_WIDTH = WIDTH - 16 -- changes with the window's width; pages are rebuilt for it
@@ -68,6 +74,7 @@ local function RefreshMenu()
     if DufforthTweaksHelperGrind and DufforthTweaksHelperGrind.Refresh then pcall(DufforthTweaksHelperGrind.Refresh) end
     if DufforthTweaksHelperGear and DufforthTweaksHelperGear.Refresh then pcall(DufforthTweaksHelperGear.Refresh) end
     if DufforthTweaksHelperFishing and DufforthTweaksHelperFishing.Refresh then pcall(DufforthTweaksHelperFishing.Refresh) end
+    if menu then pcall(SkinTree, menu) end -- rows the panels made just now get the flat look too
 end
 
 local function ShowTip(owner, text)
@@ -77,29 +84,103 @@ local function ShowTip(owner, text)
     GameTooltip:Show()
 end
 
--- ---- Controls ----
+-- ---- Style ----
+local C = {
+    bg = { 0.067, 0.071, 0.086, 0.97 }, edge = { 0.20, 0.22, 0.27, 1 }, strip = { 0.035, 0.039, 0.047, 1 },
+    btn = { 0.13, 0.14, 0.17, 1 }, btnEdge = { 0.25, 0.27, 0.32, 1 },
+    on = { 0.10, 0.34, 0.19, 1 }, onEdge = { 0.22, 0.58, 0.32, 1 },
+    sel = { 0.20, 0.22, 0.28, 1 }, selEdge = { 1, 0.82, 0, 0.85 },
+}
+
+-- A 1-pixel border from four textures (works on any frame, no template needed).
+local function Edges(frame)
+    local e = {}
+    for i, side in ipairs({ { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMLEFT", "BOTTOMRIGHT" }, { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+        local t = frame:CreateTexture(nil, "BORDER")
+        t:SetPoint(side[1]); t:SetPoint(side[2])
+        if i <= 2 then t:SetHeight(1) else t:SetWidth(1) end
+        e[i] = t
+    end
+    return e
+end
+
+-- Colors a flat button for its state: on (green), selected (gold edge) or plain.
+local function Paint(b)
+    if not rawget(b, "bg") then return end
+    local fill, edge = C.btn, C.btnEdge
+    if rawget(b, "dthOn") then fill, edge = C.on, C.onEdge elseif rawget(b, "dthSelected") then fill, edge = C.sel, C.selEdge end
+    b.bg:SetColorTexture(unpack(fill))
+    for _, t in ipairs(rawget(b, "edges") or {}) do t:SetColorTexture(unpack(edge)) end
+end
+
+-- Gives any button the flat look: dark fill, thin border, soft hover, white text (grey when disabled).
+local function Dress(b)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.edges = Edges(b)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints(); b.hl:SetColorTexture(1, 1, 1, 0.08)
+    b:SetNormalFontObject("GameFontHighlightSmall")
+    if b.SetHighlightFontObject then b:SetHighlightFontObject("GameFontHighlightSmall") end
+    if b.SetDisabledFontObject then b:SetDisabledFontObject("GameFontDisableSmall") end
+    Paint(b)
+end
+
 -- A flat button like the leveling guide's.
 local function Flat(parent, text, width, height)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(width, height or 20)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints(); b.bg:SetColorTexture(0.18, 0.18, 0.2, 0.95)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints(); b.hl:SetColorTexture(1, 1, 1, 0.12)
-    b:SetNormalFontObject("GameFontHighlightSmall")
+    Dress(b)
     b:SetText(text)
     return b
 end
 
-local function SetOn(b, on)
-    if on then b.bg:SetColorTexture(0.12, 0.45, 0.2, 0.95) else b.bg:SetColorTexture(0.18, 0.18, 0.2, 0.95) end
+local function SetOn(b, on) b.dthOn = on and true or nil; Paint(b) end
+local function Select(b, on) b.dthSelected = on and true or nil; Paint(b) end
+
+-- Flattens a button made with the game's UIPanelButtonTemplate (the red, beveled one).
+local function Skin(b)
+    if rawget(b, "dthSkin") then return end
+    for _, key in ipairs({ "Left", "Middle", "Right" }) do
+        local t = b[key]
+        if type(t) == "table" and t.Hide then t:Hide(); if t.SetAlpha then t:SetAlpha(0) end end
+    end
+    for _, get in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
+        if type(b[get]) == "function" then
+            local ok, t = pcall(b[get], b)
+            if ok and type(t) == "table" and t.SetAlpha then t:SetAlpha(0) end
+        end
+    end
+    b.dthSkin = true
+    Dress(b)
 end
+
+-- Walks a frame's children and flattens every panel button not done yet (cheap when nothing is new).
+local function IsPanelButton(f)
+    return type(f.Left) == "table" and type(f.Middle) == "table" and type(f.Right) == "table" and type(f.SetText) == "function"
+end
+local function SkinTree(frame)
+    if type(frame) ~= "table" or type(frame.GetChildren) ~= "function" then return end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if type(child) == "table" then
+            if not rawget(child, "dthSkin") and IsPanelButton(child) then Skin(child) end
+            SkinTree(child)
+        end
+    end
+end
+
+-- Other files (the Professions tab's view toggle) use the same look.
+DufforthTweaksHelperUI = { Skin = Skin, SkinTree = SkinTree, Select = Select, SetOn = SetOn, Paint = Paint }
 
 local function Header(parent, y, text)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", 8, y)
     label:SetText(text)
-    return y - 20
+    -- A faint gold rule after the title separates the sections.
+    local rule = parent:CreateTexture(nil, "ARTWORK")
+    rule:SetHeight(1); rule:SetColorTexture(1, 0.82, 0, 0.22)
+    rule:SetPoint("LEFT", label, "RIGHT", 8, 0); rule:SetPoint("RIGHT", parent, "RIGHT", -8, 0)
+    return y - 22
 end
 
 local function Check(parent, y, text, tip, get, set)
@@ -160,8 +241,8 @@ end
 
 -- ---- Tabs ----
 local function ShowTab(name)
-    if not TabShown(name) then name = "Leveling" end
-    if not pages[name] then name = "Leveling" end
+    if not TabShown(name) then name = "Professions" end
+    if not pages[name] then name = "Professions" end
     for _, tab in ipairs(TABS) do
         if pages[tab] then pages[tab]:SetShown(tab == name) end
     end
@@ -169,30 +250,53 @@ local function ShowTab(name)
     RefreshMenu()
 end
 
--- Tabs side by side as wide as their names; the open one is lighter with a gold line under it.
+-- Tabs side by side as wide as their names: the open one is lighter with white text and a gold line
+-- under it; the others sit flat on the strip with grey text.
 LayoutTabs = function()
     if not menu then return end
     local open = DB().menuTab
     if open and not TabShown(open) then
-        open = "Leveling"; DB().menuTab = open
+        open = "Professions"; DB().menuTab = open
         for _, tab in ipairs(TABS) do if pages[tab] then pages[tab]:SetShown(tab == open) end end
     end
-    local x = 4
+    -- Every tab fits between the left edge and the X, whatever the count and the class name (user, 2026-11-28:
+    -- "Paladin" was drawn past the X). Each tab is as wide as its name plus padding; when they don't all fit,
+    -- they shrink in proportion and a squeezed name is cut, with the full name on hover.
+    local shown = {}
     for _, name in ipairs(TABS) do
         local b = tabButtons[name]
         if b then
-            local shown = TabShown(name)
-            b:SetShown(shown)
-            if shown then
-                local width = math.max(56, #(b:GetText() or name) * 7 + 18)
-                b:SetWidth(width)
-                b:ClearAllPoints(); b:SetPoint("TOPLEFT", menu, "TOPLEFT", x, -4)
-                x = x + width + 3
-                local on = name == open
-                b.bg:SetColorTexture(on and 0.3 or 0.16, on and 0.3 or 0.16, on and 0.33 or 0.18, 0.95)
-                b.mark:SetShown(on)
-            end
+            local on = TabShown(name)
+            b:SetShown(on)
+            if on then shown[#shown + 1] = { name = name, b = b } end
         end
+    end
+    local GAP, PAD = 2, 16
+    local avail = (menu:GetWidth() or WIDTH) - 4 - (4 + 20 + 6) -- left margin; X (20) at -4 plus a gap
+    local total = GAP * math.max(0, #shown - 1)
+    for _, t in ipairs(shown) do
+        local on = t.name == open
+        t.b:SetNormalFontObject(on and "GameFontHighlightSmall" or "GameFontDisableSmall") -- before measuring
+        local fs = t.b.GetFontString and t.b:GetFontString()
+        local w = fs and fs.GetStringWidth and fs:GetStringWidth()
+        if type(w) ~= "number" or w <= 0 then w = #(t.b:GetText() or t.name) * 6 end
+        t.natural = math.ceil(w) + PAD
+        total = total + t.natural
+    end
+    local scale = 1
+    if total > avail and total > 0 then scale = (avail - GAP * math.max(0, #shown - 1)) / (total - GAP * math.max(0, #shown - 1)) end
+    local x = 4
+    for _, t in ipairs(shown) do
+        local b, on = t.b, t.name == open
+        local width = math.floor(t.natural * scale)
+        b.cut = scale < 1 or nil
+        b:SetWidth(width)
+        local fs = b.GetFontString and b:GetFontString()
+        if fs and fs.SetWidth then fs:SetWidth(width - 4); if fs.SetWordWrap then fs:SetWordWrap(false) end end
+        b:ClearAllPoints(); b:SetPoint("TOPLEFT", menu, "TOPLEFT", x, -4)
+        x = x + width + GAP
+        b.bg:SetColorTexture(0.13, 0.14, 0.17, on and 1 or 0)
+        b.mark:SetShown(on)
     end
 end
 
@@ -379,19 +483,65 @@ end
 local function BuildHunter(page)
     local hunter = DufforthTweaksHelperHunter
     local y = -4
-    y = Header(page, y, L["Hunter fight log"])
-    local text = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    text:SetPoint("TOPLEFT", 12, y); text:SetWidth(PAGE_WIDTH - 34); text:SetJustifyH("LEFT")
-    y = y - 84
-    if not hunter then
-        text:SetText(L["|cffff5555The hunter part of the addon didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon."])
+    y = Header(page, y, L["One button for your hunter"])
+    local function Text(height, font)
+        local text = page:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", 12, y); text:SetWidth(PAGE_WIDTH - 34); text:SetJustifyH("LEFT")
+        y = y - height
+        return text
+    end
+    if not hunter or not hunter.BuildLines then
+        Text(60):SetText(L["|cffff5555The hunter part of the addon didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon."])
         return
     end
-    text:SetText(L["Saves your last 300 fights: every spell you sent, cast or had refused (with the error), each cast's target and how many hawks were out, Hunter's Mark per target, Mongoose Bite chances used or missed, Auto Shots, your pet, mana and whether you won. It never casts or changes your macro. The game writes it to your SavedVariables file on /reload or logout; then it can be analyzed to improve your rotation."])
-    y = Check(page, y, L["Log my fights"], L["Turn it off to stop recording fights."],
+    Text(70):SetText(L["|cffffd100How to use it:|r 1. Click |cffffd100Put it on my cursor|r. 2. Drop it on your action bar. 3. Press it about twice a second in fights; no other keys needed.\nIt's the |cffffd100DTH Hunter|r macro (Esc > Macros > Character Specific Macros). After every fight the addon rewrites it for the spells you know."])
+    local status = Text(28)
+    refreshers[#refreshers + 1] = function() status:SetText(hunter.state.status or "") end
+    local preview = Text(150, "GameFontDisableSmall")
+    refreshers[#refreshers + 1] = function()
+        if not hunter.state.lines and not (InCombatLockdown and InCombatLockdown()) then hunter.SafeUpdate() end
+        local lines = hunter.state.lines
+        preview:SetText(lines and (L["The macro. Pet attacks first, a hawk on the first press, Hunter's Mark while the hawk cooldown runs, then hawks and Arcane Shot. Between pulls the addon plans the order from the hawks still out, so there's never a third hawk. Raptor Strike, Auto Shot and Mongoose Bite on every press:\n"] .. table.concat(lines, "\n")) or "")
+    end
+    local function Rebuild() hunter.state.body = nil; hunter.SafeUpdate() end
+    y = Check(page, y, L["Keep the DTH Hunter macro up to date"], L["Rewrites the macro after each fight and when you learn a spell or a talent. Turn it off to edit the macro yourself."],
+        function() return hunter.Options().enabled ~= false end, function(on) hunter.Options().enabled = on; if on then Rebuild() end end)
+    y = Check(page, y, L["Show the next spell on the button"], L["The game's own macro icon shows the first spell in the macro, not the one the press will cast. This puts the picture of the spell your next press will cast on the DTH Hunter button itself (grey when it can't go yet)."],
+        function() return hunter.Options().buttonIcon ~= false end, function(on) hunter.Options().buttonIcon = on; hunter.RefreshButtons() end)
+    y = Check(page, y, L["Log my fights"], L["Saves your last 300 fights: every spell you sent, cast or had refused, hawks out, Hunter's Mark per target, Mongoose Bite chances, Auto Shots, your pet and whether you won. The game writes it on /reload or logout, so the macro can be improved from real fights."],
         function() return hunter.Options().log end, function(on) hunter.Options().log = on end)
-    local clear = Button(page, y, L["Clear fight log"], L["Deletes every saved fight."], function() hunter.ClearLog() end)
+    Button(page, y, L["Put it on my cursor"], L["Builds the DTH Hunter macro and picks it up so you can drop it on your action bar. Only out of combat."], function() hunter.PickUp() end)
+    local clear = Button(page, y, L["Clear fight log"], L["Deletes every saved fight."], function() hunter.ClearLog() end, 184, 150)
     refreshers[#refreshers + 1] = function() clear:SetText(L["Clear fight log ("] .. hunter.FightCount() .. ")") end
+    Button(page, y - 28, L["Build it now"], L["Rewrites the macro right away. Only out of combat."], Rebuild)
+end
+
+-- The leveling log (LevelLog.lua): on/off, what it kept, how to read it, Clear. Shown for every class.
+local function BuildLevelLog(page)
+    local log = DufforthTweaksHelperLevelLog
+    local y = -4
+    y = Header(page, y, L["Leveling log"])
+    local function Text(height, font)
+        local text = page:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", 12, y); text:SetWidth(PAGE_WIDTH - 34); text:SetJustifyH("LEFT")
+        y = y - height
+        return text
+    end
+    if not log then
+        Text(60):SetText(L["|cffff5555The leveling log didn't load.|r Exit the game completely and start it again: a /reload doesn't load files that are new to an addon."])
+        return
+    end
+    Text(84):SetText(L["Saves what you do while leveling, for this character: quests, level ups, hearth, flights, deaths, vendors and trainers, zones, the guide's steps (done, skipped, back), idle and AFK time, and XP from kills, quests and rested. It never shows in chat.\nThe game writes it on /reload or logout. To read it, run |cffffd100tools/analyze_leveling_log.py|r on your game folder: it shows where the guide loses time and what to fix."])
+    local summary = Text(44)
+    refreshers[#refreshers + 1] = function()
+        local s = log.Summary()
+        summary:SetText(string.format(L["%d of %d events kept, covering %.1f hours.\nDeaths %d, steps skipped by hand %d, quests taken off the guide %d."],
+            s.rows, s.max, (s.seconds or 0) / 3600, s.deaths, s.skips, s.offGuide))
+    end
+    y = Check(page, y, L["Log my leveling"], L["Keeps the last 5,000 events of this character; the oldest go first. Turn it off to stop logging; what's saved stays until you clear it."],
+        function() return log.Options().on ~= false end, function(on) log.Options().on = on end)
+    local clear = Button(page, y, L["Clear leveling log"], L["Deletes this character's leveling log. Other characters keep theirs."], function() log.Clear() end, 14, 190)
+    refreshers[#refreshers + 1] = function() clear:SetText(L["Clear leveling log ("] .. log.Count() .. ")") end
 end
 
 -- Your class's tab: consumables for every class; warriors and druids also get the macro, with a switch between them.
@@ -406,10 +556,11 @@ end
 local CLASS_VIEWS = {
     { key = "macro", label = L["Macro"], tip = L["The one-button DTH Warrior macro."],
       classes = { WARRIOR = L["The one-button DTH Warrior macro."], DRUID = L["The one-button DTH Druid macro."],
-                  HUNTER = L["Your fight log, to improve your rotation."] } },
+                  HUNTER = L["The one-button DTH Hunter macro and your fight log."] } },
     { key = "pets", label = L["Pets"], classes = { HUNTER = L["Which pet to tame, its skills and where to learn new ranks."] } },
     { key = "consumables", label = L["Consumables"], tip = L["Food, elixirs and potions worth buying for your class, with AH prices."] },
     { key = "gear", label = L["Gear"], tip = L["Upgrades for what you wear, from the auction house and from quests you can do now."] },
+    { key = "log", label = L["Log"], tip = L["Your leveling log: what you do while leveling, to improve the guide."] },
 }
 
 local function RestartNote(frame, what)
@@ -435,6 +586,8 @@ local function BuildClass(page)
                 if DufforthTweaksHelperPets then DufforthTweaksHelperPets.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, "the pet guide") end
             elseif v.key == "consumables" then
                 if DufforthTweaksHelperConsumables then DufforthTweaksHelperConsumables.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, "consumables") end
+            elseif v.key == "log" then
+                BuildLevelLog(frame)
             elseif v.key == "gear" then
                 if DufforthTweaksHelperGear then DufforthTweaksHelperGear.BuildPanel(frame, PAGE_WIDTH) else RestartNote(frame, L["gear advice"]) end
             end
@@ -469,7 +622,7 @@ end
 local RESTART = L["|cffffd100Restart the game to use this tab.|r The addon got new files, and the game only loads new files on a full restart, not a /reload."]
 local builders = {
     Disenchant = function(page) BuildDisenchantTab(page) end,
-    Leveling = function(page)
+    Professions = function(page)
         -- New files only load after a full game restart, not a /reload: say so instead of failing.
         if not DufforthTweaksHelperLeveling then Note(page, RESTART); return end
         DufforthTweaksHelperLeveling.BuildPanel(page, PAGE_WIDTH)
@@ -489,6 +642,10 @@ local builders = {
     Money = function(page)
         if not DufforthTweaksHelperMoney then Note(page, RESTART); return end
         DufforthTweaksHelperMoney.BuildPanel(page, PAGE_WIDTH)
+    end,
+    Alts = function(page)
+        if not DufforthTweaksHelperRested then Note(page, RESTART); return end
+        refreshers[#refreshers + 1] = DufforthTweaksHelperRested.BuildPanel(page, PAGE_WIDTH)
     end,
     Class = function(page) BuildClass(page) end,
 }
@@ -519,7 +676,7 @@ local function ApplySize(w, h)
         PAGE_WIDTH = w - 16
         BuildPages()
     end
-    ShowTab(DB().menuTab or "Leveling")
+    ShowTab(DB().menuTab or "Professions")
     if DufforthTweaksHelperLeveling and DufforthTweaksHelperLeveling.Refresh then pcall(DufforthTweaksHelperLeveling.Refresh) end
 end
 
@@ -531,7 +688,7 @@ local function Build()
     PAGE_WIDTH = w - 16
     if menu.SetBackdrop then
         menu:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
-        menu:SetBackdropColor(0.05, 0.05, 0.06, 0.97); menu:SetBackdropBorderColor(0, 0, 0, 1)
+        menu:SetBackdropColor(unpack(C.bg)); menu:SetBackdropBorderColor(unpack(C.edge))
     end
     menu:SetPoint("CENTER")
     menu:SetMovable(true); menu:EnableMouse(true); menu:RegisterForDrag("LeftButton")
@@ -542,12 +699,29 @@ local function Build()
     menu:Hide()
     tinsert(UISpecialFrames, "DufforthTweaksHelperMenu") -- Escape closes it
     menu:SetScript("OnShow", RefreshMenu)
+    -- Rows a panel adds on its own (not through RefreshMenu) get the flat look within a second.
+    local sinceSkin = 0
+    menu:SetScript("OnUpdate", function(_, elapsed)
+        sinceSkin = sinceSkin + (elapsed or 0)
+        if sinceSkin >= 1 then sinceSkin = 0; pcall(SkinTree, menu) end
+    end)
 
     -- Top strip: the tabs, and X to close.
     local strip = menu:CreateTexture(nil, "BORDER")
     strip:SetPoint("TOPLEFT", 1, -1); strip:SetPoint("TOPRIGHT", -1, -1); strip:SetHeight(26)
-    strip:SetColorTexture(0, 0, 0, 0.85)
+    strip:SetColorTexture(unpack(C.strip))
+    menu.dthHeaderLine = menu:CreateTexture(nil, "BORDER")
+    menu.dthHeaderLine:SetPoint("TOPLEFT", strip, "BOTTOMLEFT"); menu.dthHeaderLine:SetPoint("TOPRIGHT", strip, "BOTTOMRIGHT")
+    menu.dthHeaderLine:SetHeight(1); menu.dthHeaderLine:SetColorTexture(unpack(C.edge))
+    -- Bottom strip for the window's own buttons, with a hairline above it.
+    local footer = menu:CreateTexture(nil, "BORDER")
+    footer:SetPoint("BOTTOMLEFT", 1, 1); footer:SetPoint("BOTTOMRIGHT", -1, 1); footer:SetHeight(26)
+    footer:SetColorTexture(unpack(C.strip))
+    menu.dthFooterLine = menu:CreateTexture(nil, "BORDER")
+    menu.dthFooterLine:SetPoint("BOTTOMLEFT", footer, "TOPLEFT"); menu.dthFooterLine:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT")
+    menu.dthFooterLine:SetHeight(1); menu.dthFooterLine:SetColorTexture(unpack(C.edge))
     local close = Flat(menu, "X", 20, 18)
+    close.hl:SetColorTexture(0.85, 0.2, 0.2, 0.45) -- red on hover: it closes
     close:SetPoint("TOPRIGHT", -4, -5)
     close:SetScript("OnClick", function() menu:Hide() end)
     close:SetScript("OnEnter", function(self) ShowTip(self, L["Close (Esc). /dth opens it again."]) end)
@@ -555,6 +729,11 @@ local function Build()
     for _, name in ipairs(TABS) do
         local tab = Flat(menu, name == "Class" and ((UnitClass and UnitClass("player")) or L["Class"]) or L[name], 70, 20)
         tab.isTab = true
+        tab.classTab = name == "Class" or nil
+        for _, t in ipairs(tab.edges) do t:Hide() end -- tabs sit flat on the strip, no box
+        -- A tab squeezed below its name's width shows the full name on hover.
+        tab:SetScript("OnEnter", function(self) if rawget(self, "cut") then ShowTip(self, self:GetText()) end end)
+        tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
         tab.mark = tab:CreateTexture(nil, "ARTWORK")
         tab.mark:SetPoint("BOTTOMLEFT"); tab.mark:SetPoint("BOTTOMRIGHT"); tab.mark:SetHeight(2)
         tab.mark:SetColorTexture(1, 0.82, 0, 1)
@@ -563,6 +742,7 @@ local function Build()
     end
 
     BuildPages()
+    pcall(SkinTree, menu)
 
     -- Bottom row, on every tab: the minimap button and Edit mode.
     local mini = Flat(menu, L["Minimap button"], 100, 18)
@@ -612,16 +792,20 @@ local function Build()
     if DB().menuTab == "Warrior" then DB().menuTab = "Class" end -- the Warrior tab became your class's tab
     if DB().menuTab == "Crafting" then DB().menuTab = "Disenchant"; DB().deView = "craft" end -- merged
     if DB().menuTab == "Gather" then DB().menuTab = nil end -- removed
-    ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Leveling")
+    if DB().menuTab == "Leveling" then DB().menuTab = "Professions" end -- renamed (user, 2026-11-27)
+    if DB().classView == "rested" then DB().classView = nil end -- moved to the Alts tab
+    ShowTab(pages[DB().menuTab or ""] and DB().menuTab or "Professions")
 end
 
-local TAB_NAMES = { disenchant = "Disenchant", crafting = "Disenchant", leveling = "Leveling", zone = "Zone",
-    grind = "Grind", fishing = "Fishing", fish = "Fishing", warrior = "Class", druid = "Class", class = "Class", consumables = "Class", gear = "Class" }
+local TAB_NAMES = { disenchant = "Disenchant", crafting = "Disenchant", leveling = "Professions", professions = "Professions",
+    profession = "Professions", prof = "Professions", zone = "Zone",
+    grind = "Grind", fishing = "Fishing", fish = "Fishing", warrior = "Class", druid = "Class", class = "Class", consumables = "Class", gear = "Class", levellog = "Class", log = "Class", rested = "Alts", alts = "Alts" }
 local function ToggleMenu(tab)
     if not menu then Build() end
     if tab and TAB_NAMES[tab] then
         if (tab == "warrior" or tab == "druid") and classViews.macro then ShowClassView("macro")
         elseif (tab == "consumables" or tab == "gear") and classViews[tab] then ShowClassView(tab)
+        elseif (tab == "levellog" or tab == "log") and classViews.log then ShowClassView("log")
         elseif tab == "crafting" then ShowDisenchantView("craft")
         elseif tab == "disenchant" then ShowDisenchantView("settings") end
         ShowTab(TAB_NAMES[tab])
@@ -657,6 +841,7 @@ local function ButtonTooltip(self)
     GameTooltip:AddDoubleLine(L["Disenchant advice"], State(DB().showDisenchant ~= false), 1, 1, 1)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(L["Left-click: open the window   Right-click: disenchant list"], 0.7, 0.7, 0.7)
+    GameTooltip:AddLine(L["Minimized guide: click its round guide icon on your screen"], 0.7, 0.7, 0.7)
     GameTooltip:AddLine(L["Drag: move this button"], 0.7, 0.7, 0.7)
     GameTooltip:Show()
 end
@@ -686,11 +871,8 @@ local function BuildMinimapButton()
     border:SetSize(53, 53); border:SetPoint("TOPLEFT")
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     button:SetScript("OnClick", function(_, mouse)
-        if mouse == "RightButton" then DufforthTweaksHelperAutoDE.Toggle()
-        elseif DufforthTweaksHelperGuideUI and DufforthTweaksHelperGuideUI.Hidden and DufforthTweaksHelperDB
-            and DufforthTweaksHelperDB.guide and DufforthTweaksHelperDB.guide.collapsed then
-            DufforthTweaksHelperGuideUI.SetCollapsed(false) -- the guide is minimized: open it
-        else ToggleMenu() end
+        -- Left-click always opens the window (user, 2026-11-27); the minimized guide opens from its round icon.
+        if mouse == "RightButton" then DufforthTweaksHelperAutoDE.Toggle() else ToggleMenu() end
     end)
     button:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", OnDragUpdate) end)
     button:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
@@ -706,7 +888,7 @@ local function RegisterOptions()
     panel.name = "Dufforth Tweaks Helper"
     local text = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     text:SetPoint("TOPLEFT", 16, -16)
-    text:SetText(L["Everything is in the Dufforth Tweaks Helper window: Disenchant (with Enchanting), Leveling, Zone and a tab for your class (consumables, and the macro for warriors)."])
+    text:SetText(L["Everything is in the Dufforth Tweaks Helper window: Disenchant (with Enchanting), Professions, Zone and a tab for your class (consumables, and the macro for warriors)."])
     local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     open:SetSize(160, 24); open:SetPoint("TOPLEFT", 16, -40); open:SetText(L["Open the window"])
     open:SetScript("OnClick", function() if not menu or not menu:IsShown() then ToggleMenu() end end)

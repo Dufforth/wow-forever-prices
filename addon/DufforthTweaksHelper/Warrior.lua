@@ -758,6 +758,10 @@ local function ConditionsMet(list, facts)
             met = facts.inCombat and true or false
         elseif name == "group" then
             met = facts.inGroup and true or false
+        elseif name == "mod" or name == "modifier" then
+            local down = { shift = IsShiftKeyDown, ctrl = IsControlKeyDown, alt = IsAltKeyDown }
+            local test = down[value] or IsModifierKeyDown
+            met = test and test() and true or false
         elseif name == "form" or name == "stance" then
             met = false
             if value == "" then met = (facts.stance or 0) > 0 end
@@ -841,6 +845,7 @@ function W.MacroNext(lines, facts, ready, now, offGcd)
         local action = W.LineAction(line.args, facts)
         local spell = action
         if action and line.kind == "castsequence" then spell = W.SequenceNext(action, now) end
+        if spell then spell = string.gsub(spell, "^!", "") end -- "/cast !Auto Shot" casts Auto Shot
         if spell then
             if offGcd[spell] then
                 -- Bloodrage is background rage: the icon shows what you're fighting with instead.

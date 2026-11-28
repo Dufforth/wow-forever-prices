@@ -27,9 +27,29 @@ local function DB()
     if g.showNext == nil then g.showNext = true end
     if g.arrow == nil then g.arrow = true end
     -- 4.22.0 saved the size the game restored from an older, smaller box: start fresh once.
-    if g.sizeV ~= 2 then g.size, g.sizeV = nil, 2 end
+    -- 4.37.6: RestedXP's size (user, 2026-11-28: "the windows is using to much spaces"): start the new width once.
+    if (tonumber(g.sizeV) or 0) < 3 then g.size, g.sizeV = nil, 3 end
     g.routes = g.routes or {}
     return g
+end
+UI.DB = DB
+
+-- Your place in each route, per character (2026-11-27: two characters of the same start shared one pointer, so the
+-- Orc Hunter's guide showed the warrior's place). The old shared places stay unused under DB().routes.
+function UI.Saved(name)
+    local db = DB()
+    local key = UnitGUID and UnitGUID("player")
+    if not key or key == "" then
+        local n, last = UnitName and UnitName("player")
+        key = tostring(n) .. " " .. tostring(last or "")
+    end
+    db.chars = db.chars or {}
+    local c = db.chars[key] or {}
+    db.chars[key] = c
+    c.routes = c.routes or {}
+    local saved = c.routes[name] or {}
+    c.routes[name] = saved
+    return saved
 end
 
 -- ---- The game, as the model needs it ----
@@ -55,7 +75,7 @@ function UI.GameAdapter()
     if UnitRace then _, race = UnitRace("player") end
     local classID
     if UnitClass then classID = select(3, UnitClass("player")) end
-    return {
+    local a = {
         level = function() return UnitLevel and UnitLevel("player") or 1 end,
         classBit = function() return classID and 2 ^ (classID - 1) or 1 end,
         raceBit = function() return DufforthTweaksHelperGuide.RACE_BITS[race] or 2 end,
@@ -140,6 +160,10 @@ function UI.GameAdapter()
         end,
         logIds = LogIds,
     }
+    -- RestedXP's step engine reads more of the game (GuideRxUI.lua).
+    local rx = DufforthTweaksHelperGuideRxUI
+    if rx and rx.Extend then rx.Extend(a) end
+    return a
 end
 
 -- The zone your hearthstone takes you to (saved when you set it; a capital also from its name) and ready or not.
@@ -455,14 +479,16 @@ local function MapPin(frame, k, pool)
         GameTooltip:SetText((#self.steps > 1 and L["Steps "] or L["Step "]) .. (self.title or self.label or ""), 1, 0.82, 0)
         for n, i in ipairs(self.steps) do
             if n > 5 then GameTooltip:AddLine(string.format(L["and %d more"], #self.steps - 5), 0.7, 0.7, 0.7); break end
-            local d = DufforthTweaksHelperGuide.Describe(model, i)
+            local d = DufforthTweaksHelperGuide.Describe(model, self.rowOf and self.rowOf[i] or i)
             GameTooltip:AddLine(string.format("%d. %s", i, d and d.action or "?"), 1, 1, 1, true)
         end
         GameTooltip:AddLine(L["Click: show this step in the guide"], 0.5, 0.8, 1)
         GameTooltip:Show()
     end)
     pin:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-    pin:SetScript("OnClick", function(self) if self.steps then UI.ViewStep(self.steps[1]) end end)
+    pin:SetScript("OnClick", function(self)
+        if self.steps then UI.ViewStep(self.rowOf and self.rowOf[self.steps[1]] or self.steps[1]) end
+    end)
     pool[k] = pin
     return pin
 end
@@ -502,9 +528,27 @@ function UI.DrawMapLines()
     if not model or DB().mapLines == false or not DB().shown then return end
     local mapID, entries = WorldMapFrame:GetMapID(), {}
     local current = model:Current()
-    for _, i in ipairs(model:Upcoming(UI.MAP_STEPS)) do
-        local _, x, y, map = model:Place(i)
-        if map == mapID and x and y then entries[#entries + 1] = { i, x, y } end
+    -- RestedXP's route: a pin at every point of the active steps, numbered by step (the arrow's step in gold), and a
+    -- line along each step's points (RestedXP's map.lua).
+    local rxPins = model.rxp and model.RxPins and model:RxPins() or nil
+    local rowOf, segments = nil, {}
+    if rxPins then
+        local onMap = {}
+        rowOf = {}
+        for _, p in ipairs(rxPins) do
+            if model.data.uiMaps[p.zone] == mapID then
+                entries[#entries + 1] = { p.n, p.x, p.y }
+                onMap[#onMap + 1] = p
+                rowOf[p.n] = rowOf[p.n] or p.row
+                if p.arrow then current = p.n end
+            end
+        end
+        segments = model:RxPinLines(onMap)
+    else
+        for _, i in ipairs(model:Upcoming(UI.MAP_STEPS)) do
+            local _, x, y, map = model:Place(i)
+            if map == mapID and x and y then entries[#entries + 1] = { i, x, y } end
+        end
     end
     local w, h = canvas:GetWidth(), canvas:GetHeight()
     -- Same size on screen at any zoom.
@@ -522,8 +566,12 @@ function UI.DrawMapLines()
         local pin = hbd and MapPin(UIParent, k, mapLines.hbdDots) or MapPin(frame, k)
         local isCurrent = false
         for _, i in ipairs(p.steps) do if i == current then isCurrent = true end end
-        pin.steps, pin.label, pin.title = p.steps, p.label, p.title
-        pin.num:SetText(p.label)
+        pin.steps, pin.label, pin.title, pin.rowOf = p.steps, p.label, p.title, rowOf
+        local label = p.label
+        if model and model.rxp and model.RxNumber and label then
+            label = string.gsub(tostring(label), "%d+", function(d) return tostring(model:RxNumber(tonumber(d)) or d) end)
+        end
+        pin.num:SetText(label)
         local textW = tonumber(pin.num.GetStringWidth and (pin.num:GetStringWidth())) or 0
         pin:SetSize(math.max(16, textW + 4), 18) -- as big as the number: hover and click on it
         Shape(pin, false, isCurrent)
@@ -538,19 +586,49 @@ function UI.DrawMapLines()
             pin:ClearAllPoints(); pin:SetPoint("CENTER", frame, "TOPLEFT", p.x / 100 * w / scale, -p.y / 100 * h / scale)
             pin:Show()
         end
-        if k > 1 and k <= UI.MAP_LINES and frame.CreateLine then
-            local line = mapLines.lines[k - 1]
-            if not line then
-                line = frame:CreateLine(nil, "OVERLAY")
-                if line then line:SetThickness(3); line:SetColorTexture(1, 0.82, 0, 0.8) end
-                mapLines.lines[k - 1] = line
-            end
-            local a = pins[k - 1]
-            if line then
-                line:SetStartPoint("TOPLEFT", frame, a.x / 100 * w, -a.y / 100 * h)
-                line:SetEndPoint("TOPLEFT", frame, p.x / 100 * w, -p.y / 100 * h)
-                line:Show()
-            end
+        if not rxPins and k > 1 and k <= UI.MAP_LINES then UI.MapLine(frame, k - 1, pins[k - 1], p, w, h) end
+    end
+    for s, seg in ipairs(segments) do UI.MapLine(frame, s, seg[1], seg[2], w, h) end
+end
+
+-- Line k of the route on the map, from a to b (map %).
+function UI.MapLine(frame, k, a, b, w, h)
+    if not frame.CreateLine then return end
+    local line = mapLines.lines[k]
+    if not line then
+        line = frame:CreateLine(nil, "OVERLAY")
+        if line then line:SetThickness(3); line:SetColorTexture(1, 0.82, 0, 0.8) end
+        mapLines.lines[k] = line
+    end
+    if line then
+        line:SetStartPoint("TOPLEFT", frame, a.x / 100 * w, -a.y / 100 * h)
+        line:SetEndPoint("TOPLEFT", frame, b.x / 100 * w, -b.y / 100 * h)
+        line:Show()
+    end
+end
+
+-- Minimap pins (RestedXP shows the active steps' points there too): through HereBeDragons, which Questie ships;
+-- without it there are none (the arrow still points).
+UI.miniDots, UI.MINIMAP_REF = {}, {}
+function UI.DrawMinimapPins(model)
+    local hbd = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
+    if not hbd then return end
+    pcall(hbd.RemoveAllMinimapIcons, hbd, UI.MINIMAP_REF)
+    for _, d in ipairs(UI.miniDots) do d:Hide() end
+    if not (model and model.rxp and model.RxPins) or DB().mapLines == false or not DB().shown then return end
+    local maps = model.data.uiMaps
+    local k = 0
+    for _, p in ipairs(model:RxPins()) do
+        local map = maps[p.zone]
+        if map then
+            k = k + 1
+            local pin = MapPin(Minimap or UIParent, k, UI.miniDots)
+            local shown = tostring(model.RxNumber and model:RxNumber(p.n) or p.n) -- RestedXP's number in the part
+            pin.steps, pin.label, pin.title, pin.rowOf = { p.n }, shown, shown, { [p.n] = p.row }
+            pin.num:SetText(shown)
+            pin:SetSize(18, 14)
+            Shape(pin, false, p.arrow)
+            if pcall(hbd.AddMinimapIconMap, hbd, UI.MINIMAP_REF, pin, map, p.x / 100, p.y / 100, true, false) then pin:Show() end
         end
     end
 end
@@ -787,10 +865,8 @@ function UI.RaceRoute()
     local name = DufforthTweaksHelperGuide.ROUTE_FOR_RACE[race] or L["Durotar"]
     local data = DufforthTweaksHelperGuideData
     local routes = data and data.routes or {}
-    -- Style (user, 2026-11-14): Speed (fastest), Safe (no quests in world-PvP zones), Explorer (more zones and flight
-    -- paths, gear and gold rewards, farming stops); each with or without dungeon quests.
-    local styled = name .. (UI.STYLE_SUFFIX[DB().style or "speed"] or "")
-    if routes[styled] then name = styled end
+    -- One route per start, exactly RestedXP's, with or without its dungeon chain (user, 2026-11-26: the Safe and
+    -- Explorer styles are gone).
     if DB().withDungeons and routes[name .. " (dungeons)"] then
         return name .. " (dungeons)" -- also takes dungeon quests, for players who group
     end
@@ -798,32 +874,14 @@ function UI.RaceRoute()
 end
 
 local pinned -- the step the map pin is on (declared before the menu functions that clear it)
-UI.STYLES = { "speed", "safe", "explorer" }
-UI.STYLE_SUFFIX = { speed = "", safe = L[" - Safe"], explorer = L[" - Explorer"] }
-UI.STYLE_LABEL = { speed = L["Speed"], safe = L["Safe"], explorer = L["Explorer"] }
-UI.STYLE_TIP = {
-    speed = L["The fastest way to 60."],
-    safe = L["Leaves out quests in the zones known for world PvP (Stranglethorn, Hillsbrad, Ashenvale, Arathi, Alterac). A bit slower."],
-    explorer = L["More zones and their flight paths, quests with gear or gold rewards, and an optional gold-farming stop in each zone."],
-}
-
-function UI.SetStyle(dir)
-    local list, at = UI.STYLES, 1
-    for k, s in ipairs(list) do if s == (DB().style or "speed") then at = k end end
-    local before = UI.RouteName()
-    DB().style = list[math.max(1, math.min(#list, at + dir))]
-    UI.follow, UI.scrolled, UI.section, UI.lastCurrent, UI.override = true, false, nil, nil, nil
-    UI.NoteSwitch(before, UI.RouteName())
-    UI.Refresh()
-end
+UI.ROUTE_TIP = L["RestedXP's Forever guide, step by step."]
 
 -- The guide's name as shown: "Speed", "Safe + dungeons", or a questline's name.
 function UI.GuideLabel()
     local picked = DB().guideName
     local data = DufforthTweaksHelperGuideData
     if picked and data and data.routes and data.routes[picked] then return picked end
-    local name = UI.STYLE_LABEL[DB().style or "speed"] or L["Speed"]
-    return name .. (DB().withDungeons and L[" + dungeons"] or "")
+    return L["Leveling"] .. (DB().withDungeons and L[" + dungeons"] or "")
 end
 
 -- After switching guides: what's different, and from which level the routes part (user, 2026-11-14: "when I
@@ -844,7 +902,7 @@ end
 function UI.NoteSwitch(before, after)
     local routes = DufforthTweaksHelperGuideData and DufforthTweaksHelperGuideData.routes or {}
     local level, zone = UI.FirstDifference(routes[before], routes[after])
-    local tip = UI.STYLE_TIP[DB().style or "speed"] or ""
+    local tip = UI.ROUTE_TIP
     local diff = level and string.format(L["Same steps as before until level %d (%s); from there it differs."], level, zone or "?")
         or L["Same route as before."]
     UI.switchNote = { text = "|cffffd100" .. UI.GuideLabel() .. L[" guide.|r "] .. tip .. " " .. diff, ["until"] = (GetTime and GetTime() or 0) + 12 }
@@ -856,8 +914,7 @@ end
 function UI.SelectBracket(section)
     DB().guideName = nil
     local name = UI.RaceRoute()
-    local saved = DB().routes[name] or {}
-    DB().routes[name] = saved
+    local saved = UI.Saved(name)
     local model = DufforthTweaksHelperGuide.NewModel(DufforthTweaksHelperGuideData, name, UI.adapter or UI.GameAdapter(), saved)
     local sec = model:Sections()[section]
     if sec then model:SetStart(sec.first) end
@@ -888,9 +945,7 @@ end
 
 local function Model(adapter)
     local name = UI.RouteName()
-    local saved = DB().routes[name] or {}
-    DB().routes[name] = saved
-    return DufforthTweaksHelperGuide.NewModel(DufforthTweaksHelperGuideData, name, adapter, saved)
+    return DufforthTweaksHelperGuide.NewModel(DufforthTweaksHelperGuideData, name, adapter, UI.Saved(name))
 end
 
 -- ---- Map pin ----
@@ -921,7 +976,8 @@ local fonts = {} -- every text, so the Text size option can change them all
 local ERRAND_H = 20 -- an errand row (train, hearthstone, repair, class quest)
 local MENU_ROWS, MENU_MIN_W, MENU_MAX_W = 16, 220, 320 -- the Guides menu
 local TOOLS_W, MENU_ROW = 210, 22 -- the Menu panel and one of its rows
-local WIDTH, HEIGHT, MIN_W, MIN_H, MAX_W, MAX_H = 340, 440, 290, 70, 800, 1000 -- 290: the strip fits Steps, Best, the pin, Menu and _
+-- About RestedXP's box (230 wide): the card, the part line under it, Menu and _ as small icons (no top strip).
+local WIDTH, HEIGHT, MIN_W, MIN_H, MAX_W, MAX_H = 230, 440, 190, 50, 800, 1000
 local WAIT_ICON = "Interface\\GossipFrame\\IncompleteQuestIcon" -- the game's gray question mark
 local DONE_MARK, WAIT_MARK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t ", "|TInterface\\RaidFrame\\ReadyCheck-Waiting:0|t "
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -1047,6 +1103,7 @@ local function Block(parent)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText(L["Mark this step done (you did it already). Undo it with its check box in the list."], 1, 1, 1, 1, true); GameTooltip:Show()
     end)
     b.check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b.items = {} -- RestedXP's route: one line per line of the step, each with its own check box
     -- Click: the pin and the arrow on this step; right-click: its options (user, 2026-11-15).
     if b.EnableMouse then b:EnableMouse(true) end
     b:SetScript("OnMouseUp", function(self, button)
@@ -1071,7 +1128,9 @@ local function Row(parent)
     r.check:SetSize(16, 16); r.check:SetPoint("TOPLEFT", 3, -2)
     r.check.box = r.check:CreateTexture(nil, "ARTWORK"); r.check.box:SetAllPoints(); r.check.box:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
     r.check.mark = r.check:CreateTexture(nil, "OVERLAY"); r.check.mark:SetAllPoints(); r.check.mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    r.check:SetScript("OnClick", function() if r.step then UI.ToggleStep(r.step) end end)
+    r.check:SetScript("OnClick", function()
+        if r.rx then UI.ToggleWhole(r.rx) elseif r.step then UI.ToggleStep(r.step) end
+    end)
     r.check:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:SetText(L["Mark this step done (you did it already), or click again to undo."], 1, 1, 1, 1, true); GameTooltip:Show()
     end)
@@ -1083,12 +1142,12 @@ local function Row(parent)
     r:SetScript("OnEnter", function(self)
         if not self.step or self.isHeader then return end
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText(L["Step "] .. self.step, 1, 0.82, 0)
+        GameTooltip:SetText(L["Step "] .. (self.rx or self.step), 1, 0.82, 0)
         GameTooltip:AddLine(L["Click: show this step in the guide, with the arrow on it. From there you can go back to your step or continue from this one."], 1, 1, 1, true)
         GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    r.isHeader = false
+    r.isHeader, r.rx = false, false
     return r
 end
 
@@ -1163,17 +1222,16 @@ local function Box()
     -- The other buttons live in one Menu, so a narrow box never overlaps them (user, 2026-11-13).
     f.hide = Flat(f, "_", 20, 18); f.hide:SetPoint("TOPRIGHT", -4, -4) -- minimize to the round icon
     f.menuButton = Flat(f, L["Menu"], 44, 18); f.menuButton:SetPoint("RIGHT", f.hide, "LEFT", -4, 0)
-    -- One-click actions stay buttons on the strip, next to Menu (user, 2026-11-14: in the menu they looked like
-    -- more menus): the map pin and the best step for you.
-    f.pin = Flat(f, nil, 20, 18, "Interface\\Icons\\INV_Misc_Map_01"); f.pin:SetPoint("RIGHT", f.menuButton, "LEFT", -4, 0)
-    f.best = Flat(f, L["Best"], 36, 18); f.best:SetPoint("RIGHT", f.pin, "LEFT", -4, 0)
-    -- Every step of this part of the route: what you did, where you are, what's next (user, 2026-11-14).
-    f.stepsButton = Flat(f, L["Steps"], 40, 18); f.stepsButton:SetPoint("RIGHT", f.best, "LEFT", -4, 0)
-    f.stepsButton:SetScript("OnClick", function()
-        DB().listOpen = not DB().listOpen
-        UI.follow, UI.scrolled = true, false
-        UI.Refresh()
-    end)
+    -- Only Best stays on the strip; Steps and the map pin moved into the Menu (user, 2026-11-27: "why I need
+    -- steps now ... why I need the map button beside the menu").
+    f.best = Flat(f, L["Best"], 36, 18); f.best:SetPoint("RIGHT", f.menuButton, "LEFT", -4, 0)
+    -- RestedXP's size (user, 2026-11-28): no top strip, step counter or Best button; back, skip and best are in the
+    -- Menu; Menu ("=") and minimize ("_") are small icons in the top right corner, over the first card.
+    for _, o in ipairs({ f.strip, f.back, f.stepNum, f.skip, f.best }) do o:Hide() end
+    f.hide:SetSize(16, 14); f.hide:ClearAllPoints(); f.hide:SetPoint("TOPRIGHT", -3, -3)
+    f.menuButton:SetText("=")
+    f.menuButton:SetSize(16, 14); f.menuButton:ClearAllPoints(); f.menuButton:SetPoint("RIGHT", f.hide, "LEFT", -2, 0)
+    f.hide:SetFrameLevel((f:GetFrameLevel() or 1) + 20); f.menuButton:SetFrameLevel((f:GetFrameLevel() or 1) + 20)
     -- Viewing a step other than yours: back to yours, or carry on from the one shown.
     f.viewBar = CreateFrame("Frame", nil, f)
     f.viewBar:SetHeight(22)
@@ -1238,13 +1296,25 @@ local function Box()
     end
 
     Section(L["Guide"])
-    f.styleButton = MenuRow("value", L["Guide style"])
-    f.styleButton.down:SetScript("OnClick", function() UI.SetStyle(-1) end)
-    f.styleButton.up:SetScript("OnClick", function() UI.SetStyle(1) end)
-    f.styleButton:SetScript("OnClick", function() UI.SetStyle(1) end)
-    Tip(f.styleButton, function() return UI.STYLE_TIP[DB().style or "speed"] .. L[" Include dungeons below adds dungeon quests to any style."] end)
     -- Guides: the leveling route or a questline guide (attunements, Cozy Sleeping Bag).
     f.guides = MenuRow("action", L["Guides and zones"])
+    -- Every step of this part of the route: what you did, where you are, what's next (user, 2026-11-14).
+    f.stepsButton = MenuRow("toggle", L["Show step list"])
+    f.stepsButton:SetScript("OnClick", function()
+        DB().listOpen = not DB().listOpen
+        UI.follow, UI.scrolled = true, false
+        UI.Refresh()
+    end)
+    Tip(f.stepsButton, L["Opens every step of this part of the route under the cards: done, yours and next."])
+    -- The arrow and the map pin back on your step, after looking at another step or quest.
+    f.pin = MenuRow("plain", L["Back to my step"])
+    -- Were the strip's < > and Best buttons.
+    f.backRow = MenuRow("plain", L["Previous step"])
+    f.backRow:SetScript("OnClick", function() f.tools:Hide(); UI.model:Back(); UI.override = nil; pinned = nil; UI.Refresh() end)
+    f.skipRow = MenuRow("plain", L["Skip this step"])
+    f.skipRow:SetScript("OnClick", function() f.tools:Hide(); UI.model:Skip(); UI.override = nil; pinned = nil; UI.Refresh() end)
+    f.bestRow = MenuRow("plain", L["Best step for my level"])
+    f.bestRow:SetScript("OnClick", function() f.tools:Hide(); UI.GoRecommended() end)
     f.arrowToggle = MenuRow("toggle", L["Waypoint arrow"])
     f.linesToggle = MenuRow("toggle", L["Route lines on the map"])
     f.dungeonRoute = MenuRow("toggle", L["Include dungeons"])
@@ -1255,7 +1325,7 @@ local function Box()
         UI.NoteSwitch(before, UI.RouteName())
         UI.Refresh()
     end)
-    Tip(f.dungeonRoute, L["Use the route that also takes dungeon quests (Wailing Caverns, Shadowfang Keep...). For players who group; solo players leave it off."])
+    Tip(f.dungeonRoute, L["Follow RestedXP's dungeon guide instead: the same leveling with its dungeon runs and dungeon quests."])
     Section(L["Automation"])
     f.autoToggle = MenuRow("toggle", L["Auto accept and hand in"])
     f.vendorToggle = MenuRow("toggle", L["Sell junk and repair"])
@@ -1264,6 +1334,9 @@ local function Box()
         if q then q.SetVendorEnabled(not q.VendorEnabled()) end
         SetOn(f.vendorToggle, q and q.VendorEnabled())
     end)
+    f.scanToggle = MenuRow("toggle", L["Sound for rare monsters"])
+    f.scanToggle:SetScript("OnClick", function() DB().scanSound = DB().scanSound == false; SetOn(f.scanToggle, DB().scanSound ~= false) end)
+    Tip(f.scanToggle, L["Plays a sound and flashes the game's icon when a rare monster of your current steps shows on a nameplate (once a minute)."])
     -- Look of the box (user, 2026-11-14): size, opacity, text size, hidden in combat or dungeons.
     Section(L["Look"])
     f.scaleButton = MenuRow("value", L["Size"])
@@ -1325,7 +1398,8 @@ local function Box()
         r:SetScript("OnMouseWheel", function(_, delta) UI.ScrollGuideMenu(delta > 0 and -3 or 3) end)
         r:SetScript("OnClick", function(self)
             if self.isHeader then return end
-            if self.bracket then UI.SelectBracket(self.bracket) else UI.SelectGuide(self.guide) end
+            if self.route then UI.SelectPart(self.route, self.part, self.pruned)
+            elseif self.bracket then UI.SelectBracket(self.bracket) else UI.SelectGuide(self.guide) end
         end)
         r:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -1434,6 +1508,7 @@ local function Box()
     Tip(f.progress, function()
         return L["Zone: how much of this part of the route (levels and zone) is done.\n"] .. (f.progress.routeText or "")
             .. (UI.PaceText and ("\n" .. UI.PaceText(true)) or "")
+            .. UI.RestedText("\n\n", "HoverText")
     end)
     f.note = Font(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 12) -- (unused since 4.27: extra rows)
     -- Class, dungeon and gray quests as rows you can hover and click (user, 2026-11-13).
@@ -1500,9 +1575,9 @@ local function Box()
 
     Tip(f.back, L["Back: bring back the step you skipped last."])
     Tip(f.skip, L["Skip this step (and, for a pick-up, that quest's steps)."])
-    Tip(f.pin, L["Put a pin on your map at this step."])
+    Tip(f.pin, L["Put the arrow and the map pin back on your current step."])
     Tip(f.arrowToggle, function() return DB().arrow and L["Hide the waypoint arrow."] or L["Show the waypoint arrow."] end)
-    Tip(f.hide, L["Minimize: the guide shrinks to its round icon. Click the icon, or the minimap button, to open it again."])
+    Tip(f.hide, L["Minimize: the guide shrinks to its round icon. Click the icon to open it again."])
     Tip(f.autoToggle, function()
         local on = DufforthTweaksHelperQuestAuto and DufforthTweaksHelperQuestAuto.Enabled()
         return (on and L["Auto quests on: "] or L["Auto quests off: "]) .. L["accepts quests that fit and hands in finished ones; a choice of rewards waits for you. Hold Shift to do one yourself."]
@@ -1560,9 +1635,39 @@ function UI.ToggleStep(i)
     UI.Refresh()
 end
 
+-- The list's check box on a RestedXP step: every line of it at once.
+function UI.ToggleWhole(n)
+    if not (UI.model and UI.model.RxToggleWhole) then return end
+    UI.model:RxToggleWhole(n)
+    pinned = nil
+    UI.Refresh()
+end
+
+-- RestedXP's step list: one row per step (its lines together), a header where each part starts; steps that aren't
+-- for your class or race are left out, like RestedXP does.
+local function RxListItems(model)
+    local items, db = {}, DB()
+    local secOfPart = {}
+    for k, sec in ipairs(model:Sections()) do
+        local rec = model.route.rx[model:RxStepOf(sec.first) or 0]
+        if rec and secOfPart[rec.p] == nil then secOfPart[rec.p] = k end
+    end
+    local last
+    for n, rec in ipairs(model.route.rx) do
+        local k = secOfPart[rec.p]
+        local state = k and model:RxStepState(n)
+        if state and (state == "current" or state == "along" or (state == "open" and db.showNext) or (state == "done" and db.showDone)) then
+            if last ~= k then items[#items + 1] = { header = k }; last = k end
+            items[#items + 1] = { step = model:RxRows(n)[1], rx = n, state = state }
+        end
+    end
+    return items
+end
+
 -- The whole route as the list shows it: a header where each part starts, then its steps, by state and the
 -- Done / Next toggles (user, 2026-11-13: see the steps behind you and the ones ahead, like RestedXP).
 local function ListItems(model, states)
+    if model.rxp and model.RxStepState then return RxListItems(model) end
     local items, db = {}, DB()
     for k, sec in ipairs(model:Sections()) do
         local headed = false
@@ -1582,6 +1687,12 @@ end
 local function Header(model, group, first)
     local i = group[1]
     local number = #group > 1 and string.format("%d + %d", i, group[#group]) or tostring(i)
+    if model.RxStepOf then
+        -- RestedXP's card: "Step N" (its number in the part) on the pointer's step only; side steps have no tag.
+        local n = model:RxStepOf(i)
+        if not first then return "" end
+        return string.format(L["|cffffd100Step %s|r"], tostring(model.RxNumber and model:RxNumber(n) or n))
+    end
     local d = DufforthTweaksHelperGuide.Describe(model, i)
     local quest = d and d.quest and ("  |cffd0d0d0" .. d.quest .. "|r") or ""
     local _, x, y = model:Place(i)
@@ -1643,7 +1754,7 @@ function UI.BuildBar(f)
     bar.items = {}
     for k = 1, BAR_ITEMS do
         local b = BarButton(bar, L["DufforthTweaksHelperGuideItem"] .. k)
-        b:SetPoint("TOPLEFT", bar.target, "BOTTOMLEFT", 0, -4 - (k - 1) * (BAR_SIZE + 4))
+        b:SetPoint("TOPLEFT", bar.target, "TOPRIGHT", 4 + (k - 1) * (BAR_SIZE + 4), 0) -- a row under the box
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_LEFT")
             if self.itemID and GameTooltip.SetItemByID then GameTooltip:SetItemByID(self.itemID) else GameTooltip:SetText(L["Quest item"]) end
@@ -1712,12 +1823,21 @@ end
 
 -- The secure buttons follow the box on the screen (they can only be moved out of combat), without being anchored
 -- to it, so the box itself can hide or minimize in a fight.
+-- Where the quest bar's top-left goes, in the bar's own units: the box's bottom-left, 4 px lower.
+function UI.BarSpot(left, bottom, boxScale, barScale)
+    local r = boxScale / ((barScale and barScale > 0) and barScale or 1)
+    return left * r, bottom * r - 4
+end
+
 function UI.PlaceSecure(f)
     if InCombatLockdown and InCombatLockdown() then return end
     local s = (tonumber((f:GetEffectiveScale())) or 1) / (tonumber((UIParent:GetEffectiveScale())) or 1)
-    local left, top = tonumber((f:GetLeft())), tonumber((f:GetTop()))
-    if f.questBar and left and top then
-        f.questBar:ClearAllPoints(); f.questBar:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left * s - 4, top * s)
+    local left, bottom = tonumber((f:GetLeft())), tonumber((f:GetBottom()))
+    if f.questBar and left and bottom then
+        -- A row under the box (user, 2026-11-27: the box sits at the screen's left edge, a column on its left was
+        -- off screen). The bar has its own scale, so convert screen pixels into its units.
+        local x, y = UI.BarSpot(left, bottom, tonumber((f:GetEffectiveScale())) or 1, tonumber((f.questBar:GetEffectiveScale())) or 1)
+        f.questBar:ClearAllPoints(); f.questBar:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
     end
     local b = f.blocks and f.blocks[1]
     local right, btop = b and tonumber((b:GetRight())), b and tonumber((b:GetTop()))
@@ -1730,10 +1850,16 @@ function UI.UpdateBar(f, model, current)
     local bar = f.questBar
     if not bar or (InCombatLockdown and InCombatLockdown()) then return end
     local who = DB().shown and UI.TargetName(model, current)
+    -- RestedXP's route: every NPC and monster of the active steps (its targeting frame), like the "DTH Target" macro.
+    local rxui = DufforthTweaksHelperGuideRxUI
+    local names = DB().shown and model.RxTargets and model:RxTargets() or nil
+    if names and rxui and rxui.Order then names = rxui.Order(names, model) end -- seen on a nameplate first
+    if names and names[1] and rxui then who = names[1] end
     bar.target.who = who
     if who then
         bar.target:SetAttribute("type", "macro")
-        bar.target:SetAttribute("macrotext", "/cleartarget\n/targetexact " .. who)
+        bar.target:SetAttribute("macrotext", (names and names[1] and rxui) and ("/cleartarget\n" .. rxui.MacroText(names))
+            or ("/cleartarget\n/targetexact " .. who))
         bar.target:Show()
     else
         bar.target:Hide()
@@ -1741,6 +1867,17 @@ function UI.UpdateBar(f, model, current)
     local items = DB().shown and UI.QuestItems() or {}
     local step = current and model.steps[current]
     local wanted = step and UI.QuestItemFor(step[2])
+    if model.RxItems then -- RestedXP's route: the active steps' .use items, ahead of the other quest items
+        local have = {}
+        for _, it in ipairs(items) do have[it.id] = true end
+        local getIcon = C_Item and C_Item.GetItemIconByID or GetItemIcon
+        for k, id in ipairs(model:RxItems()) do
+            if not have[id] and (UI.adapter and UI.adapter.itemCount and UI.adapter.itemCount(id) or 0) > 0 then
+                table.insert(items, k, { id = id, icon = getIcon and getIcon(id) })
+            end
+        end
+        wanted = wanted or model:RxItems()[1]
+    end
     if wanted then -- the item for the step you're on comes first
         for k, it in ipairs(items) do if it.id == wanted then table.remove(items, k); table.insert(items, 1, it); break end end
     end
@@ -1758,6 +1895,93 @@ function UI.UpdateBar(f, model, current)
     bar:SetShown(who ~= nil or #items > 0)
 end
 
+-- One line of a RestedXP step in its card: a check box and the line's text.
+local function LineItem(b, k)
+    local it = b.items[k]
+    if it then return it end
+    it = CreateFrame("Frame", nil, b)
+    it.check = CreateFrame("Button", nil, it)
+    it.check:SetSize(14, 14); it.check:SetPoint("TOPLEFT", 0, 0)
+    it.check.box = it.check:CreateTexture(nil, "ARTWORK"); it.check.box:SetAllPoints(); it.check.box:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
+    it.check.mark = it.check:CreateTexture(nil, "OVERLAY"); it.check.mark:SetAllPoints(); it.check.mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    it.check:SetScript("OnClick", function(self) if self.row and not self.locked then UI.ToggleStep(self.row) end end)
+    it.check:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText(self.locked and L["Done: the game says so."] or L["Tick this line when you've done it; click again to undo."], 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    it.check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    it.text = Font(it:CreateFontString(nil, "OVERLAY", "GameFontHighlight"), 13)
+    it.text:SetPoint("TOPLEFT", 18, 0); it.text:SetJustifyH("LEFT")
+    if it.text.SetSpacing then it.text:SetSpacing(2) end
+    b.items[k] = it
+    return it
+end
+
+-- One line of a RestedXP step as RestedXP writes it: its own text (colours and icons kept) or RestedXP's default for
+-- that kind ("Accept <quest>", "<item>: 1/3", the objective's progress); names, never ids.
+function UI.RxLineText(model, r, adapter, said)
+    local row = model.steps[r]
+    if not row then return "" end
+    local kind, id, a = row[1], row[2], row[12] or {}
+    local d = DufforthTweaksHelperGuide.Describe(model, r)
+    local icon = DufforthTweaksHelperGuide.Inline(d and d.icon) .. " "
+    local title = (id and id > 0 and model.Title and model:Title(id)) or (d and d.quest) or ""
+    if kind == "collect" then
+        local name = a.nm
+        if not name and a.i then
+            if C_Item and C_Item.GetItemNameByID then name = C_Item.GetItemNameByID(a.i) end
+            if not name and GetItemInfo then name = GetItemInfo(a.i) end
+        end
+        local have = adapter and adapter.itemCount and adapter.itemCount(a.i) or 0
+        local count = string.format("%d/%d", math.min(have, a.n or 1), a.n or 1)
+        if said then return icon .. said .. "\n" .. count end
+        return icon .. (name or L["Item"]) .. ": " .. count
+    end
+    if said then return icon .. said end
+    if kind == "accept" and title ~= "" then return icon .. L["Accept "] .. title end
+    if kind == "turnin" and title ~= "" then return icon .. L["Turn in "] .. title end
+    if kind == "abandon" and title ~= "" then return icon .. L["Abandon "] .. title end
+    local action, lines = StepText(model, r, adapter)
+    if kind == "do" and lines ~= "" then return lines end
+    if row[7] and row[7] ~= "" then return icon .. row[7] end
+    return action .. (lines ~= "" and ("\n" .. lines) or "")
+end
+
+-- RestedXP's step frame: every line of step n with its own check box (ticked and locked when the game says it's
+-- done, ticked by you otherwise; RestedXP's SetElementComplete), then the advice. Returns the card's height.
+local function RxLines(b, model, adapter, n, inner, advice)
+    b.check:Hide(); b.action:SetText(""); b.lines:SetText("")
+    b.header:SetWidth(inner)
+    local y = -(4 + Height(b.header, "x") + 3)
+    -- RestedXP's order: its text lines (no check box) and the lines you act on (a check box each).
+    local shown = model.RxDisplay and model:RxDisplay(n) or {}
+    for k, line in ipairs(shown) do
+        local it = LineItem(b, k)
+        local text, r = line.text, line.row
+        if r then
+            local state = model:RxLineState(r)
+            text = UI.RxLineText(model, r, adapter, line.said)
+            if state ~= "open" then text = "|cff9d9d9d" .. Plain(text) .. "|r" end
+            it.check.row, it.check.locked = r, state == "game"
+            it.check.mark:SetShown(state ~= "open")
+            it.check:SetAlpha(state == "game" and 0.5 or 1)
+            it.check:Show()
+        else
+            it.check.row = false
+            it.check:Hide()
+        end
+        it.text:SetWidth(inner - 18); it.text:SetText(text)
+        local h = math.max(16, Height(it.text, text))
+        it:ClearAllPoints(); it:SetPoint("TOPLEFT", b, "TOPLEFT", 8, y); it:SetSize(inner, h); it:Show()
+        y = y - h - 3
+    end
+    for k = #shown + 1, #b.items do b.items[k]:Hide() end
+    b.advice:SetWidth(inner); b.advice:SetText(advice)
+    b.advice:ClearAllPoints(); b.advice:SetPoint("TOPLEFT", b, "TOPLEFT", 8, y)
+    return -y + (advice ~= "" and Height(b.advice, advice) + 3 or 0) + 2
+end
+
 local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
     local inner, fits = w - 2 * PAD - 12, true
     -- One card per step (user, 2026-11-15); the trip's cards are always drawn, the next ones while they fit.
@@ -1770,6 +1994,7 @@ local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
             local c = KIND[kind] or KIND.travel
             b.group = group
             local isCurrent = group[1] == model:Current() or (k == 1 and not blocks.trip)
+            if model.rxp and model.RxAt then isCurrent = model:RxStepOf(group[1]) == model:RxAt() end
             b.header:SetText(Header(model, group, isCurrent))
             local band = isCurrent and BAND_CURRENT or BAND_NEXT
             b.band:SetColorTexture(band[1], band[2], band[3], 1)
@@ -1791,18 +2016,28 @@ local function DrawBlocks(f, model, adapter, blocks, w, top, bottom)
             local st = model.steps[group[1]]
             local useHint = st and st[1] == "do" and UI.UseItemHint(st[2])
             if useHint then advice = useHint .. (advice ~= "" and ("\n" .. advice) or "") end
-            local legs = isCurrent and model:Directions(group[1])
+            local legs = isCurrent and not model.rxp and model:Directions(group[1])
             if legs then
                 -- One line (user, 2026-11-15: less text): "Route: Go to Orgrimmar: Undercity zeppelin › Zeppelin to Undercity › Fly to ..."
                 local parts = {}
                 for _, leg in ipairs(legs) do parts[#parts + 1] = leg.text end
                 advice = advice .. (advice ~= "" and "\n" or "") .. L["|cff80b3ffRoute:|r "] .. "|cffd0d0d0" .. table.concat(parts, " > ") .. "|r"
             end
-            for _, fs in ipairs({ b.header, b.action, b.advice }) do fs:SetWidth(inner) end
-            b.lines:SetWidth(inner - 20)
-            b.action:SetText(action); b.lines:SetText(lines); b.advice:SetText(advice)
-            local h = 4 + Height(b.header, "x") + 3 + Height(b.action, action) + (lines ~= "" and 3 + Height(b.lines, lines) or 0)
-                + (advice ~= "" and 3 + Height(b.advice, advice) or 0) + 5
+            local rxn = model.rxp and model.RxLineState and model:RxStepOf(group[1]) or nil
+            b.rxStep = rxn or false
+            local h
+            if rxn then
+                h = RxLines(b, model, adapter, rxn, inner, advice)
+            else
+                for _, it in ipairs(b.items) do it:Hide() end
+                b.check:Show()
+                b.advice:ClearAllPoints(); b.advice:SetPoint("TOPLEFT", b.lines, "BOTTOMLEFT", -20, -3)
+                for _, fs in ipairs({ b.header, b.action, b.advice }) do fs:SetWidth(inner) end
+                b.lines:SetWidth(inner - 20)
+                b.action:SetText(action); b.lines:SetText(lines); b.advice:SetText(advice)
+                h = 4 + Height(b.header, "x") + 3 + Height(b.action, action) + (lines ~= "" and 3 + Height(b.lines, lines) or 0)
+                    + (advice ~= "" and 3 + Height(b.advice, advice) or 0) + 5
+            end
             if k > trip and (not fits or top - h < bottom) then fits = false end
             if fits then
                 b:ClearAllPoints(); b:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top); b:SetSize(w - 2 * PAD + 8, h); b:Show()
@@ -1848,6 +2083,8 @@ local function QuestItem(e, kind, indent)
 end
 
 local function ExtraItems(model)
+    -- RestedXP's steps only (user, 2026-11-26): no class, dungeon, off-route, Forever or gray-quest rows of ours.
+    if model.rxp then return {} end
     local items, db = {}, DB()
     for _, e in ipairs(model:ClassQuests()) do items[#items + 1] = QuestItem(e, L["Class quest"], "") end
     local dungeons = model:DungeonQuests()
@@ -1976,17 +2213,73 @@ function UI.FillGuideMenu()
     local f = Box()
     local data, picked = DufforthTweaksHelperGuideData, DB().guideName
     -- Guides first (always in view), then the leveling route by zone: a click shows that part in the list.
-    local entries = { { nil, L["Leveling 1-60: "] .. UI.STYLE_LABEL[DB().style or "speed"] .. (DB().withDungeons and L[" + dungeons"] or ""),
-        (UI.STYLE_TIP[DB().style or "speed"] or "") .. L[" Change the style in the Menu (Guide style)."] } }
+    local entries = { { nil, L["Leveling 1-60: "] .. L["RestedXP"] .. (DB().withDungeons and L[" + dungeons"] or ""),
+        UI.ROUTE_TIP .. L[" Include dungeons in the Menu switches to RestedXP's dungeon guide."] } }
     for _, g in ipairs(data.guides or {}) do entries[#entries + 1] = { g.name or g[1], g.name or g[1], g.note or g[2] } end
-    entries[#entries + 1] = { nil, L["|cffffd100Leveling by zone|r"], "", nil, true }
-    local leveling = DufforthTweaksHelperGuide.NewModel(data, UI.RaceRoute(), UI.adapter or UI.GameAdapter(), { skipped = {} })
-    for _, p in ipairs(leveling:ZoneParts()) do
-        entries[#entries + 1] = { nil, "    |cffcccccc" .. p.title .. "|r", L["Show this part of the leveling route in the list. Your current step still follows what you have done."], p.first }
+    local race = data.routes[UI.RaceRoute()]
+    if race and race.rxp then
+        -- RestedXP's guide menu: every route (start, with or without dungeons) and its parts, guide by guide.
+        for _, e in ipairs(UI.RouteMenuEntries()) do entries[#entries + 1] = e end
+    else
+        entries[#entries + 1] = { nil, L["|cffffd100Leveling by zone|r"], "", nil, true }
+        local leveling = DufforthTweaksHelperGuide.NewModel(data, UI.RaceRoute(), UI.adapter or UI.GameAdapter(), { skipped = {} })
+        for _, p in ipairs(leveling:ZoneParts()) do
+            entries[#entries + 1] = { nil, "    |cffcccccc" .. p.title .. "|r", L["Show this part of the leveling route in the list. Your current step still follows what you have done."], p.first }
+        end
     end
     f.guideMenu.entries, f.guideMenu.offset = entries, 0
     UI.DrawGuideMenu()
     f.guideMenu:Show()
+end
+
+-- Menu rows for RestedXP's routes: a header per route, then its parts; your route first, then the loaded ones, then
+-- the other starts (dropped from memory at login: picking one needs a /reload).
+-- Row: { guide, title, tip, bracket, header, route, part (0-based, as the steps' p), pruned }.
+function UI.RouteMenuEntries()
+    local data = DufforthTweaksHelperGuideData
+    local list = {}
+    for name, r in pairs(data.routes or {}) do if r.rxp then list[#list + 1] = { name, r.parts or {}, false } end end
+    for name, r in pairs(data.pruned or {}) do list[#list + 1] = { name, r.parts or {}, true } end
+    local current = UI.RouteName()
+    table.sort(list, function(a, b)
+        if (a[1] == current) ~= (b[1] == current) then return a[1] == current end
+        if a[3] ~= b[3] then return not a[3] end
+        return a[1] < b[1]
+    end)
+    local out = {}
+    for _, e in ipairs(list) do
+        local name, parts, pruned = e[1], e[2], e[3]
+        out[#out + 1] = { nil, "|cffffd100" .. name .. "|r" .. (pruned and L[" |cff888888(needs /reload)|r"] or ""), "", nil, true }
+        for p, part in ipairs(parts) do
+            out[#out + 1] = { nil, "    |cffcccccc" .. part .. "|r" .. (pruned and L[" |cff888888(/reload)|r"] or ""),
+                pruned and L["Another start: picked now, loaded after you type /reload (only your start's routes stay in memory)."]
+                    or L["Go to this part: the guide continues from its first step."], nil, false, name, p - 1, pruned }
+        end
+    end
+    return out
+end
+
+-- A part picked in the Guides menu: that route, from the part's first step. Another start waits for a /reload.
+function UI.SelectPart(name, p, pruned)
+    local data, db = DufforthTweaksHelperGuideData, DB()
+    local base = string.gsub(name, " %(dungeons%)$", "")
+    local raceBase = string.gsub(UI.RaceRoute(), " %(dungeons%)$", "")
+    if base == raceBase then db.guideName = nil; db.withDungeons = name ~= base else db.guideName = name end
+    if box and box.guideMenu then box.guideMenu:Hide() end
+    UI.follow, UI.scrolled, UI.section, UI.override, UI.lastCurrent = true, false, nil, nil, nil
+    pinned = nil
+    if pruned or not data.routes[name] then
+        db.pendingPart = { route = name, part = p }
+        UI.switchNote = { text = string.format(L["|cffffd100%s|r is picked. Type /reload to load it: only your start's routes stay in memory."], name),
+            ["until"] = (GetTime and GetTime() or 0) + 30 }
+        UI.Refresh()
+        return
+    end
+    local saved = UI.Saved(name)
+    local model = DufforthTweaksHelperGuide.NewModel(data, name, UI.adapter or UI.GameAdapter(), saved)
+    local n = model.RxPartStart and model:RxPartStart(p)
+    if n then model:RxGoTo(n) end
+    UI.Refresh()
 end
 
 function UI.ScrollGuideMenu(by)
@@ -2004,7 +2297,8 @@ function UI.DrawGuideMenu()
         local e = entries[offset + k]
         if e then
             r.guide, r.title, r.note, r.bracket, r.isHeader = e[1], e[2], e[3], e[4] or false, e[5] or false
-            local on = not e[4] and not e[5] and ((e[1] == picked) or (e[1] == nil and not (picked and data.routes[picked])))
+            r.route, r.part, r.pruned = e[6] or false, e[7] or false, e[8] or false
+            local on = not e[4] and not e[5] and not e[6] and ((e[1] == picked) or (e[1] == nil and not (picked and data.routes[picked])))
             r.label:SetText((on and L["|cff40ff40> |r"] or "   ") .. e[2]); r:Show()
             local sw = tonumber(r.label.GetStringWidth and r.label:GetStringWidth()) or 0
             widest = math.max(widest, sw)
@@ -2065,7 +2359,7 @@ local function AlongText(model, adapter)
     local text = #parts > 0 and (L["|cff80b3ffAlong the way|r |cff888888(kill them as you go)|r\n"] .. table.concat(parts, "\n")) or ""
     -- Other quests in your log you can do right here (user, 2026-11-14), with the game's progress.
     local current = model:Current()
-    local also = current and model:AlsoHere(current) or {}
+    local also = (current and not model.rxp) and model:AlsoHere(current) or {} -- not on RestedXP's route (user, 2026-11-26)
     if #also > 0 then
         local lines = {}
         for _, a in ipairs(also) do
@@ -2103,6 +2397,15 @@ end
 -- The bar's two texts side by side, never on top of each other (user, 2026-11-14 and 2026-11-21):
 -- with little room the zone %, then the guide name, then the long pace or flight text go first;
 -- whatever is left is cut with "...". Runs on each redraw and each second of a flight.
+-- Rested.lua's text (prefix + text), "" when that file isn't loaded or has nothing to say.
+function UI.RestedText(prefix, which)
+    local R = DufforthTweaksHelperRested
+    if not R or not R[which] then return "" end
+    local ok, text = pcall(R[which])
+    if not ok or not text or text == "" then return "" end
+    return prefix .. text
+end
+
 function UI.FitProgress(f)
     local bar = f.progress
     if not bar.title or not bar.barW then return end
@@ -2119,6 +2422,12 @@ function UI.FitProgress(f)
         { guide .. "   " .. title .. "   " .. zonePct, pace }, { guide .. "   " .. title, pace },
         { guide .. "   " .. title, shortPace }, { title, pace }, { title, shortPace }, { title, "" },
     }
+    -- Full rested XP first when it fits (user, 2026-11-27); otherwise the older layouts above.
+    local rested = UI.RestedText("", "ShortText")
+    if rested ~= "" and not UI.flight then
+        table.insert(tries, 1, { guide .. "   " .. title, rested .. "   " .. shortPace })
+        table.insert(tries, 1, { guide .. "   " .. title .. "   " .. zonePct, rested .. "   " .. shortPace })
+    end
     UI.barWidth = barW
     local measure = UI.TextWidth or UI.MeasureText
     local pick = tries[#tries]
@@ -2146,7 +2455,7 @@ local function DrawList(f, model, adapter, current, w, top, bottom)
     f.list:ClearAllPoints(); f.list:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top); f.list:SetSize(w - 2 * PAD + 8, math.max(10, room))
     for _, r in ipairs(f.rows) do r:Hide() end
     if not sec then f.empty:SetText(""); return top end
-    local states = model:States(#model.steps)
+    local states = (model.rxp and model.RxStepState) and {} or model:States(#model.steps)
     local items = ListItems(model, states)
     if UI.jump then
         -- Browsed to a part: start at its header.
@@ -2156,8 +2465,9 @@ local function DrawList(f, model, adapter, current, w, top, bottom)
         -- Following: the current step with the steps behind you above it (more of them in a taller box).
         local behind = math.floor(math.max(1, room / 24) * 0.4)
         UI.offset = 1
+        local at = current and model.RxStepOf and model:RxStepOf(current)
         for k, item in ipairs(items) do
-            if item.step == current then UI.offset = math.max(1, k - behind); break end
+            if (item.rx and item.rx == at) or (not item.rx and item.step and item.step == current) then UI.offset = math.max(1, k - behind); break end
         end
     end
     UI.offset = math.max(1, math.min(UI.offset or 1, math.max(1, #items)))
@@ -2168,10 +2478,31 @@ local function DrawList(f, model, adapter, current, w, top, bottom)
         local item, r = items[k], f.rows[n + 1]
         local text, state
         if item.header then
-            r.isHeader, r.step = true, nil
+            r.isHeader, r.step, r.rx = true, nil, false
             text = "|cffffd100" .. DufforthTweaksHelperGuide.SectionTitle(sections[item.header]) .. "|r"
+            local sec = sections[item.header]
+            if model.rxp and sec and sec.part then
+                -- RestedXP's guide title: the part's name, then its group ("26-28 Ashenvale" / "Speedrun Guide 22-30").
+                local sub = model:RxSubName(sec.part)
+                text = "|cffffd100" .. model:RxPartName(sec.part) .. "|r" .. (sub ~= "" and ("\n|cffd0d0d0" .. sub .. "|r") or "")
+            end
             r.num:SetText(""); r.check:Hide()
+        elseif item.rx then
+            local n = item.rx
+            state = item.state
+            r.isHeader, r.step, r.rx = false, item.step, n
+            local parts = {}
+            for _, line in ipairs(model:RxDisplay(n)) do
+                parts[#parts + 1] = line.row and UI.RxLineText(model, line.row, adapter, line.said) or line.text
+            end
+            text = table.concat(parts, "\n")
+            if state == "done" then text = DONE_MARK .. text
+            elseif state == "along" then text = L["|cff80b3ff(along the way)|r "] .. text end
+            r.num:SetText(model.RxNumber and model:RxNumber(n) or n)
+            r.check:Show()
+            r.check.mark:SetShown(model:RxStepTicked(n))
         else
+            r.rx = false
             local i = item.step
             local action, lines = StepText(model, i, adapter)
             state = states[i]
@@ -2411,6 +2742,7 @@ function UI.ApplyLook()
         f.alphaButton.value:SetText(string.format("%d%%", math.floor(alpha * 100 + 0.5)))
         f.fontButton.value:SetText(FONT_NAMES[db.fontDelta or 0] or "normal")
         SetOn(f.combatToggle, db.hideInCombat); SetOn(f.dungeonToggle, db.hideInDungeons); SetOn(f.linesToggle, db.mapLines ~= false)
+        SetOn(f.scanToggle, db.scanSound ~= false)
     end
 end
 
@@ -2423,11 +2755,17 @@ function UI.Refresh()
     logCache = nil
     UI.adapter = UI.GameAdapter()
     UI.model = Model(UI.adapter)
+    -- RestedXP running too: the same part and step as it (its saved place, when it changes).
+    if UI.model.rxp and DufforthTweaksHelperGuideRxUI and DufforthTweaksHelperGuideRxUI.Follow(UI.model) then
+        UI.model = Model(UI.adapter)
+    end
     local model, adapter = UI.model, UI.adapter
     local blocks = model:Blocks(ACTIVE, true) -- one row per step (user, 2026-11-15: "do not group the steps")
     UI.inTopBlock = {} -- steps the trip's cards already show (the "Along the way" lines skip them)
     for k = 1, math.max(1, blocks.trip or 1) do for _, i in ipairs(blocks[k] or {}) do UI.inTopBlock[i] = true end end
     local current = blocks[1] and blocks[1][1]
+    -- RestedXP's route: side steps are listed first, the pointer's step is yours (GuideRx.lua).
+    if model.rxp and model.RxActive then current = model:Current() end
     if UI.viewing and not model.steps[UI.viewing] then UI.viewing = nil end
     if UI.viewing then blocks = { { UI.viewing } } end -- a step you picked in the list
     -- The Start quest button for an item-started quest whose item is in your bags (not changed in combat).
@@ -2449,15 +2787,15 @@ function UI.Refresh()
     f.routePct:SetText("")
     SetOn(f.arrowToggle, DB().arrow)
     if f.dungeonRoute then SetOn(f.dungeonRoute, DB().withDungeons) end
-    if f.styleButton then f.styleButton.value:SetText(UI.STYLE_LABEL[DB().style or "speed"]) end
     SetOn(f.autoToggle, DufforthTweaksHelperQuestAuto and DufforthTweaksHelperQuestAuto.Enabled())
     SetOn(f.vendorToggle, DufforthTweaksHelperQuestAuto and DufforthTweaksHelperQuestAuto.VendorEnabled and DufforthTweaksHelperQuestAuto.VendorEnabled())
     local bottom = -(h - 6)
     -- Level, zone and progress: always shown, right under the top strip (user, 2026-11-13).
     f.progress:Show()
     UI.ApplyLook()
-    UI.errands = UI.Errands(model, adapter, current)
-    local top0 = DrawErrands(f, UI.errands, w, DrawProgress(f, model, current, w, -(STRIP + 3)))
+    -- No errand rows (buy water, repair, train, class quest) on RestedXP's route (user, 2026-11-26).
+    UI.errands = model.rxp and {} or UI.Errands(model, adapter, current)
+    local top0 = DrawErrands(f, UI.errands, w, -3) -- the card first; the part line goes under the cards
     local note = UI.switchNote
     if note and (GetTime and GetTime() or 0) < note["until"] then
         if not rawget(f, "switchNote") then rawset(f, "switchNote", Font(f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), 11)) end
@@ -2468,7 +2806,8 @@ function UI.Refresh()
         f.switchNote:Hide(); UI.switchNote = nil
     end
     if UI.override or UI.viewing then
-        f.viewBar:ClearAllPoints(); f.viewBar:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top0); f.viewBar:SetWidth(w - 2 * PAD + 8)
+        -- Ends left of the "=" and "_" icons in the corner (2026-11-28: "Back to my step" sat over the Menu icon).
+        f.viewBar:ClearAllPoints(); f.viewBar:SetPoint("TOPLEFT", f, "TOPLEFT", PAD - 4, top0); f.viewBar:SetWidth(w - 2 * PAD + 8 - 38)
         if UI.override then
             -- The arrow is on a class, dungeon or Forever quest you clicked (user, 2026-11-14: no way back to the step).
             f.viewBar.label:SetText(L["Arrow on: "] .. (UI.override.text or L["a quest"]))
@@ -2488,6 +2827,7 @@ function UI.Refresh()
     SetOn(f.stepsButton, DB().listOpen)
     if DB().listOpen then h = math.max(h, -top0 + 420); bottom = -(h - 6) end -- room for the part's steps
     local top, fits = DrawBlocks(f, model, adapter, blocks, w, top0, bottom)
+    top = DrawProgress(f, model, current, w, top - 1) -- "30-33 Hillsbrad/Arathi   41m", like RestedXP's guide label
     UI.UpdateBar(f, model, current)
     UI.PlaceSecure(f)
     -- The current block is always shown whole: with 2 or 3 steps at the same place the box grows for them, and
@@ -2558,6 +2898,12 @@ function UI.Refresh()
     end
     -- Errands (water, training, repairs) never take the arrow: waypoints are for quests (user, 2026-11-15: "do not put
     -- waypoints to buy water, only for quests"). Their rows stay in the box; a click on one points the arrow there.
+    -- RestedXP's route: the arrow walks the active steps' points in order, a ghost goes to the corpse or Spirit Healer.
+    local rxui = DufforthTweaksHelperGuideRxUI
+    if model.rxp and model.RxArrow and rxui and not UI.viewing then
+        UI.target = rxui.Target(model)
+        rxui.UpdateMacro(model)
+    end
     if UI.override and UI.override.map then UI.target = UI.override end -- you clicked a class or dungeon quest
     if current then
         local st = model.steps[current]
@@ -2569,8 +2915,21 @@ function UI.Refresh()
         UI.override and L[" (a quest you clicked)"] or (tg.lift and (" (lift " .. tg.lift .. ")") or "")) or "none")
     UI.LogChange("settings", "settings", UI.SettingsLine())
     UI.UpdateArrow()
-    if WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsShown() and UI.mapDrawnFor ~= current then
-        UI.mapDrawnFor = current
+    local mapKey = current
+    if model.rxp and model.RxPins then
+        -- RestedXP's route: the pins follow the active steps' points (a point reached goes away).
+        local ok, pins = pcall(model.RxPins, model)
+        local keys = { tostring(DB().shown) .. tostring(DB().mapLines) }
+        for _, p in ipairs(ok and pins or {}) do keys[#keys + 1] = p.n .. ":" .. p.k .. (p.arrow and "*" or "") end
+        mapKey = table.concat(keys, ",")
+        if mapKey ~= UI.miniKey then
+            UI.miniKey = mapKey
+            local okm, err = pcall(UI.DrawMinimapPins, model)
+            if not okm then UI.Log("error", "minimap: " .. tostring(err)) end
+        end
+    end
+    if WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsShown() and UI.mapDrawnFor ~= mapKey then
+        UI.mapDrawnFor = mapKey
         UI.SafeDrawMap()
     end
 end
@@ -2625,7 +2984,9 @@ function UI.UpdateIcon()
     local model, current = UI.model, UI.lastCurrent
     local d = model and current and DufforthTweaksHelperGuide.Describe(model, current)
     b.badge:SetTexture(d and d.icon or nil); b.badge:SetShown(d ~= nil); b.ring:SetShown(d ~= nil)
-    b.num:SetText(current and (L["Step "] .. current) or "")
+    local number = current
+    if model and model.rxp and model.RxNumber and model.RxStepOf and current then number = model:RxNumber(model:RxStepOf(current)) or current end
+    b.num:SetText(number and (L["Step "] .. number) or "")
     b.text = d and string.gsub(d.action or "", "|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") or nil
     local show = DB().shown and UI.Hidden()
     b:SetShown(show and true or false)
@@ -2643,11 +3004,24 @@ end
 function UI.PinStep(i)
     local model = UI.model
     if not (model and i) then return end
+    local number = i
+    if model.rxp and model.RxStepOf then
+        -- RestedXP's route: every card is an active step and the arrow already walks them (user, 2026-11-28: an
+        -- "Arrow on: Step 806" bar for the step you're on, "fix"). Only a step that isn't active takes the arrow.
+        local n = model:RxStepOf(i)
+        for _, s in ipairs(model:RxActive()) do
+            if s == n then
+                if UI.override then UI.override = nil; pinned = nil; UI.Refresh() end
+                return
+            end
+        end
+        number = model.RxNumber and model:RxNumber(n) or i
+    end
     local zone, x, y, map = model:Place(i)
     if not (map and x and y) then return end
     local d = DufforthTweaksHelperGuide.Describe(model, i)
     UI.override = { step = i, map = map, x = x, y = y, zone = zone,
-                    text = string.format(L["Step %d: %s"], i, Plain(d and d.action or "")) }
+                    text = string.format(L["Step %d: %s"], number, Plain(d and d.action or "")) }
     pinned = nil
     UI.Refresh()
 end

@@ -49,6 +49,7 @@ def load(game):
                 "casts": [(float(t), s, tgt, int(h)) for t, s, tgt, h in casts],
                 "tries": [(float(t), k, n) for t, k, n in tries],
                 "damage": f.damage if f.damage is not None else None,
+                "autoTimes": [float(v) for _, v in items(f.autoTimes)],
             })
     return fights, macros
 
@@ -62,6 +63,38 @@ def summarize(fights):
     for f in fights:
         errors = errors.add(pd.Series(f["errors"], dtype=int), fill_value=0)
     return df, casts, tries, errors.sort_values(ascending=False)
+
+
+CLIP_SPELLS = ("Arcane Shot", "Aimed Shot", "Multi-Shot")
+CLIP_MIN = 0.15  # seconds longer than a plain gap before a spell counts as delaying Auto Shot
+
+
+def clipping(fights):
+    """Gaps between Auto Shots: plain ones (no shot cast in between) give your weapon's own pace; gaps holding an
+    Arcane, Aimed or Multi-Shot cast show whether that shot delays the next Auto Shot. Gaps over 2.5x the pace
+    (you moved, went to melee) are left out. None when no Auto Shot times were saved yet."""
+    rows = []
+    for f in fights:
+        autos = f.get("autoTimes") or []
+        shots = [(t, s) for t, s, _, _ in f["casts"] if s in CLIP_SPELLS]
+        for a, b in zip(autos, autos[1:]):
+            inside = {s for t, s in shots if a < t <= b}
+            label = next((s for s in CLIP_SPELLS if s in inside), "none")
+            rows.append((label, b - a))
+    if not rows:
+        return None
+    gaps = pd.DataFrame(rows, columns=["spell", "gap"])
+    plain = gaps[gaps["spell"] == "none"]["gap"]
+    if not len(plain):
+        return None
+    pace = plain.median()
+    gaps = gaps[gaps["gap"] <= pace * 2.5]
+    result = {"pace": pace, "spells": {}}
+    for spell in CLIP_SPELLS:
+        g = gaps[gaps["spell"] == spell]["gap"]
+        if len(g):
+            result["spells"][spell] = (g.median(), len(g), g.median() - pace)
+    return result
 
 
 def report(fights, macros):
@@ -127,6 +160,20 @@ def report(fights, macros):
     if dead_pet:
         advice.append(f"Your pet died in {dead_pet} fights: Mend Pet before it drops under half, or let it pull aggro first "
                       "(two or three shots in, then go all out).")
+    clip = clipping(fights)
+    if clip is None:
+        print("Auto Shot times: none saved yet (addon 4.37.6 or newer saves them); play a few fights, then /reload.")
+    else:
+        print(f"Auto Shot every {clip['pace']:.2f} s on its own. Between two Auto Shots:")
+        for spell, (median, n, extra) in clip["spells"].items():
+            if extra >= CLIP_MIN:
+                print(f"  {spell}: delays your next Auto Shot by {extra:.2f} s ({median:.2f} s, {n} times)")
+            else:
+                print(f"  {spell}: no delay ({median:.2f} s, {n} times)")
+        arcane = clip["spells"].get("Arcane Shot")
+        if arcane and arcane[2] >= CLIP_MIN:
+            advice.append(f"Arcane Shot delays your Auto Shot by {arcane[2]:.2f} s each time ({arcane[1]} times): "
+                          "weigh its damage against the lost Auto Shot time, or take it out of the button.")
     if "damage" in df and df["damage"].notna().any():
         print("Damage meter data found in some fights (see the saved file for details).")
     print()

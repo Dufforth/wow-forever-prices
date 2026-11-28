@@ -112,6 +112,25 @@ try:
 except Exception as e:
     druid_ok = False
     print("DRUID ERROR", str(e)[:300])
-ok = not bad and "error" not in texts.lower() and druid_ok and "crafts" in texts and grind_ok and fish_ok
+# A hunter: the Class tab's macro view shows the DTH Hunter macro.
+hunter_ok = True
+try:
+    lua3 = L.LuaRuntime(unpack_returned_tuples=True)
+    lua3.execute(mock)
+    lua3.execute(PATCH)
+    lua3.execute('UnitClass = function() return "Hunter", "HUNTER" end')
+    ns3 = lua3.table()
+    for f in [l.strip() for l in toc if l.strip().endswith(".lua")]:
+        code = open(os.path.join(ADDON, f), encoding="utf-8").read()
+        lua3.eval("function(src, name, ns) local fn, err = loadstring(src, name); if not fn then error(err) end; fn('DufforthTweaksHelper', ns) end")(code, f, ns3)
+    lua3.execute('DufforthTweaksHelperDB.classView = "macro"; DufforthTweaksHelperMenu_Toggle("class")')
+    header = lua3.eval('(function() for _, f in ipairs(ALL) do if rawget(f, "text") == "One button for your hunter" then return true end end return false end)()')
+    built = lua3.eval('(function() local s = DufforthTweaksHelperHunter.state; return s.lines and table.concat(s.lines, "\\n") or "" end)()')
+    print("hunter class tab: header", header, "macro lines", built.count("\n") + 1 if built else 0)
+    hunter_ok = header is True and "/cast !Auto Shot" in built
+except Exception as e:
+    hunter_ok = False
+    print("HUNTER ERROR", str(e)[:300])
+ok = not bad and "error" not in texts.lower() and druid_ok and hunter_ok and "crafts" in texts and grind_ok and fish_ok
 print("all passed" if ok else "FAILED")
 sys.exit(0 if ok else 1)

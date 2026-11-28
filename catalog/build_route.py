@@ -24,6 +24,7 @@ import build_farm  # noqa: E402
 from build_farm import num  # noqa: E402
 from build_leveling_sources import side_of  # noqa: E402
 from route_data import QuestRepository  # noqa: E402
+from route_model import Quest  # noqa: E402
 from route_guides import guides  # noqa: E402
 from route_merge import merge_talks, stops  # noqa: E402
 from route_data import SCRIPT_TABLES, instance_entrances  # noqa: E402
@@ -32,9 +33,10 @@ from route_forever import load_questie, load_recorded, load_rxp  # noqa: E402
 from route_styles import STYLES, PVP_ZONES, ExplorerScorer, explorer_bands, farm_spots, insert_farm_stops, route_name, safe_bands  # noqa: E402
 from route_planner import Shortcuts  # noqa: E402
 from route_score import score, world, zone_boxes  # noqa: E402
-from route_from_rxp import rows_from_events  # noqa: E402
-from rxp_route import band_table, band_text, load_steps  # noqa: E402
-from route_zones import hinted_where, quest_zone_hints  # noqa: E402
+
+from rxp_route import ORC_WARRIOR, band_table, band_text, for_me, load_steps  # noqa: E402
+from rxp_rows import rows_from_steps  # noqa: E402
+from route_zones import hinted_where, on_map, quest_zone_hints  # noqa: E402
 from route_height import Heights  # noqa: E402
 from route_travel import service_points, FLIGHT_MASTER  # noqa: E402
 
@@ -114,7 +116,7 @@ def serialize(quests, routes, where, ui_maps, commit, travel=None, heights=None)
     used = {q.id for q in quests}  # every Horde quest: the addon needs them to recognize done and logged quests
 
     def place(point):
-        w = where(point)
+        w = where(point) if point else None
         return list(w) if w else None
 
     def npc_place(point):
@@ -140,7 +142,7 @@ def serialize(quests, routes, where, ui_maps, commit, travel=None, heights=None)
 def travel(quests, tables, factions, where):
     """Flight masters, each zone's continent and the ships, for the guide's directions."""
     flights = flight_masters(tables, lambda f: side_of(factions.get(f)), where)
-    points = [p for q in quests for p in [q.start, q.end] + [g.point for g in q.goals]]
+    points = [p for q in quests for p in [q.start, q.end] + [g.point for g in q.goals] if p]
     continents = zone_continents(points, where)
     for f in flights:
         continents.setdefault(f[1], f[4])
@@ -211,14 +213,33 @@ def main():
     docks = [(world(boxes, a[1], a[2], a[3]), world(boxes, b[1], b[2], b[3])) for _, a, b in TRANSPORTS]
     farm = farm_spots(json.loads((ROOT / "site" / "farm.json").read_text(encoding="utf-8")))  # explorer's farming stops
     routes, scorecards = {}, {}
-    try:  # RestedXP's guide chains (tools/extract_rxp_route.py, CC BY-NC-SA 4.0, see LICENSE-DATA.md)
-        rxp_chains = json.loads((ROOT / "catalog" / "rxp_routes.json").read_text(encoding="utf-8")).get("routes", {})
+    # Quests RestedXP names that our data doesn't hold: a stub with the best title we have, so the step stays.
+    titles = {int(r["entry"]): ((r.get("Title") or "").strip(), int(num(r.get("QuestLevel"))), int(num(r.get("MinLevel"))))
+              for r in build_farm.as_dicts(tables["quest_template"])}
+    for f in ("forever_questie_quests.json", "forever_rxp_quests.json"):
+        for q in json.loads((ROOT / "catalog" / f).read_text(encoding="utf-8"))["quests"]:
+            titles.setdefault(int(q["id"]), (q["title"], int(q.get("level") or 0), int(q.get("min_level") or 1)))
+    route_qids = set()
+
+    def stub(qid, level):
+        title, qlevel, min_level = titles.get(qid, (f"Quest {qid}", level, 1))
+        return Quest(qid, title or f"Quest {qid}", qlevel or level, min_level or 1, None, "", None, "", [])
+    try:  # RestedXP's guide steps (tools/extract_rxp_route.py, CC BY-NC-SA 4.0, see LICENSE-DATA.md)
+        rxp_file = json.loads((ROOT / "catalog" / "rxp_routes.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        rxp_chains = {}
+        rxp_file = {}
+    rxp_chains = rxp_file.get("routes", {})
+    # Zone and area names for RestedXP's .zone/.zoneskip (UiMap ids) and .home/.subzone (AreaTable ids).
+    rx_names = {"map": {int(r["ID"]): r["Name_lang"] for r in wago["UiMap"]},
+                "area": {int(r["ID"]): r["AreaName_lang"] for r in wago["AreaTable"]},
+                "on": lambda zone, point: on_map(boxes, zone, point),
+                "item": {int(k): v[0] for k, v in json.loads((ROOT / "site" / "all_items.json").read_text(encoding="utf-8")).items()}}
     for zone, races in STARTS.items():
         race_bit = RACE_BITS[races[0]]
         race_bits = sum(RACE_BITS[r] for r in races)
-        for style, dungeons in [(st, dg) for st in STYLES for dg in (False, True)]:
+        # One route per start and a dungeon variant, exactly RestedXP's two chains (user, 2026-11-26: "RestedXP only":
+        # the Safe and Explorer styles are gone).
+        for style, dungeons in [("speed", False), ("speed", True)]:
             eligibility = Eligibility()
             eligibility.dungeons = dungeons  # the "with dungeons" route also takes dungeon quests (for players who group)
             bands = START_BANDS[zone] + HORDE_BANDS
@@ -240,23 +261,26 @@ def main():
             # every route, follow its order and fill gaps); the planner below is only the fallback without that file.
             chain = rxp_chains.get(zone, {}).get("dungeons" if dungeons else "main")
             if chain:
-                rows, stats = rows_from_events(chain, by_id, where)
-                rows = merge_talks(rows, quests)
-                rows = insert_class_quests(rows, quests, where, race_bits)
-                rows = add_flight_steps(rows, flights)
-                if style == "explorer":
-                    rows = insert_farm_stops(rows, farm)
+                # Exactly RestedXP's steps (user, 2026-11-26: "follow exact same steps hubs and everything"): no merged
+                # talks, class quests, extra flight steps or farm stops of ours.
+                # RestedXP's steps whole, run by the addon's step engine (user, 2026-11-27: "at 100%" like RestedXP).
+                rows, records, stats = rows_from_steps(chain["steps"], by_id, where, stub, rx_names)
+                route_qids.update(r[1] for r in rows if r[1])
                 name = route_name(zone, style, dungeons)
-                whole = score(rows, by_id, boxes, 60, class_bit=1)
+                # The scorecard times one character's way through: an Orc Warrior's steps and lines.
+                mine = [r for r in rows if for_me(records[r[10] - 1].get("t", ""), ORC_WARRIOR)
+                        and for_me((r[11] or {}).get("lt", ""), ORC_WARRIOR) and r[0] in ("accept", "turnin", "do", "fly", "hearth")]
+                whole = score(mine, by_id, boxes, 60, class_bit=1)
                 routes[name] = {"races": list(races), "reached": 60 if max(r[5] for r in rows) >= 59 else max(r[5] for r in rows), "hours": round(whole["hours"], 1),
-                                "dungeons": dungeons, "style": style, "steps": rows, "base": "RestedXP"}
-                card = score(rows, by_id, boxes, 22, class_bit=1)
+                                "dungeons": dungeons, "style": style, "steps": rows, "base": "RestedXP", "rx": records,
+                                "parts": chain["parts"], "subs": chain.get("subs", [])}
+                card = score(mine, by_id, boxes, 22, class_bit=1)
                 rxp_steps = load_steps(ROOT / "catalog" / "rxp_forever_route.json")
                 if rxp_steps:
-                    scorecards[name] = band_table(rows, rxp_steps, by_id, boxes)
+                    scorecards[name] = band_table(mine, rxp_steps, by_id, boxes)
                 print(f"{name}: RestedXP base, {len(rows)} steps, about {routes[name]['hours']} h to 60 (scorecard model); "
-                      f"left out: {stats['unknown']} events of quests we don't know, {stats['not_picked_up']} hand-ins never picked up, {stats['no_place']} pick-ups with no place; "
-                      f"{stats['unnamed_objectives']} objectives the guide gathers along the way; 1-22: {card['hours']} h"
+                      f"{stats['unknown']} steps of quests our data doesn't know (kept with RestedXP's quest number), "
+                      f"{stats['no_place']} quest steps without a guide point (no waypoint); 1-22: {card['hours']} h"
                       + (f"; vs RestedXP Forever: {band_text(scorecards[name])}" if name in scorecards else ""))
                 continue
             # Planned with and without waiting for the quests around a far lonely objective (user, 2026-11-14: no long walk
@@ -298,7 +322,11 @@ def main():
     ui_maps = {r["Name_lang"]: int(r["ID"]) for r in wago["UiMap"] if r["Type"] == "3"}
     spawns = [(int(num(r["map"])), num(r["position_x"]), num(r["position_y"]), num(r["position_z"]))
               for table in ("creature", "gameobject") for r in build_farm.as_dicts(tables[table])]
+    placed = {q.id for q in quests}
+    quests = quests + [by_id[qid] for qid in sorted(route_qids) if qid not in placed and qid in by_id]  # every route quest has data
     data = serialize(quests, routes, where, ui_maps, commit, travel(quests, tables, factions, where), Heights(spawns))
+    # RestedXP's Forever Spirit Healers as zone spots: the ghost arrow on death-skip steps (map.lua).
+    data["spirit"] = [[w[0], round(w[1], 2), round(w[2], 2), h[3]] for h in rxp_file.get("spirit", []) for w in [where((h[0], h[1], h[2]))] if w]
     # Questline guides (attunements, Cozy Sleeping Bag): their own routes, chosen in the addon.
     data["guides"] = []
     for g in guides({q.id: q for q in every}, where):

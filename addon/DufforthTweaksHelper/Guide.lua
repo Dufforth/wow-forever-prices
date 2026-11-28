@@ -50,11 +50,15 @@ Guide.RACE_BITS = { Orc = 2, Scourge = 16, Undead = 16, Tauren = 32, Troll = 128
 local Model = {}
 Model.__index = Model
 
+Guide.Model = Model
+
 function Guide.NewModel(data, routeName, game, saved)
     local route = data.routes[routeName]
     saved.skipped = saved.skipped or {}
-    return setmetatable({ data = data, steps = route and route.steps or {}, game = game, saved = saved,
-        questline = route and route.guide and true or false }, Model)
+    -- RestedXP's routes run on its own step engine (GuideRx.lua, user 2026-11-27: "at 100%").
+    local class = (route and route.rx and Guide.Rx) or Model
+    return setmetatable({ routeName = routeName, data = data, steps = route and route.steps or {}, game = game, saved = saved, route = route,
+        questline = route and route.guide and true or false, rxp = route and route.rxp and true or false }, class)
 end
 
 function Model:Quest(id) return self.data.quests[id] end
@@ -111,7 +115,8 @@ function Model:Settled(i, assume)
     local step, g = self.steps[i], self.game
     local kind, id = step[S_KIND], step[S_QUEST]
     if kind == "grind" then return g.level() > step[S_LEVEL] end
-    if kind == "fly" or kind == "hearth" or kind == "home" then return self:ShortcutSettled(i) end
+    -- RestedXP's route: a hearth, inn or flight behind where you've got to is passed by (2026-11-26).
+    if kind == "fly" or kind == "hearth" or kind == "home" then return (self.rxp and i < self:Furthest()) or self:ShortcutSettled(i) end
     if kind == "farm" then return g.level() > step[S_LEVEL] + 1 or self:MovedOn(i) end -- optional: done once you move on
     if kind == "flight" then return g.flightKnown ~= nil and g.flightKnown(step[S_ZONE], step[S_X], step[S_Y]) and true or false end
     if kind == "travel" then
@@ -124,7 +129,10 @@ function Model:Settled(i, assume)
     if Done(g, id, assume) then return true end
     if kind == "accept" then
         if InLog(g, id, assume) then return true end
-        return not self:Open(id, assume) or not self:Worth(id)
+        -- RestedXP's route (user, 2026-11-26: "follow everything from rested xp"): a low quest is still taken while
+        -- you follow the route; only one behind the furthest point you've reached is passed by (a level 14 in the
+        -- Barrens isn't sent back to Mulgore).
+        return not self:Open(id, assume) or (self.rxp and self:Behind(i)) or (not self.rxp and not self:Worth(id))
     end
     if not InLog(g, id, assume) then return true end -- never taken: nothing to do or turn in
     if kind == "do" then
@@ -153,6 +161,25 @@ function Model:ShortcutSettled(i)
 end
 
 -- You've moved past step i: a pick-up or hand-in among the next steps is done.
+-- The furthest step whose quest you've taken or turned in (RestedXP's route): where you are on it.
+function Model:Furthest()
+    if self.furthest then return self.furthest end
+    local g, at = self.game, 0
+    for j = #self.steps, 1, -1 do
+        -- An accept you've taken, or a hand-in you've done (a quest in your log may be handed in far later).
+        local kind, id = self.steps[j][S_KIND], self.steps[j][S_QUEST]
+        if id and id ~= 0 and ((kind == "accept" and (Done(g, id) or InLog(g, id))) or (kind == "turnin" and Done(g, id))) then
+            at = j; break
+        end
+    end
+    self.furthest = at
+    return at
+end
+
+-- RestedXP's route: an accept behind the furthest point you've reached is passed by, as RestedXP's own step
+-- pointer moves on (a level 14 in the Barrens isn't sent back to Thunder Bluff).
+function Model:Behind(i) return i < self:Furthest() end
+
 function Model:MovedOn(i)
     local g = self.game
     for j = i + 1, math.min(#self.steps, i + 8) do

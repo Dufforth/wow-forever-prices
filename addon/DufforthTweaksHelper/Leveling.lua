@@ -607,6 +607,15 @@ end
 
 local function Draw()
     local shopping = DB().view == VIEW_SHOP
+    -- One money column: when any shown row has a button, every price ends left of the buttons.
+    local anyButton = false
+    for i = 1, VisibleRows() do
+        local row = rows[i + offset]
+        if row and not row.done and not row.earlierHeader then
+            local id = RowItem(row)
+            if row.craft or (id and (where.auction or (where.merchant and current.merchant and current.merchant[id] ~= nil))) then anyButton = true; break end
+        end
+    end
     for i, line in ipairs(lines) do
         local row = i <= VisibleRows() and rows[i + offset] or nil
         line.row = row
@@ -640,7 +649,7 @@ local function Draw()
         end
         searchable = searchable or craft ~= nil
         line.rowButton:SetShown(searchable)
-        local right = searchable and -66 or -4
+        local right = (searchable or anyButton) and -66 or -4
         line.cost:ClearAllPoints(); line.cost:SetPoint("TOPRIGHT", right, -3)
         line.detail:ClearAllPoints(); line.detail:SetPoint("BOTTOMRIGHT", right, 4)
         local textWidth = line.textWidth - (searchable and 62 or 0) - (indent and 24 or 0) - (deep and 22 or 0) - ((foldable and not indent) and 16 or 0)
@@ -697,8 +706,10 @@ local function Draw()
     panel.pageText:SetText(#rows > VisibleRows() and string.format(L["%d-%d of %d"], offset + 1, last, #rows) or "")
     panel.up:SetEnabled(offset > 0)
     panel.down:SetEnabled(last < #rows)
-    panel.planButton:SetEnabled(shopping)
-    panel.shopButton:SetEnabled(not shopping)
+    -- A two-way toggle: both stay clickable, the open view is shown selected (was: disabled = open).
+    panel.planButton.dthSelected, panel.shopButton.dthSelected = not shopping, shopping
+    local ui = DufforthTweaksHelperUI
+    if ui and ui.Select then ui.Select(panel.planButton, not shopping); ui.Select(panel.shopButton, shopping) end
     local action = current.action
     panel.action:SetShown(action ~= nil and action.label ~= nil)
     if action and action.label then
@@ -1276,6 +1287,8 @@ RefreshNow = function()
     panel.noticeHover:SetShown(#notes > 0)
 
     if #plan.steps == 0 then
+        -- The notes fill the list area here, so the small notice line stays empty (it showed the cap note twice).
+        panel.notice:SetText("")
         panel.empty:SetText(#notes > 0 and table.concat(notes, "\n\n") or L["Nothing to plan."])
         Draw()
         return

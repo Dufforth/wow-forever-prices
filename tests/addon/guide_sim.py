@@ -877,14 +877,14 @@ ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
 ui.execute("GU.follow, GU.scrolled = true, false; GU.Refresh()")
 row5 = next(r for r in box.rows.values() if r.shown and not r.isHeader and int(r.num.text) == 5)
 ui.execute("for _, r in pairs(DufforthTweaksHelperGuideBox.rows) do if r.step == 5 then r.check.scripts.OnClick(r.check) end end")
-check("check box: marks a step done", ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[5]") is True)
+check("check box: marks a step done", ui.eval("DufforthTweaksHelperGuideUI.Saved('Durotar').skipped[5]") is True)
 check("check box: the step reads as done", "ReadyCheck-Ready" in dict(rows())[5], dict(rows())[5])
 ui.execute("for _, r in pairs(DufforthTweaksHelperGuideBox.rows) do if r.step == 5 then r.check.scripts.OnClick(r.check) end end")
-check("check box: and undone", not ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[5]"))
+check("check box: and undone", not ui.eval("DufforthTweaksHelperGuideUI.Saved('Durotar').skipped[5]"))
 ui.execute("box.blocks[1].check.scripts.OnClick(box.blocks[1].check)")
-check("check box on the current step: marks it done (user)", ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[4]") is True
+check("check box on the current step: marks it done (user)", ui.eval("DufforthTweaksHelperGuideUI.Saved('Durotar').skipped[4]") is True
       and "Step 4|r" not in str(box.title.text), box.title.text)
-ui.execute("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[4] = nil; GU.Refresh()")
+ui.execute("DufforthTweaksHelperGuideUI.Saved('Durotar').skipped[4] = nil; GU.Refresh()")
 check("step icons are as tall as the text, so they line up (user)", ":0|t" in str(box.step.text), box.step.text)
 # Steps: the part's list; click a step to view it, back, or continue from it (user, 2026-11-14).
 ui.execute("box.stepsButton.scripts.OnClick(box.stepsButton)")
@@ -896,7 +896,7 @@ ui.execute("box.viewBar.back.scripts.OnClick(box.viewBar.back)")
 check("steps: back to my step", box.viewBar.shown is False and "Step 7" not in str(box.title.text), box.title.text)
 ui.execute("GU.ViewStep(8); box.viewBar.go.scripts.OnClick(box.viewBar.go)")
 check("steps: continue from the step shown", ui.eval("GU.model:Start()") == 8 and box.viewBar.shown is False, ui.eval("GU.model:Start()"))
-ui.execute("GU.model:SetStart(nil); DufforthTweaksHelperDB.guide.routes.Durotar.startAt = nil; DufforthTweaksHelperDB.guide.listOpen = false; GU.Refresh()")
+ui.execute("GU.model:SetStart(nil); DufforthTweaksHelperGuideUI.Saved('Durotar').startAt = nil; DufforthTweaksHelperDB.guide.listOpen = false; GU.Refresh()")
 # Minimize to the round icon; Hide in combat really hides (user, 2026-11-14).
 ui.execute("box.hide.scripts.OnClick(box.hide)")
 check("minimize: X leaves the round icon, not nothing", box.shown is False and ui.eval("DufforthTweaksHelperGuideIcon").shown is True)
@@ -915,6 +915,23 @@ src = source_text("GuideUI.lua")
 check("minimize in combat: no secure button is anchored to the box (it would lock the box in a fight)",
       'f.useItem:SetPoint("TOPRIGHT", f.blocks[1]' not in src and 'bar:SetPoint("TOPRIGHT", f, "TOPLEFT"' not in src
       and "function UI.PlaceSecure" in src)
+# The target and quest item buttons sit in a row UNDER the box (user, 2026-11-27: the box is at the screen's left
+# edge, so a column on its left was off screen). Still anchored to UIParent, placed from the box's screen spot.
+ui.execute("""BARPTS = {}
+local bar = DufforthTweaksHelperGuideBar
+rawset(bar, 'ClearAllPoints', function() end)
+rawset(bar, 'SetPoint', function(_, ...) BARPTS = { ... } end)
+rawset(bar, 'GetEffectiveScale', function() return 0.9 end)
+rawset(box, 'GetLeft', function() return 10 end); rawset(box, 'GetTop', function() return 700 end)
+rawset(box, 'GetBottom', function() return 400 end); rawset(box, 'GetEffectiveScale', function() return 0.9 end)
+rawset(UIParent, 'GetEffectiveScale', function() return 1 end)
+GU.PlaceSecure(box)""")
+check("bar: under the box, left edges lined up, anchored to the screen (user, 2026-11-27)",
+      ui.eval("BARPTS[1]") == "TOPLEFT" and ui.eval("BARPTS[2] == UIParent") and ui.eval("BARPTS[3]") == "BOTTOMLEFT"
+      and ui.eval("BARPTS[4]") == 10 and ui.eval("BARPTS[5]") < 400, [ui.eval(f"BARPTS[{k}]") for k in (1, 3, 4, 5)])
+ui.execute("for _, k in ipairs({'GetLeft','GetTop','GetBottom','GetEffectiveScale'}) do rawset(box, k, nil) end rawset(UIParent, 'GetEffectiveScale', nil)")
+check("bar: the item buttons go to the right of the target button, in a row",
+      'b:SetPoint("TOPLEFT", bar.target, "TOPRIGHT"' in source_text("GuideUI.lua"))
 check("resize: a corner grip", box.grip is not None and box.grip.scripts.OnMouseDown is not None)
 ui.execute("REFRESHES = 0; local r = GU.Refresh; GU.Refresh = function() REFRESHES = REFRESHES + 1; r() end")
 ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 420, 520)")
@@ -931,7 +948,7 @@ ui.execute("DufforthTweaksHelperQuestAuto = { on = true, Enabled = function() re
 click("autoToggle")
 check("box: the Auto button turns auto quests off", ui.eval("DufforthTweaksHelperQuestAuto.on") is False)
 click("autoToggle")
-ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 340, 100); box.grip.scripts.OnMouseUp(box.grip)")
+ui.execute("box.grip.scripts.OnMouseDown(box.grip); box.scripts.OnSizeChanged(box, 340, 60); box.grip.scripts.OnMouseUp(box.grip)")  # no top strip since 4.37.6: smaller
 check("box: made small, the level, zone and progress row stays (user)", box.progress.shown is not False)
 check("box: made small, only the current step stays", box.blocks[1].shown and not box.blocks[2].shown and not box.bar.shown
       and not any(r.shown for r in box.rows.values()), (box.blocks[2].shown, box.bar.shown))
@@ -1065,7 +1082,7 @@ labels = [str(r.text) for k, r in sorted(menu.rows.items()) if r.shown] if menu 
 check("step right-click: a menu of options", menu is not None and menu.shown and any("pin" in l.lower() for l in labels)
       and any("done" in l.lower() for l in labels) and any("continue" in l.lower() for l in labels), labels)
 ui.execute("for _, r in pairs(GU.stepMenu.rows) do if r.shown and string.find(string.lower(r.text or ''), 'done') then r.scripts.OnClick(r) break end end")
-check("step right-click: Mark done marks it", ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.skipped[CARD_STEP]") is True)
+check("step right-click: Mark done marks it", ui.eval("DufforthTweaksHelperGuideUI.Saved('Durotar').skipped[CARD_STEP]") is True)
 # Like the main Menu (user, 2026-11-15: "right click on the steps is persistent"; "focus on text, not on the button"):
 # slim text rows, and it closes a moment after the mouse leaves.
 ui.execute("CARD.scripts.OnMouseUp(CARD, 'RightButton')")
@@ -1206,16 +1223,20 @@ cur = ui.eval("GU.model:Current()")
 first2 = ui.eval("GU.model:Sections()[2].first")
 check("guides: a zone click moves the guide itself there, not only the list (user: not redirected)",
       cur is not None and cur >= first2 and ui.eval("GU.model:SectionOf(GU.model:Current())") == 2
-      and ui.eval("DufforthTweaksHelperDB.guide.routes.Durotar.startAt") == first2, (cur, first2))
+      and ui.eval("DufforthTweaksHelperGuideUI.Saved('Durotar').startAt") == first2, (cur, first2))
 check("guides: the step box shows the chosen part", "3-6 The Barrens" in str(box.progress.label.text), box.progress.label.text)
 check("menu: the extra buttons sit in one Menu, so a narrow box has no overlap (user)",
-      not box.tools.shown and box.menuButton.text == "Menu", box.menuButton.text)
+      not box.tools.shown and box.menuButton.text == "=", box.menuButton.text)  # a small "=" icon since 4.37.6 (RestedXP size)
 click("menuButton")
 check("menu: Menu opens the panel with Guides, Auto and the arrow",
       box.tools.shown and "Guides" in str(box.guides.text) and "Auto" in str(box.autoToggle.text)
       and "arrow" in str(box.arrowToggle.text), box.guides.text)
-check("strip: Best and the map pin are buttons next to Menu, not menu rows (user)",
-      box.best.text == "Best" and ui.eval("box.pin.icon ~= nil") and ui.eval("box.best:GetParent() == nil or true"))
+check("strip: only Best stays next to Menu (user, 2026-11-27: why do I need Steps and the map button)",
+      box.best.text == "Best" and 'L["Steps"], 40, 18' not in source_text("GuideUI.lua")
+      and "INV_Misc_Map_01\"); f.pin:SetPoint" not in source_text("GuideUI.lua"))
+check("menu: 'Show step list' is a switch in the Menu (user, 2026-11-27)",
+      ui.eval("rawget(box.stepsButton, 'check') ~= nil") and "step list" in str(box.stepsButton.text), box.stepsButton.text)
+check("menu: 'Back to my step' is a Menu row (user, 2026-11-27)", box.pin.text == "Back to my step", box.pin.text)
 click("menuButton")
 check("menu: a second click closes it", not box.tools.shown)
 click("menuButton")
@@ -1225,7 +1246,7 @@ check("menu: hovering Guides and zones opens its list beside the Menu, which sta
 check("menu: the list opens on the side with room, never over the Menu (user)",
       ui.eval("GU.SideFor(400, 610, 1920, 230)") == "left" and ui.eval("GU.SideFor(20, 230, 1920, 230)") == "right"
       and ui.eval("GU.SideFor(20, 1800, 1920, 230)") == "below")
-check("guides: the box says which guide you're on (user: they all look the same)", "Speed" in str(box.progress.label.text),
+check("guides: the box says which guide you're on (user: they all look the same)", "Leveling" in str(box.progress.label.text),
       box.progress.label.text)
 diff = ui.eval("GU.FirstDifference({ steps = { {'accept',1,'Durotar',0,0,1}, {'accept',2,'Durotar',0,0,5} } }, "
                "{ steps = { {'accept',1,'Durotar',0,0,1}, {'accept',9,'The Barrens',0,0,12} } })")
@@ -1330,10 +1351,18 @@ COMPLETED = [743, 744, 745, 746, 747, 748, 749, 750, 751, 752, 753, 754, 755, 75
              6002, 6361, 6362]
 LOG = [5723, 5722, 1492, 869, 870, 845, 887, 5041, 821, 848, 867, 97253, 872]
 lua2.execute("DATA = DufforthTweaksHelperGuideData")
-lua2.execute("M = G.NewModel(DATA, 'Mulgore', GAME({ level = 14, classBit = 1024, raceBit = 32, zone = 'The Barrens', done = { "
-             + ", ".join(f"[{i}] = true" for i in COMPLETED) + " }, log = { " + ", ".join(f"[{i}] = true" for i in LOG) + " } }), { skipped = {} })")
-i = lua2.eval("M:Current()")
-step = lua2.eval(f"DATA.routes['Mulgore'].steps[{i}]")
+# RestedXP's routes run on GuideRx.lua's engine in the game: check the level 14 Druid on it (the old planner model
+# below still plays the questline guides).
+lua3 = runtime()
+lua3.execute((ADDON / "GuideRx.lua").read_text(encoding="utf-8"))
+lua3.execute((ADDON / "GuideData.lua").read_text(encoding="utf-8"))
+lua3.execute("DATA = DufforthTweaksHelperGuideData; GW = GAME({ level = 14, classBit = 1024, raceBit = 32, zone = 'The Barrens', done = { "
+             + ", ".join(f"[{i}] = true" for i in COMPLETED) + " }, log = { " + ", ".join(f"[{i}] = true" for i in LOG) + " } })"
+             + "; GW.who = function() return { class = 'DRUID', race = 'Tauren', faction = 'Horde' } end")
+lua3.execute("M = G.NewModel(DATA, 'Mulgore', GW, { skipped = {} })")
+i = lua3.eval("M:Current()")
+step = lua3.eval(f"DATA.routes['Mulgore'].steps[{i}]")
+del lua3
 print("     real: current step", i, step[1], step[3], "level", step[6], "|", step[7])
 check("real data: level 14 Tauren Druid in the Barrens starts near its level, not back in Mulgore",
       step[3] != "Mulgore" and 10 <= step[6] <= 17, f"{step[3]} level {step[6]}")  # 10: Forever's Barrens quests (Questie data, 2026-11-16) start there
@@ -1381,20 +1410,8 @@ end
 """)
 RACE_OF = {"Durotar": 2, "Mulgore": 32, "Tirisfal Glades": 16}
 LEVELING = sorted(str(k) for k in lua2.eval("DATA.routes").keys() if any(str(k).startswith(z) for z in RACE_OF))
-check("styles: speed, safe and explorer, each with and without dungeons, for every start (user)", len(LEVELING) == 18, LEVELING)
-for route in LEVELING:
-    race = next(v for k, v in RACE_OF.items() if route.startswith(k))
-    result = list(lua2.eval(f"PLAY('{route}', {race})")) + [None]
-    moves, stuck, level, left = result[:4]
-    total = int(lua2.eval(f"#DATA.routes['{route}'].steps"))
-    check(f"playthrough {route}: the guide never sticks and reaches the end", stuck == 0 and left is None and level >= 59,
-          f"{moves} moves of {total} steps, stuck {stuck}, level {level}, left at {left}")
-
-lua2.execute("WITH_POSITION = true")
-moves, stuck, level, left = (list(lua2.eval("PLAY('Tirisfal Glades', 16)")) + [None])[:4]
-check("playthrough Tirisfal Glades with your position (nearest first): never sticks, reaches the end",
-      stuck == 0 and left is None and level >= 59, f"{moves} moves, stuck {stuck}, level {level}, left at {left}")
-lua2.execute("WITH_POSITION = false")
+check("routes: RestedXP's chain and its dungeon chain for every start, no other styles (user, 2026-11-26)", len(LEVELING) == 6, LEVELING)
+# The RestedXP routes run on RestedXP's step engine (GuideRx.lua): their playthroughs are in tests/addon/rxp_sim.py.
 
 # Each questline guide (attunements, Cozy Sleeping Bag) is followed to its end without sticking.
 for g in lua2.eval("DATA.guides").values():

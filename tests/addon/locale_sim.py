@@ -43,7 +43,7 @@ check("other languages: English", lua.eval(f'{Lc}["Back to my step"]') == "Back 
 es = dict(re.findall(r'^ES\["((?:[^"\\]|\\.)*)"\] = "((?:[^"\\]|\\.)*)"$', source("LocaleES.lua"), re.M))
 code = "".join(source(f) for f in os.listdir(ADDON) if f.endswith(".lua") and not f.startswith("Locale"))
 asked = set(re.findall(r'L\["((?:[^"\\\n]|\\.)*)"\]', code))
-DYNAMIC = {"Disenchant", "Leveling", "Zone", "Grind", "Fishing", "Class"}  # tab names: L[name] in Menu.lua
+DYNAMIC = {"Disenchant", "Professions", "Zone", "Grind", "Fishing", "Class"}  # tab names: L[name] in Menu.lua
 stale = [k for k in es if k not in asked and k not in DYNAMIC]
 check("every Spanish text is used by the addon", not stale, stale[:5])
 check("most of the addon's texts have Spanish", len(es) >= 650 and len([k for k in asked if k in es]) / max(1, len(asked)) > 0.85, (len(es), len(asked)))
@@ -177,7 +177,7 @@ for f in [l.strip() for l in toc if l.strip().endswith(".lua")]:
         full.eval("function(src, name) local fn, err = loadstring(src, name); if not fn then error(err) end; fn('DufforthTweaksHelper', {}) end")(source(f), f)
     except Exception as e:
         errors.append(f"{f}: {str(e)[:200]}")
-for tab in ("leveling", "zone", "crafting", "class", "disenchant", "leveling"):
+for tab in ("leveling", "zone", "crafting", "class", "disenchant", "professions"):
     try:
         full.execute(f'DufforthTweaksHelperMenu_Toggle("{tab}")')
     except Exception as e:
@@ -186,8 +186,8 @@ check("Spanish client: every file loads and every tab opens", not errors, errors
 full.execute("DufforthTweaksHelperLeveling.Refresh()")
 texts = full.eval('(function() local o = {} for _, f in ipairs(ALL) do local t = rawget(f, "text"); if type(t) == "string" then o[#o+1] = t end end return table.concat(o, " || ") end)()')
 if os.environ.get("LOCALE_DEBUG"): print(texts)
-check("Spanish client: the Leveling tab is in Spanish", "fabricaciones" in texts and "Lista de compra" in texts, texts[:300])
-check("Spanish client: the tabs are in Spanish", "Subida" in texts and "Zona" in texts, texts[:300])
+check("Spanish client: the Professions tab is in Spanish", "fabricaciones" in texts and "Lista de compra" in texts, texts[:300])
+check("Spanish client: the tabs are in Spanish (Professions = Profesiones)", "Profesiones" in texts and "Zona" in texts, texts[:300])
 check("Spanish client: no error shown in the window", "error" not in texts.lower(), [t for t in texts.split(" || ") if "error" in t.lower()][:2])
 
 print(f"{'all passed' if not failures else str(len(failures)) + ' FAILED'}")

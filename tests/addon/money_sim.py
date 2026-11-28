@@ -31,6 +31,10 @@ MARKET = "forever.pvp.horde.us"
 DufforthTweaksHelper = { MarketName = function() return MARKET end }
 time = function() return DufforthTweaksHelperMoneyData and DufforthTweaksHelperMoneyData.at + 3 * 3600 or 0 end
 SEARCHED = nil
+TIP = {}
+GameTooltip = { SetOwner = function() TIP = {} end, SetText = function(_, t) TIP[#TIP+1] = t end,
+  AddLine = function(_, t) TIP[#TIP+1] = t end, SetHyperlink = function(_, l) TIP[#TIP+1] = l end,
+  Show = function() end, Hide = function() end }
 DufforthTweaksHelperLeveling = { where = { auction = false }, SearchAuctionHouse = function(id) SEARCHED = id; return true end }
 """)
 lua.execute(source("MoneyData.lua"))
@@ -80,6 +84,38 @@ lua.execute('MARKET = "forever.nowhere.horde.us"')
 M.Refresh()
 texts = [f.text for f in g.FRAMES.values() if isinstance(getattr(f, "text", None), str)]
 check("a market with no data says so", any("No money ideas" in t for t in texts))
+
+# ---- Vendor flips explain themselves (user, 2026-11-27: "i dont understand this") ----
+check("exact coins when silver hides the margin", M.Coins(483) == "4s 83c" and M.Coins(500) == "5s"
+      and M.Coins(12345) == "1g 23s 45c" and M.Coins(40) == "40c" and M.Coins(20000) == "2g", (M.Coins(483), M.Coins(12345)))
+fake = lua.eval('{ flips = { { 7, "Rough Bronze Leggings", 483, 590, 500 } } }')
+flip = list(M.Rows("flips", fake).values())[0]
+check("flip row: buy and vendor price with copper", "4s 83c" in flip.sub and "5s 90c" in flip.sub and "500" in flip.sub, flip.sub)
+check("flip row: green value is the profit PER ITEM", flip.value == "+1s 7c each", flip.value)
+tip = " ".join(list(flip.tip.values()))
+check("flip hover: total if you buy all, and what to do", "5g 35s" in tip and "500" in tip
+      and "sell them to any vendor" in tip, tip)
+real = list(M.Rows("flips", market).values())
+check("real flips: every one makes at least 1s per item", all(r.each >= 100 for r in real), [(r.name, r.each) for r in real][:3])
+for key in ("cheap", "crafts", "flips", "farm"):
+    M.ShowView(key)
+    legend = panel_legend = rawget(parent.legend, "text") or ""
+    check(f"{key}: a one-line legend says what the list and the green number mean", len(legend) > 20 and "green" in legend.lower(), legend)
+    on = [b.key for b in parent.views.values() if rawget(b, "on")]
+    check(f"{key}: only the selected view button is marked", on == [key] and all(
+        bool(rawget(b.mark, "shown")) == (b.key == key) for b in parent.views.values()), on)
+M.ShowView("flips")
+lua.execute('MARKET = "forever.pvp.horde.us"'); M.Refresh()
+row = [f for f in LINES if rawget(f, "row") is not None and rawget(f, "shown")]
+if row:
+    row[0].scripts["OnEnter"](row[0])
+    hover = " ".join(str(t) for t in g.TIP.values())
+    check("row hover explains it with an action", "vendor" in hover and "Buy" in hover, hover)
+M.ShowView("farm")
+row = [f for f in LINES if rawget(f, "row") is not None and rawget(f, "shown")]
+row[0].scripts["OnEnter"](row[0])
+hover = " ".join(str(t) for t in g.TIP.values())
+check("farm hover explains it with an action", "Kill" in hover, hover)
 
 print(f"{len(fails)} failed" if fails else "all passed")
 sys.exit(1 if fails else 0)

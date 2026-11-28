@@ -11,7 +11,7 @@ DufforthTweaksHelperHunter = DufforthTweaksHelperHunter or {}
 local H = DufforthTweaksHelperHunter
 local W = DufforthTweaksHelperWarrior
 
-H.FIGHTS_KEPT, H.MAX_TRIES, H.MAX_CASTS = 300, 500, 400
+H.FIGHTS_KEPT, H.MAX_TRIES, H.MAX_CASTS, H.MAX_AUTOS = 300, 500, 400, 200
 H.HAWK = "Summon Hawk"
 H.HAWK_SECONDS = 18
 H.MARK = "Hunter's Mark"
@@ -126,7 +126,7 @@ function H.FightStart()
         pet = petOk and Plain(petName) or nil, petFamily = familyOk and Plain(family) or nil,
         macros = H.MacroIds(), manaStart = ManaPercent(),
         casts = {}, tries = {}, tried = {}, errors = {}, marks = {}, result = "won",
-        autoShots = 0, hawkCasts = {}, hawkMax = 0, hawkOver = 0, mongooseWindows = 0, mongooseUsed = 0, enemiesMax = 0,
+        autoShots = 0, hawksAtStart = H.HawksAlive(), hawkMax = 0, hawkOver = 0, mongooseWindows = 0, mongooseUsed = 0, enemiesMax = 0,
     }
     for _, try in ipairs(H.preTries) do
         if fight.start - try.at <= 6 then
@@ -142,7 +142,7 @@ function H.FightEnd()
     local f = fight
     fight = nil
     f.seconds = math.floor((Now() - f.start) * 10 + 0.5) / 10
-    f.start, f.hawkCasts = nil, nil
+    f.start, f.lastError = nil, nil
     f.manaEnd = ManaPercent()
     local deadOk, dead = pcall(UnitIsDead, "pet")
     f.petAlive = f.pet and not (deadOk and Plain(dead) == true) or false
@@ -159,6 +159,26 @@ function H.FightEnd()
     end
 end
 
+-- Your hawks' summon times (GetTime), kept across fights: a hawk lives 18 s, longer than the gap between
+-- chained pulls, so a per-fight count missed third hawks (2026-11-26: 10 of 54 with reset=combat).
+H.hawkTimes = {}
+
+function H.HawksAlive(now)
+    now = now or Now()
+    local alive = {}
+    for _, at in ipairs(H.hawkTimes) do if now - at < H.HAWK_SECONDS then alive[#alive + 1] = at end end
+    H.hawkTimes = alive
+    return #alive
+end
+
+-- A hawk was summoned: true when two were already out (the oldest goes).
+function H.NoteHawk(now)
+    local over = H.HawksAlive(now) >= 2
+    if over then table.remove(H.hawkTimes, 1) end
+    H.hawkTimes[#H.hawkTimes + 1] = now
+    return over
+end
+
 -- Hawks still out at time t (each lasts HAWK_SECONDS).
 function H.HawksOut(casts, t)
     local n = 0
@@ -170,6 +190,15 @@ end
 function H.LogTry(kind, name)
     if not name then return end
     if fight then
+        -- In melee the game's own Auto Shot repeat fails about 20 times every 0.1 s; listing those filled the
+        -- whole log by 11 s (2026-11-26). Count them, and list a repeated error text at most once a second.
+        if name == H.AUTO and (kind == "F" or kind == "Q") then fight.autoFails = (fight.autoFails or 0) + 1; return end
+        if kind == "E" then
+            local now = Now()
+            fight.lastError = fight.lastError or {}
+            if fight.lastError[name] and now - fight.lastError[name] < 1 then return end
+            fight.lastError[name] = now
+        end
         if #fight.tries < H.MAX_TRIES then
             fight.tries[#fight.tries + 1] = string.format("%.1f %s %s", Now() - fight.start, kind, name)
         end
@@ -186,24 +215,22 @@ end
 function H.LogCast(spell)
     if not fight or not spell then return end
     local t = Now() - fight.start
-    if spell == H.AUTO then fight.autoShots = fight.autoShots + 1; return end -- every shot: counted, not listed
+    if spell == H.AUTO then -- every shot: counted, and its time kept (to measure whether Arcane Shot delays it)
+        fight.autoShots = fight.autoShots + 1
+        fight.autoTimes = fight.autoTimes or {}
+        if #fight.autoTimes < H.MAX_AUTOS then fight.autoTimes[#fight.autoTimes + 1] = math.floor(t * 100 + 0.5) / 100 end
+        return
+    end
     local target = Tag("target")
     if spell == H.MARK then fight.marks[target ~= "" and target or "?"] = (fight.marks[target ~= "" and target or "?"] or 0) + 1 end
     if spell == H.HAWK then
-        if H.HawksOut(fight.hawkCasts, t) >= 2 then
-            -- Two out already: the game keeps two at most, so this one wasted the shared cooldown (counted) and,
-            -- if it replaces one, the oldest goes.
-            fight.hawkOver = fight.hawkOver + 1
-            for i, at in ipairs(fight.hawkCasts) do
-                if t - at < H.HAWK_SECONDS then table.remove(fight.hawkCasts, i); break end
-            end
-        end
-        fight.hawkCasts[#fight.hawkCasts + 1] = t
-        fight.hawkMax = math.max(fight.hawkMax, H.HawksOut(fight.hawkCasts, t))
+        -- Two out already (hawks live 18 s, also from the fight before): this one wasted the shared cooldown.
+        if H.NoteHawk(Now()) then fight.hawkOver = fight.hawkOver + 1 end
+        fight.hawkMax = math.max(fight.hawkMax, H.HawksAlive())
     end
     if spell == H.MONGOOSE then fight.mongooseUsed = fight.mongooseUsed + 1 end
     if #fight.casts < H.MAX_CASTS then
-        fight.casts[#fight.casts + 1] = string.format("%.1f %s t:%s h:%d", t, spell, target, H.HawksOut(fight.hawkCasts, t))
+        fight.casts[#fight.casts + 1] = string.format("%.1f %s t:%s h:%d", t, spell, target, H.HawksAlive())
     end
 end
 
@@ -228,6 +255,295 @@ function H.Tick()
     end
 end
 
+-- ---- The DTH Hunter macro (built from the user's logged fights, 2026-11-26) ----
+-- Proven press rule (Warrior.lua): one global-cooldown try per press; off-GCD lines (Raptor Strike,
+-- Auto Shot, Mongoose Bite) are tried on every press; "X,nil" casts once, then is skipped.
+-- Farming fights are short (median 14.6 s, enemies in melee at ~4 s), so: pet attacks first, a hawk on
+-- the first press, Hunter's Mark in the wait for the shared 6 s cooldown, then hawks and Arcane Shot.
+-- Aimed Shot is left out (it needs range and a cast, and stalled the button in melee).
+-- Two hawks at most, each 18 s, also across chained pulls: between fights the addon plans the next
+-- pull's order from the hawks still out (H.PlanSteps) and rewrites the macro (out of combat only).
+
+H.MACRO_NAME, H.MACRO_LIMIT = "DTH Hunter", 255
+local MACRO_ICON = "INV_MISC_QUESTIONMARK"
+H.DROP_FIRST = { "Mongoose Bite", "#showtooltip" } -- without #showtooltip the button shows a question mark
+H.SHARED_CD, H.GCD, H.PLAN_STEPS = 6, 1.5, 7
+
+-- The order of the next pull's global-cooldown presses. alive = seconds left on each hawk still out,
+-- cdLeft = seconds left on the shared Hawk/Arcane cooldown. A hawk only when fewer than two will be out;
+-- Hunter's Mark fills the first wait; Arcane Shot fills a wait for a hawk to expire. Returns names, times.
+function H.PlanSteps(known, alive, cdLeft, count)
+    local steps, times, expires = {}, {}, {}
+    for _, left in ipairs(alive or {}) do expires[#expires + 1] = left end
+    local t, cd, marked = 0, cdLeft or 0, not known[H.MARK]
+    local function out(at)
+        local n = 0
+        for _, e in ipairs(expires) do if e > at + 0.05 then n = n + 1 end end
+        return n
+    end
+    local function add(name, at) steps[#steps + 1] = name; times[#times + 1] = at end
+    while #steps < (count or H.PLAN_STEPS) do
+        local ready = math.max(t, cd)
+        local hawk = out(ready) < 2
+        if hawk and ready <= t then
+            add(H.HAWK, ready); expires[#expires + 1] = ready + H.HAWK_SECONDS; cd = ready + H.SHARED_CD; t = ready + H.GCD
+        elseif not marked then
+            add(H.MARK, t); marked = true; t = t + H.GCD
+        elseif hawk then
+            add(H.HAWK, ready); expires[#expires + 1] = ready + H.HAWK_SECONDS; cd = ready + H.SHARED_CD; t = ready + H.GCD
+        elseif known["Arcane Shot"] then
+            add("Arcane Shot", ready); cd = ready + H.SHARED_CD; t = ready + H.GCD
+        else
+            break
+        end
+    end
+    return steps, times
+end
+
+function H.BuildLines(known, skip, plan)
+    skip = skip or {}
+    local function has(name) return known[name] and not skip[name] end
+    local out = {}
+    if not skip["#showtooltip"] then out[#out + 1] = "#showtooltip" end
+    out[#out + 1] = "/targetenemy [noharm][dead]"
+    out[#out + 1] = "/petattack" -- the pet goes first
+    if has(H.HAWK) and has("Arcane Shot") then
+        plan = plan or H.PlanSteps(known, {}, 0)
+        out[#out + 1] = "/castsequence reset=combat " .. table.concat(plan, ",")
+    else
+        if has(H.MARK) then out[#out + 1] = "/castsequence reset=combat Hunter's Mark,nil" end -- once a fight
+        if has(H.HAWK) then
+            out[#out + 1] = "/castsequence reset=combat Summon Hawk,Summon Hawk,nil"
+        else
+            if has("Aimed Shot") then out[#out + 1] = "/castsequence reset=combat Aimed Shot,nil" end
+            if has("Arcane Shot") then out[#out + 1] = "/cast Arcane Shot" end
+        end
+    end
+    if has("Raptor Strike") then out[#out + 1] = "/cast Raptor Strike" end
+    out[#out + 1] = "/cast !Auto Shot"
+    if has(H.MONGOOSE) then out[#out + 1] = "/cast Mongoose Bite" end
+    return out
+end
+
+-- Lines that fit 255 characters (the game cuts longer macros: the user's own lost its Auto Shot line).
+function H.Fit(known, plan)
+    local skip = {}
+    local lines = H.BuildLines(known, skip, plan)
+    for _, name in ipairs(H.DROP_FIRST) do
+        if #table.concat(lines, "\n") <= H.MACRO_LIMIT then break end
+        skip[name] = true
+        lines = H.BuildLines(known, skip, plan)
+    end
+    while #table.concat(lines, "\n") > H.MACRO_LIMIT and #lines > 1 do table.remove(lines, 1) end
+    return lines
+end
+
+-- Hawks still out (seconds left on each) and the shared cooldown left, right now.
+function H.PullState(now)
+    now = now or Now()
+    H.HawksAlive(now)
+    local alive = {}
+    for _, at in ipairs(H.hawkTimes) do alive[#alive + 1] = at + H.HAWK_SECONDS - now end
+    local last = 0
+    local cast = W and W.lastCastAt or {}
+    for _, name in ipairs({ H.HAWK, "Arcane Shot" }) do if cast[name] and cast[name] > last then last = cast[name] end end
+    local cdLeft = last > 0 and math.max(0, last + H.SHARED_CD - now) or 0
+    return alive, cdLeft
+end
+
+H.state = { status = L["Not built yet."] }
+
+function H.Update()
+    local state = H.state
+    if not H.IsHunter() then state.status = L["Only for hunters."]; return false end
+    local o = DB()
+    if o.enabled == false then state.status = L["Off."]; return false end
+    if InCombatLockdown and InCombatLockdown() then state.pending = true; return false end
+    state.pending = false
+    local known = (W and W.KnownSpells and W.KnownSpells()) or {}
+    known[H.AUTO] = true
+    local alive, cdLeft = H.PullState()
+    local plan = H.PlanSteps(known, alive, cdLeft)
+    state.plan = plan
+    H.ScheduleReplan(alive, cdLeft)
+    local lines = H.Fit(known, plan)
+    local body = table.concat(lines, "\n")
+    state.lines, state.known = lines, known
+    if body == state.body then return false end -- unchanged: don't reset the sequences
+    local index = GetMacroIndexByName and GetMacroIndexByName(H.MACRO_NAME)
+    local ok, err
+    if index and index > 0 then
+        ok, err = pcall(EditMacro, index, H.MACRO_NAME, MACRO_ICON, body)
+    else
+        ok, err = pcall(CreateMacro, H.MACRO_NAME, MACRO_ICON, body, true)
+        if ok and (not err or err == 0) then ok, err = false, L["no free character macro slot"] end
+    end
+    if not ok then
+        state.status = L["|cffff5555Couldn't save the macro: "] .. tostring(err) .. "|r"
+        return false
+    end
+    state.body = body
+    state.status = string.format(L["Macro %s: %d lines, %d characters%s."], H.MACRO_NAME, #lines, #body, "")
+    return true
+end
+
+-- Out of combat the plan changes when a hawk runs out or the shared cooldown ends: rewrite then.
+local replanAt
+function H.ScheduleReplan(alive, cdLeft)
+    if not (C_Timer and C_Timer.After) then return end
+    local soonest
+    for _, left in ipairs(alive) do if left > 0 and (not soonest or left < soonest) then soonest = left end end
+    if cdLeft > 0 and (not soonest or cdLeft < soonest) then soonest = cdLeft end
+    if not soonest then return end
+    local at = Now() + soonest + 0.1
+    if replanAt and replanAt <= at and replanAt > Now() then return end
+    replanAt = at
+    C_Timer.After(soonest + 0.1, function()
+        replanAt = nil
+        if not (InCombatLockdown and InCombatLockdown()) then H.SafeUpdate() end
+    end)
+end
+
+function H.SafeUpdate()
+    local ok, result = pcall(H.Update)
+    if not ok then
+        H.state.status = L["|cffff5555Error: "] .. tostring(result) .. "|r"
+        DB().errors["update: " .. tostring(result)] = (DB().errors["update: " .. tostring(result)] or 0) + 1
+    end
+    return ok and result
+end
+
+function H.PickUp()
+    if InCombatLockdown and InCombatLockdown() then return end
+    H.SafeUpdate()
+    if PickupMacro then PickupMacro(H.MACRO_NAME) end
+end
+
+-- ---- The spell the next press casts, drawn on the DTH Hunter button ----
+-- The game's own macro icon shows the first matching spell (or a fixed one with "#showtooltip X"), not
+-- the one the press casts. Warrior.lua's helpers follow the castsequences and the one-try rule.
+
+local OFF_GCD = { ["Raptor Strike"] = true, ["Auto Shot"] = true, ["Mongoose Bite"] = true }
+local ON_SWING = { ["Raptor Strike"] = true } -- its sequence step (none) would move when queued
+local SHARED = { ["Summon Hawk"] = true, ["Arcane Shot"] = true } -- one 6 s cooldown
+local WHY_NOT_READY = {
+    ["Aimed Shot"] = L["needs range and standing still"],
+    ["Arcane Shot"] = L["needs range"],
+    ["Summon Hawk"] = L["waits for its shared cooldown"],
+}
+H.OFF_GCD = OFF_GCD
+
+function H.MacroLines()
+    local body
+    if GetMacroInfo and GetMacroIndexByName and (GetMacroIndexByName(H.MACRO_NAME) or 0) > 0 then
+        local ok, _, _, text = pcall(GetMacroInfo, H.MACRO_NAME)
+        if ok and type(text) == "string" then body = text end
+    end
+    if not body and H.state.lines then body = table.concat(H.state.lines, "\n") end
+    return W.ParseMacro(body)
+end
+
+function H.Facts()
+    return { known = H.state.known or {}, stance = 0,
+        inCombat = UnitAffectingCombat and UnitAffectingCombat("player") and true or false,
+        inGroup = (IsInGroup and IsInGroup()) and true or false }
+end
+
+local function SpellIcon(name)
+    if C_Spell and C_Spell.GetSpellTexture then
+        local ok, texture = pcall(C_Spell.GetSpellTexture, name)
+        if ok and texture then return texture end
+    end
+    return GetSpellTexture and GetSpellTexture(name)
+end
+
+local function InRange(name)
+    local ok, result
+    if C_Spell and C_Spell.IsSpellInRange then ok, result = pcall(C_Spell.IsSpellInRange, name, "target")
+    elseif IsSpellInRange then ok, result = pcall(IsSpellInRange, name, "target") end
+    result = ok and Plain(result)
+    return not (result == false or result == 0)
+end
+
+function H.SpellReady(name)
+    if not Usable(name) then return false end
+    if W.CooldownLeft and W.CooldownLeft(name) > 0 then return false end
+    if UnitExists and UnitExists("target") and not InRange(name) then return false end
+    return true
+end
+
+-- spell, ready, note
+function H.Pick(facts, ready, now)
+    local lines = H.MacroLines()
+    if #lines == 0 then return nil end
+    return W.ButtonPick(lines, facts, ready or H.SpellReady, now or Now(), OFF_GCD, WHY_NOT_READY)
+end
+
+-- A cast or try moves the addon's copy of each castsequence like the game moves its own.
+function H.FollowTry(kind, name)
+    local lines = H.MacroLines()
+    if #lines == 0 then return end
+    local facts, now = H.Facts(), Now()
+    if (kind == "C" or kind == "S") and name then
+        W.SequenceCast(lines, facts, name, kind, now, ON_SWING)
+        if kind == "C" and W.lastCastAt then
+            W.lastCastAt[name] = now
+            if SHARED[name] then for other in pairs(SHARED) do W.lastCastAt[other] = now end end
+        end
+    end
+    W.SequencePressed(lines, facts, now)
+end
+
+local overlays = {}
+H.overlays = overlays
+
+function H.RefreshButtons()
+    if not (GetActionInfo and W.AllBarButtons) then return end
+    local index = GetMacroIndexByName and GetMacroIndexByName(H.MACRO_NAME) or 0
+    for _, overlay in pairs(overlays) do overlay.active = false end
+    if index and index > 0 then
+        for _, button in ipairs(W.AllBarButtons()) do
+            local slot = button and W.ButtonSlot(button)
+            if slot then
+                local kind, id = GetActionInfo(slot)
+                local name = GetActionText and GetActionText(slot)
+                if kind == "macro" and (id == index or name == H.MACRO_NAME) then
+                    local overlay = overlays[button]
+                    if not overlay and not (InCombatLockdown and InCombatLockdown()) then
+                        overlay = CreateFrame("Frame", nil, button)
+                        overlay:SetAllPoints(button)
+                        overlay:SetFrameLevel((button:GetFrameLevel() or 1) + 2)
+                        overlay:EnableMouse(false)
+                        overlay.icon = overlay:CreateTexture(nil, "OVERLAY")
+                        overlay.icon:SetPoint("TOPLEFT", 2, -2)
+                        overlay.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+                        overlays[button] = overlay
+                    end
+                    if overlay then overlay.active = true end
+                end
+            end
+        end
+    end
+    H.UpdateButtons()
+end
+
+function H.UpdateButtons()
+    if not H.IsHunter() then return end
+    local on = DB().buttonIcon ~= false
+    local spell, ready
+    if on and next(overlays) then spell, ready = H.Pick(H.Facts()) end
+    H.currentPick = spell
+    local texture = spell and SpellIcon(spell)
+    for _, overlay in pairs(overlays) do
+        local show = overlay.active and on and texture ~= nil or false
+        overlay:SetShown(show)
+        if show then
+            overlay.icon:SetTexture(texture)
+            overlay.icon:SetDesaturated(not ready)
+        end
+    end
+end
+
 function H.FightCount() return #DB().fights end
 function H.ClearLog() local o = DB(); o.fights = {}; o.macros = {} end
 
@@ -236,7 +552,19 @@ function H.ClearLog() local o = DB(); o.fights = {}; o.macros = {} end
 function H.OnEvent(_, event, a, b, c, ...)
     if not H.IsHunter() then return end
     if event == "PLAYER_REGEN_DISABLED" then H.FightStart(); return end
-    if event == "PLAYER_REGEN_ENABLED" then H.FightEnd(); return end
+    if event == "PLAYER_REGEN_ENABLED" then
+        H.FightEnd()
+        if W.SequenceCombatEnded then W.SequenceCombatEnded() end -- reset=combat lines start over
+        H.SafeUpdate(); H.RefreshButtons(); return
+    end
+    if event == "PLAYER_LOGIN" or event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_SKILL_LINE"
+        or event == "PLAYER_TALENT_UPDATE" then
+        H.SafeUpdate(); H.RefreshButtons(); return
+    end
+    if event == "ACTIONBAR_SLOT_CHANGED" or event == "UPDATE_MACROS" or event == "PLAYER_ENTERING_WORLD" then
+        if not (InCombatLockdown and InCombatLockdown()) then H.RefreshButtons() end
+        return
+    end
     if event == "PLAYER_DEAD" then if fight then fight.result = "died" end; return end
     if event == "UI_ERROR_MESSAGE" then
         local message = type(a) == "string" and a or b
@@ -249,11 +577,14 @@ function H.OnEvent(_, event, a, b, c, ...)
     if a ~= "player" then return end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local name = c and SpellName(c)
+        if name == H.HAWK and not fight then H.NoteHawk(Now()) end -- summoned before the pull
         H.LogCast(name)
-        if name ~= H.AUTO then H.LogTry("C", name) end
+        if name ~= H.AUTO then H.LogTry("C", name); H.FollowTry("C", name) end
     elseif event == "UNIT_SPELLCAST_SENT" then
         local spellID = ...
-        H.LogTry("S", spellID and SpellName(spellID) or tostring(c))
+        local name = spellID and SpellName(spellID) or tostring(c)
+        H.LogTry("S", name)
+        if name ~= H.AUTO then H.FollowTry("S", name) end
     elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET" or event == "UNIT_SPELLCAST_INTERRUPTED" then
         local kind = event == "UNIT_SPELLCAST_FAILED" and "F" or (event == "UNIT_SPELLCAST_FAILED_QUIET" and "Q" or "I")
         H.LogTry(kind, c and SpellName(c) or "?")
@@ -264,12 +595,15 @@ if CreateFrame then
     local frame = CreateFrame("Frame")
     for _, name in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_DEAD", "UI_ERROR_MESSAGE",
         "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET",
-        "UNIT_SPELLCAST_INTERRUPTED" }) do
+        "UNIT_SPELLCAST_INTERRUPTED", "PLAYER_LOGIN", "SPELLS_CHANGED", "LEARNED_SPELL_IN_SKILL_LINE",
+        "PLAYER_TALENT_UPDATE", "ACTIONBAR_SLOT_CHANGED", "UPDATE_MACROS", "PLAYER_ENTERING_WORLD" }) do
         pcall(frame.RegisterEvent, frame, name)
     end
     frame:SetScript("OnEvent", Guard("events", H.OnEvent))
-    local elapsed = 0
+    local elapsed, picture = 0, 0
     frame:SetScript("OnUpdate", Guard("tick", function(_, dt)
+        picture = picture + (dt or 0)
+        if picture >= 0.1 then picture = 0; H.UpdateButtons() end -- the next spell on the button
         if not fight then return end
         elapsed = elapsed + (dt or 0)
         if elapsed >= 0.2 then elapsed = 0; H.Tick() end

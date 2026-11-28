@@ -254,8 +254,24 @@ class CheckTargetsTest(unittest.TestCase):
     def test_changed_files_pick_their_tests(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
         from check import targets
-        self.assertEqual(targets(["addon/DufforthTweaksHelper/GuideUI.lua"]), ["guide_sim"])
+        self.assertEqual(targets(["addon/DufforthTweaksHelper/GuideUI.lua"]), ["guide_sim", "rxp_sim", "rxp_parity_sim"])  # Guide* files also run the RestedXP step engine sim
         self.assertEqual(targets(["catalog/route_planner.py", "tests/addon/gear_sim.py"]), ["test_route_planner", "gear_sim"])
         self.assertEqual(targets(["addon/DufforthTweaksHelper/Prices.lua"]), ["full_load_sim"], "unknown addon file: load everything")
         self.assertEqual(targets(["README.md"]), [])
+
+    def test_paths_as_arguments_pick_only_their_tests(self):
+        """With much uncommitted work, `git diff` selects nearly every test; passing the edited files runs only theirs
+        (user, 2026-11-28: "minor changes are burning alot of tokens")."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        from check import pick
+        self.assertEqual(pick(["addon/DufforthTweaksHelper/Money.lua"]), ["money_sim", "full_load_sim", "menu_sim"])
+        self.assertEqual(pick(["addon\\DufforthTweaksHelper\\Money.lua"]), ["money_sim", "full_load_sim", "menu_sim"], "Windows slashes")
+        self.assertEqual(pick(["money"]), ["money_sim", "test_money_finder"], "words still match test names")
+
+    def test_quiet_output_lists_only_failures(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        from check import report
+        lines = report([("a_sim", True, []), ("b_sim", False, ["FAIL x"]), ("c_sim", True, [])], verbose=False)
+        self.assertEqual(lines, ["FAIL b_sim", "     FAIL x", "2/3 test files passed"])
+        self.assertIn("ok   a_sim", report([("a_sim", True, [])], verbose=True))
 

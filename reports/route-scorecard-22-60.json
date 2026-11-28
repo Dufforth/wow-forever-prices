@@ -4,151 +4,151 @@
    "band": "22-30",
    "need_xp": 283400,
    "ours": {
-    "hours": 10.12,
-    "grind_hours": 0.29,
-    "run_km": 112.0,
-    "flights": 18,
-    "hearths": 6,
-    "quests": 101,
-    "xp": 274405,
+    "hours": 11.11,
+    "grind_hours": 0.0,
+    "run_km": 98.3,
+    "flights": 17,
+    "hearths": 4,
+    "quests": 136,
+    "xp": 384135,
     "dungeons": 0,
-    "xp_per_hour": 27915,
-    "paced_hours": 10.15
+    "xp_per_hour": 34575,
+    "paced_hours": 8.2
    },
    "rxp": {
-    "hours": 10.23,
+    "hours": 10.24,
     "grind_hours": 0.24,
     "run_km": 115.7,
     "flights": 19,
     "hearths": 6,
-    "quests": 104,
+    "quests": 108,
     "xp": 275720,
     "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
+    "xp_per_hour": 27572,
+    "paced_hours": 10.28
    },
    "faster": "ours",
-   "diff": -0.12
+   "diff": -2.08
   },
   {
    "band": "30-40",
    "need_xp": 630400,
    "ours": {
-    "hours": 16.64,
+    "hours": 15.67,
     "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
+    "run_km": 117.9,
+    "flights": 24,
+    "hearths": 5,
+    "quests": 188,
+    "xp": 649860,
     "dungeons": 0,
-    "xp_per_hour": 40944,
-    "paced_hours": 15.4
+    "xp_per_hour": 41471,
+    "paced_hours": 15.2
    },
    "rxp": {
-    "hours": 15.83,
+    "hours": 15.84,
     "grind_hours": 0.0,
     "run_km": 118.7,
     "flights": 18,
     "hearths": 3,
-    "quests": 170,
+    "quests": 177,
     "xp": 678565,
     "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
+    "xp_per_hour": 42838,
+    "paced_hours": 14.72
    },
    "faster": "rxp",
-   "diff": 0.69
+   "diff": 0.48
   },
   {
    "band": "40-50",
    "need_xp": 1008500,
    "ours": {
-    "hours": 20.54,
+    "hours": 23.26,
     "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
+    "run_km": 133.0,
+    "flights": 33,
+    "hearths": 12,
+    "quests": 221,
+    "xp": 1310275,
     "dungeons": 0,
-    "xp_per_hour": 55648,
-    "paced_hours": 18.12
+    "xp_per_hour": 56331,
+    "paced_hours": 17.9
    },
    "rxp": {
-    "hours": 21.07,
+    "hours": 21.08,
     "grind_hours": 0.0,
     "run_km": 145.2,
     "flights": 26,
     "hearths": 11,
-    "quests": 185,
+    "quests": 190,
     "xp": 1157080,
     "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 54889,
+    "paced_hours": 18.37
    },
    "faster": "ours",
-   "diff": -0.24
+   "diff": -0.47
   },
   {
    "band": "50-60",
    "need_xp": 1441200,
    "ours": {
-    "hours": 21.89,
+    "hours": 30.66,
     "grind_hours": 0.0,
-    "run_km": 214.7,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 66686,
-    "paced_hours": 21.61
+    "run_km": 187.5,
+    "flights": 39,
+    "hearths": 8,
+    "quests": 266,
+    "xp": 2008273,
+    "dungeons": 1,
+    "xp_per_hour": 65501,
+    "paced_hours": 22.0
    },
    "rxp": {
-    "hours": 29.51,
+    "hours": 29.53,
     "grind_hours": 0.0,
     "run_km": 227.9,
     "flights": 38,
     "hearths": 9,
-    "quests": 248,
+    "quests": 255,
     "xp": 1851468,
     "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
+    "xp_per_hour": 62697,
+    "paced_hours": 22.99
    },
    "faster": "ours",
-   "diff": -1.36
+   "diff": -0.99
   },
   {
    "band": "22-60",
    "need_xp": 3363500,
    "ours": {
-    "hours": 69.01,
+    "hours": 80.88,
     "grind_hours": 0.0,
-    "run_km": 592.7,
-    "flights": 97,
+    "run_km": 539.0,
+    "flights": 113,
     "hearths": 29,
-    "quests": 680,
-    "xp": 3558513,
-    "dungeons": 0,
-    "xp_per_hour": 51565,
-    "paced_hours": 65.23
+    "quests": 811,
+    "xp": 4352543,
+    "dungeons": 1,
+    "xp_per_hour": 53814,
+    "paced_hours": 62.5
    },
    "rxp": {
-    "hours": 76.52,
+    "hours": 76.58,
     "grind_hours": 0.0,
     "run_km": 608.5,
     "flights": 101,
     "hearths": 29,
-    "quests": 707,
+    "quests": 730,
     "xp": 3962833,
     "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
+    "xp_per_hour": 51747,
+    "paced_hours": 65.0
    },
-   "faster": "rxp",
-   "diff": 0.28
+   "faster": "ours",
+   "diff": -2.5
   }
  ],
  "Durotar (dungeons)": [
@@ -156,759 +156,151 @@
    "band": "22-30",
    "need_xp": 283400,
    "ours": {
-    "hours": 10.85,
-    "grind_hours": 1.82,
-    "run_km": 91.2,
-    "flights": 12,
+    "hours": 10.95,
+    "grind_hours": 0.0,
+    "run_km": 81.8,
+    "flights": 15,
     "hearths": 4,
-    "quests": 84,
-    "xp": 226215,
+    "quests": 128,
+    "xp": 350330,
     "dungeons": 2,
-    "xp_per_hour": 25051,
-    "paced_hours": 11.31
+    "xp_per_hour": 31993,
+    "paced_hours": 8.86
    },
    "rxp": {
-    "hours": 10.23,
+    "hours": 10.24,
     "grind_hours": 0.24,
     "run_km": 115.7,
     "flights": 19,
     "hearths": 6,
-    "quests": 104,
+    "quests": 108,
     "xp": 275720,
     "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
+    "xp_per_hour": 27572,
+    "paced_hours": 10.28
    },
-   "faster": "rxp",
-   "diff": 1.04
+   "faster": "ours",
+   "diff": -1.42
   },
   {
    "band": "30-40",
    "need_xp": 630400,
    "ours": {
-    "hours": 19.58,
-    "grind_hours": 0.0,
-    "run_km": 142.8,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
-    "dungeons": 4,
-    "xp_per_hour": 33807,
-    "paced_hours": 18.65
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 3.94
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 21.68,
-    "grind_hours": 0.0,
-    "run_km": 126.4,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 179,
-    "xp": 1104905,
-    "dungeons": 3,
-    "xp_per_hour": 50964,
-    "paced_hours": 19.79
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "rxp",
-   "diff": 1.43
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 27.43,
-    "grind_hours": 0.0,
-    "run_km": 250.7,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 64402,
-    "paced_hours": 22.38
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.59
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 77.11,
-    "grind_hours": 0.0,
-    "run_km": 612.3,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3759623,
-    "dungeons": 9,
-    "xp_per_hour": 48756,
-    "paced_hours": 68.99
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 4.04
-  }
- ],
- "Durotar - Safe": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.12,
-    "grind_hours": 0.29,
-    "run_km": 112.0,
-    "flights": 18,
-    "hearths": 6,
-    "quests": 101,
-    "xp": 274405,
-    "dungeons": 0,
-    "xp_per_hour": 27915,
-    "paced_hours": 10.15
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "ours",
-   "diff": -0.12
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 16.64,
-    "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
-    "dungeons": 0,
-    "xp_per_hour": 40944,
-    "paced_hours": 15.4
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 0.69
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.54,
-    "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
-    "dungeons": 0,
-    "xp_per_hour": 55648,
-    "paced_hours": 18.12
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "ours",
-   "diff": -0.24
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 21.89,
-    "grind_hours": 0.0,
-    "run_km": 214.7,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 66686,
-    "paced_hours": 21.61
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -1.36
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 69.01,
-    "grind_hours": 0.0,
-    "run_km": 592.7,
-    "flights": 97,
-    "hearths": 29,
-    "quests": 680,
-    "xp": 3558513,
-    "dungeons": 0,
-    "xp_per_hour": 51565,
-    "paced_hours": 65.23
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 0.28
-  }
- ],
- "Durotar - Safe (dungeons)": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.85,
-    "grind_hours": 1.82,
-    "run_km": 91.2,
-    "flights": 12,
+    "hours": 17.44,
+    "grind_hours": 0.05,
+    "run_km": 115.2,
+    "flights": 23,
     "hearths": 4,
-    "quests": 84,
-    "xp": 226215,
-    "dungeons": 2,
-    "xp_per_hour": 25051,
-    "paced_hours": 11.31
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 1.04
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 19.58,
-    "grind_hours": 0.0,
-    "run_km": 142.8,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
+    "quests": 185,
+    "xp": 628480,
     "dungeons": 4,
-    "xp_per_hour": 33807,
-    "paced_hours": 18.65
+    "xp_per_hour": 36140,
+    "paced_hours": 17.44
    },
    "rxp": {
-    "hours": 15.83,
+    "hours": 15.84,
     "grind_hours": 0.0,
     "run_km": 118.7,
     "flights": 18,
     "hearths": 3,
-    "quests": 170,
+    "quests": 177,
     "xp": 678565,
     "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
+    "xp_per_hour": 42838,
+    "paced_hours": 14.72
    },
    "faster": "rxp",
-   "diff": 3.94
+   "diff": 2.72
   },
   {
    "band": "40-50",
    "need_xp": 1008500,
    "ours": {
-    "hours": 21.68,
+    "hours": 24.24,
     "grind_hours": 0.0,
-    "run_km": 126.4,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 179,
-    "xp": 1104905,
+    "run_km": 125.7,
+    "flights": 33,
+    "hearths": 13,
+    "quests": 220,
+    "xp": 1268080,
     "dungeons": 3,
-    "xp_per_hour": 50964,
-    "paced_hours": 19.79
+    "xp_per_hour": 52313,
+    "paced_hours": 19.28
    },
    "rxp": {
-    "hours": 21.07,
+    "hours": 21.08,
     "grind_hours": 0.0,
     "run_km": 145.2,
     "flights": 26,
     "hearths": 11,
-    "quests": 185,
+    "quests": 190,
     "xp": 1157080,
     "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 54889,
+    "paced_hours": 18.37
    },
    "faster": "rxp",
-   "diff": 1.43
+   "diff": 0.91
   },
   {
    "band": "50-60",
    "need_xp": 1441200,
    "ours": {
-    "hours": 27.43,
+    "hours": 37.76,
     "grind_hours": 0.0,
-    "run_km": 250.7,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 64402,
-    "paced_hours": 22.38
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
+    "run_km": 229.9,
+    "flights": 51,
     "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.59
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 77.11,
-    "grind_hours": 0.0,
-    "run_km": 612.3,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3759623,
-    "dungeons": 9,
-    "xp_per_hour": 48756,
-    "paced_hours": 68.99
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 4.04
-  }
- ],
- "Durotar - Explorer": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.56,
-    "grind_hours": 0.29,
-    "run_km": 120.4,
-    "flights": 18,
-    "hearths": 6,
-    "quests": 101,
-    "xp": 274405,
-    "dungeons": 0,
-    "xp_per_hour": 26719,
-    "paced_hours": 10.61
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 0.34
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 17.77,
-    "grind_hours": 0.0,
-    "run_km": 158.9,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
-    "dungeons": 0,
-    "xp_per_hour": 38340,
-    "paced_hours": 16.44
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 1.73
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.64,
-    "grind_hours": 0.0,
-    "run_km": 134.9,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
-    "dungeons": 0,
-    "xp_per_hour": 55379,
-    "paced_hours": 18.21
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "ours",
-   "diff": -0.15
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 22.86,
-    "grind_hours": 0.0,
-    "run_km": 237.0,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 63856,
-    "paced_hours": 22.57
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.4
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 71.66,
-    "grind_hours": 0.0,
-    "run_km": 651.8,
-    "flights": 97,
-    "hearths": 29,
-    "quests": 680,
-    "xp": 3558513,
-    "dungeons": 0,
-    "xp_per_hour": 49658,
-    "paced_hours": 67.73
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 2.78
-  }
- ],
- "Durotar - Explorer (dungeons)": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 12.0,
-    "grind_hours": 1.82,
-    "run_km": 115.7,
-    "flights": 12,
-    "hearths": 4,
-    "quests": 84,
-    "xp": 226215,
-    "dungeons": 2,
-    "xp_per_hour": 22221,
-    "paced_hours": 12.75
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 2.48
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 21.16,
-    "grind_hours": 0.0,
-    "run_km": 179.2,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
-    "dungeons": 4,
-    "xp_per_hour": 31282,
-    "paced_hours": 20.15
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 5.44
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 21.98,
-    "grind_hours": 0.0,
-    "run_km": 133.4,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 179,
-    "xp": 1104905,
+    "quests": 320,
+    "xp": 2368133,
     "dungeons": 3,
-    "xp_per_hour": 50268,
-    "paced_hours": 20.06
+    "xp_per_hour": 62715,
+    "paced_hours": 22.98
    },
    "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "rxp",
-   "diff": 1.7
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 28.65,
-    "grind_hours": 0.0,
-    "run_km": 278.8,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 61659,
-    "paced_hours": 23.37
-   },
-   "rxp": {
-    "hours": 29.51,
+    "hours": 29.53,
     "grind_hours": 0.0,
     "run_km": 227.9,
     "flights": 38,
     "hearths": 9,
-    "quests": 248,
+    "quests": 255,
     "xp": 1851468,
     "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
+    "xp_per_hour": 62697,
+    "paced_hours": 22.99
    },
-   "faster": "rxp",
-   "diff": 0.4
+   "faster": "ours",
+   "diff": -0.01
   },
   {
    "band": "22-60",
    "need_xp": 3363500,
    "ours": {
-    "hours": 81.37,
+    "hours": 89.11,
     "grind_hours": 0.0,
-    "run_km": 708.6,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3759623,
-    "dungeons": 9,
-    "xp_per_hour": 46204,
-    "paced_hours": 72.8
+    "run_km": 554.9,
+    "flights": 122,
+    "hearths": 30,
+    "quests": 853,
+    "xp": 4615023,
+    "dungeons": 10,
+    "xp_per_hour": 51790,
+    "paced_hours": 64.94
    },
    "rxp": {
-    "hours": 76.52,
+    "hours": 76.58,
     "grind_hours": 0.0,
     "run_km": 608.5,
     "flights": 101,
     "hearths": 29,
-    "quests": 707,
+    "quests": 730,
     "xp": 3962833,
     "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
+    "xp_per_hour": 51747,
+    "paced_hours": 65.0
    },
-   "faster": "rxp",
-   "diff": 7.85
+   "faster": "ours",
+   "diff": -0.06
   }
  ],
  "Mulgore": [
@@ -916,151 +308,151 @@
    "band": "22-30",
    "need_xp": 283400,
    "ours": {
-    "hours": 10.19,
-    "grind_hours": 0.27,
-    "run_km": 114.4,
+    "hours": 11.11,
+    "grind_hours": 0.0,
+    "run_km": 98.3,
     "flights": 17,
-    "hearths": 6,
-    "quests": 102,
-    "xp": 274815,
+    "hearths": 4,
+    "quests": 136,
+    "xp": 384135,
     "dungeons": 0,
-    "xp_per_hour": 27703,
-    "paced_hours": 10.23
+    "xp_per_hour": 34575,
+    "paced_hours": 8.2
    },
    "rxp": {
-    "hours": 10.23,
+    "hours": 10.24,
     "grind_hours": 0.24,
     "run_km": 115.7,
     "flights": 19,
     "hearths": 6,
-    "quests": 104,
+    "quests": 108,
     "xp": 275720,
     "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
+    "xp_per_hour": 27572,
+    "paced_hours": 10.28
    },
    "faster": "ours",
-   "diff": -0.04
+   "diff": -2.08
   },
   {
    "band": "30-40",
    "need_xp": 630400,
    "ours": {
-    "hours": 16.64,
+    "hours": 15.67,
     "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
+    "run_km": 117.9,
+    "flights": 24,
+    "hearths": 5,
+    "quests": 188,
+    "xp": 649860,
     "dungeons": 0,
-    "xp_per_hour": 40944,
-    "paced_hours": 15.4
+    "xp_per_hour": 41471,
+    "paced_hours": 15.2
    },
    "rxp": {
-    "hours": 15.83,
+    "hours": 15.84,
     "grind_hours": 0.0,
     "run_km": 118.7,
     "flights": 18,
     "hearths": 3,
-    "quests": 170,
+    "quests": 177,
     "xp": 678565,
     "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
+    "xp_per_hour": 42838,
+    "paced_hours": 14.72
    },
    "faster": "rxp",
-   "diff": 0.69
+   "diff": 0.48
   },
   {
    "band": "40-50",
    "need_xp": 1008500,
    "ours": {
-    "hours": 20.54,
+    "hours": 23.26,
     "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
+    "run_km": 133.0,
+    "flights": 33,
+    "hearths": 12,
+    "quests": 221,
+    "xp": 1310275,
     "dungeons": 0,
-    "xp_per_hour": 55648,
-    "paced_hours": 18.12
+    "xp_per_hour": 56331,
+    "paced_hours": 17.9
    },
    "rxp": {
-    "hours": 21.07,
+    "hours": 21.08,
     "grind_hours": 0.0,
     "run_km": 145.2,
     "flights": 26,
     "hearths": 11,
-    "quests": 185,
+    "quests": 190,
     "xp": 1157080,
     "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 54889,
+    "paced_hours": 18.37
    },
    "faster": "ours",
-   "diff": -0.24
+   "diff": -0.47
   },
   {
    "band": "50-60",
    "need_xp": 1441200,
    "ours": {
-    "hours": 21.89,
+    "hours": 30.66,
     "grind_hours": 0.0,
-    "run_km": 214.7,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 66686,
-    "paced_hours": 21.61
+    "run_km": 187.5,
+    "flights": 39,
+    "hearths": 8,
+    "quests": 266,
+    "xp": 2008273,
+    "dungeons": 1,
+    "xp_per_hour": 65501,
+    "paced_hours": 22.0
    },
    "rxp": {
-    "hours": 29.51,
+    "hours": 29.53,
     "grind_hours": 0.0,
     "run_km": 227.9,
     "flights": 38,
     "hearths": 9,
-    "quests": 248,
+    "quests": 255,
     "xp": 1851468,
     "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
+    "xp_per_hour": 62697,
+    "paced_hours": 22.99
    },
    "faster": "ours",
-   "diff": -1.36
+   "diff": -0.99
   },
   {
    "band": "22-60",
    "need_xp": 3363500,
    "ours": {
-    "hours": 69.1,
+    "hours": 80.88,
     "grind_hours": 0.0,
-    "run_km": 595.1,
-    "flights": 96,
+    "run_km": 539.0,
+    "flights": 113,
     "hearths": 29,
-    "quests": 681,
-    "xp": 3558923,
-    "dungeons": 0,
-    "xp_per_hour": 51503,
-    "paced_hours": 65.31
+    "quests": 811,
+    "xp": 4352543,
+    "dungeons": 1,
+    "xp_per_hour": 53814,
+    "paced_hours": 62.5
    },
    "rxp": {
-    "hours": 76.52,
+    "hours": 76.58,
     "grind_hours": 0.0,
     "run_km": 608.5,
     "flights": 101,
     "hearths": 29,
-    "quests": 707,
+    "quests": 730,
     "xp": 3962833,
     "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
+    "xp_per_hour": 51747,
+    "paced_hours": 65.0
    },
-   "faster": "rxp",
-   "diff": 0.36
+   "faster": "ours",
+   "diff": -2.5
   }
  ],
  "Mulgore (dungeons)": [
@@ -1068,759 +460,151 @@
    "band": "22-30",
    "need_xp": 283400,
    "ours": {
-    "hours": 10.89,
-    "grind_hours": 1.82,
-    "run_km": 92.8,
-    "flights": 11,
+    "hours": 10.95,
+    "grind_hours": 0.0,
+    "run_km": 81.8,
+    "flights": 15,
     "hearths": 4,
-    "quests": 84,
-    "xp": 226215,
+    "quests": 128,
+    "xp": 350330,
     "dungeons": 2,
-    "xp_per_hour": 24941,
-    "paced_hours": 11.36
+    "xp_per_hour": 31993,
+    "paced_hours": 8.86
    },
    "rxp": {
-    "hours": 10.23,
+    "hours": 10.24,
     "grind_hours": 0.24,
     "run_km": 115.7,
     "flights": 19,
     "hearths": 6,
-    "quests": 104,
+    "quests": 108,
     "xp": 275720,
     "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
+    "xp_per_hour": 27572,
+    "paced_hours": 10.28
    },
-   "faster": "rxp",
-   "diff": 1.09
+   "faster": "ours",
+   "diff": -1.42
   },
   {
    "band": "30-40",
    "need_xp": 630400,
    "ours": {
-    "hours": 19.58,
-    "grind_hours": 0.0,
-    "run_km": 142.8,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
-    "dungeons": 4,
-    "xp_per_hour": 33807,
-    "paced_hours": 18.65
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 3.94
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 21.67,
-    "grind_hours": 0.0,
-    "run_km": 126.4,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 179,
-    "xp": 1104905,
-    "dungeons": 3,
-    "xp_per_hour": 50987,
-    "paced_hours": 19.78
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "rxp",
-   "diff": 1.42
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 27.43,
-    "grind_hours": 0.0,
-    "run_km": 250.7,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 64402,
-    "paced_hours": 22.38
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.59
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 77.15,
-    "grind_hours": 0.0,
-    "run_km": 613.9,
-    "flights": 100,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3759623,
-    "dungeons": 9,
-    "xp_per_hour": 48731,
-    "paced_hours": 69.02
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 4.07
-  }
- ],
- "Mulgore - Safe": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.19,
-    "grind_hours": 0.27,
-    "run_km": 114.4,
-    "flights": 17,
-    "hearths": 6,
-    "quests": 102,
-    "xp": 274815,
-    "dungeons": 0,
-    "xp_per_hour": 27703,
-    "paced_hours": 10.23
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "ours",
-   "diff": -0.04
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 16.64,
-    "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
-    "dungeons": 0,
-    "xp_per_hour": 40944,
-    "paced_hours": 15.4
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 0.69
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.54,
-    "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
-    "dungeons": 0,
-    "xp_per_hour": 55648,
-    "paced_hours": 18.12
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "ours",
-   "diff": -0.24
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 21.89,
-    "grind_hours": 0.0,
-    "run_km": 214.7,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 66686,
-    "paced_hours": 21.61
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -1.36
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 69.1,
-    "grind_hours": 0.0,
-    "run_km": 595.1,
-    "flights": 96,
-    "hearths": 29,
-    "quests": 681,
-    "xp": 3558923,
-    "dungeons": 0,
-    "xp_per_hour": 51503,
-    "paced_hours": 65.31
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 0.36
-  }
- ],
- "Mulgore - Safe (dungeons)": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.89,
-    "grind_hours": 1.82,
-    "run_km": 92.8,
-    "flights": 11,
+    "hours": 17.44,
+    "grind_hours": 0.05,
+    "run_km": 115.2,
+    "flights": 23,
     "hearths": 4,
-    "quests": 84,
-    "xp": 226215,
-    "dungeons": 2,
-    "xp_per_hour": 24941,
-    "paced_hours": 11.36
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 1.09
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 19.58,
-    "grind_hours": 0.0,
-    "run_km": 142.8,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
+    "quests": 185,
+    "xp": 628480,
     "dungeons": 4,
-    "xp_per_hour": 33807,
-    "paced_hours": 18.65
+    "xp_per_hour": 36140,
+    "paced_hours": 17.44
    },
    "rxp": {
-    "hours": 15.83,
+    "hours": 15.84,
     "grind_hours": 0.0,
     "run_km": 118.7,
     "flights": 18,
     "hearths": 3,
-    "quests": 170,
+    "quests": 177,
     "xp": 678565,
     "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
+    "xp_per_hour": 42838,
+    "paced_hours": 14.72
    },
    "faster": "rxp",
-   "diff": 3.94
+   "diff": 2.72
   },
   {
    "band": "40-50",
    "need_xp": 1008500,
    "ours": {
-    "hours": 21.67,
+    "hours": 24.24,
     "grind_hours": 0.0,
-    "run_km": 126.4,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 179,
-    "xp": 1104905,
+    "run_km": 125.7,
+    "flights": 33,
+    "hearths": 13,
+    "quests": 220,
+    "xp": 1268080,
     "dungeons": 3,
-    "xp_per_hour": 50987,
-    "paced_hours": 19.78
+    "xp_per_hour": 52313,
+    "paced_hours": 19.28
    },
    "rxp": {
-    "hours": 21.07,
+    "hours": 21.08,
     "grind_hours": 0.0,
     "run_km": 145.2,
     "flights": 26,
     "hearths": 11,
-    "quests": 185,
+    "quests": 190,
     "xp": 1157080,
     "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 54889,
+    "paced_hours": 18.37
    },
    "faster": "rxp",
-   "diff": 1.42
+   "diff": 0.91
   },
   {
    "band": "50-60",
    "need_xp": 1441200,
    "ours": {
-    "hours": 27.43,
+    "hours": 37.76,
     "grind_hours": 0.0,
-    "run_km": 250.7,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 64402,
-    "paced_hours": 22.38
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
+    "run_km": 229.9,
+    "flights": 51,
     "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.59
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 77.15,
-    "grind_hours": 0.0,
-    "run_km": 613.9,
-    "flights": 100,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3759623,
-    "dungeons": 9,
-    "xp_per_hour": 48731,
-    "paced_hours": 69.02
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 4.07
-  }
- ],
- "Mulgore - Explorer": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.64,
-    "grind_hours": 0.27,
-    "run_km": 122.7,
-    "flights": 17,
-    "hearths": 6,
-    "quests": 102,
-    "xp": 274815,
-    "dungeons": 0,
-    "xp_per_hour": 26500,
-    "paced_hours": 10.69
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 0.42
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 17.77,
-    "grind_hours": 0.0,
-    "run_km": 158.9,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
-    "dungeons": 0,
-    "xp_per_hour": 38340,
-    "paced_hours": 16.44
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 1.73
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.63,
-    "grind_hours": 0.0,
-    "run_km": 134.9,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
-    "dungeons": 0,
-    "xp_per_hour": 55406,
-    "paced_hours": 18.2
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "ours",
-   "diff": -0.16
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 23.02,
-    "grind_hours": 0.0,
-    "run_km": 240.9,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 63412,
-    "paced_hours": 22.73
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.24
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 71.91,
-    "grind_hours": 0.0,
-    "run_km": 658.0,
-    "flights": 96,
-    "hearths": 29,
-    "quests": 681,
-    "xp": 3558923,
-    "dungeons": 0,
-    "xp_per_hour": 49491,
-    "paced_hours": 67.96
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 3.01
-  }
- ],
- "Mulgore - Explorer (dungeons)": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 12.04,
-    "grind_hours": 1.82,
-    "run_km": 117.2,
-    "flights": 11,
-    "hearths": 4,
-    "quests": 84,
-    "xp": 226215,
-    "dungeons": 2,
-    "xp_per_hour": 22134,
-    "paced_hours": 12.8
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 2.53
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 21.16,
-    "grind_hours": 0.0,
-    "run_km": 179.2,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
-    "dungeons": 4,
-    "xp_per_hour": 31282,
-    "paced_hours": 20.15
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 5.44
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 21.98,
-    "grind_hours": 0.0,
-    "run_km": 133.4,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 179,
-    "xp": 1104905,
+    "quests": 320,
+    "xp": 2368133,
     "dungeons": 3,
-    "xp_per_hour": 50268,
-    "paced_hours": 20.06
+    "xp_per_hour": 62715,
+    "paced_hours": 22.98
    },
    "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "rxp",
-   "diff": 1.7
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 28.78,
-    "grind_hours": 0.0,
-    "run_km": 281.9,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 61381,
-    "paced_hours": 23.48
-   },
-   "rxp": {
-    "hours": 29.51,
+    "hours": 29.53,
     "grind_hours": 0.0,
     "run_km": 227.9,
     "flights": 38,
     "hearths": 9,
-    "quests": 248,
+    "quests": 255,
     "xp": 1851468,
     "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
+    "xp_per_hour": 62697,
+    "paced_hours": 22.99
    },
-   "faster": "rxp",
-   "diff": 0.51
+   "faster": "ours",
+   "diff": -0.01
   },
   {
    "band": "22-60",
    "need_xp": 3363500,
    "ours": {
-    "hours": 81.55,
+    "hours": 89.11,
     "grind_hours": 0.0,
-    "run_km": 713.2,
-    "flights": 100,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3759623,
-    "dungeons": 9,
-    "xp_per_hour": 46102,
-    "paced_hours": 72.96
+    "run_km": 554.9,
+    "flights": 122,
+    "hearths": 30,
+    "quests": 853,
+    "xp": 4615023,
+    "dungeons": 10,
+    "xp_per_hour": 51790,
+    "paced_hours": 64.94
    },
    "rxp": {
-    "hours": 76.52,
+    "hours": 76.58,
     "grind_hours": 0.0,
     "run_km": 608.5,
     "flights": 101,
     "hearths": 29,
-    "quests": 707,
+    "quests": 730,
     "xp": 3962833,
     "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
+    "xp_per_hour": 51747,
+    "paced_hours": 65.0
    },
-   "faster": "rxp",
-   "diff": 8.01
+   "faster": "ours",
+   "diff": -0.06
   }
  ],
  "Tirisfal Glades": [
@@ -1828,151 +612,151 @@
    "band": "22-30",
    "need_xp": 283400,
    "ours": {
-    "hours": 10.09,
-    "grind_hours": 0.25,
-    "run_km": 112.1,
-    "flights": 18,
-    "hearths": 6,
-    "quests": 102,
-    "xp": 275455,
+    "hours": 11.11,
+    "grind_hours": 0.0,
+    "run_km": 98.3,
+    "flights": 17,
+    "hearths": 4,
+    "quests": 136,
+    "xp": 384135,
     "dungeons": 0,
-    "xp_per_hour": 27993,
-    "paced_hours": 10.12
+    "xp_per_hour": 34575,
+    "paced_hours": 8.2
    },
    "rxp": {
-    "hours": 10.23,
+    "hours": 10.24,
     "grind_hours": 0.24,
     "run_km": 115.7,
     "flights": 19,
     "hearths": 6,
-    "quests": 104,
+    "quests": 108,
     "xp": 275720,
     "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
+    "xp_per_hour": 27572,
+    "paced_hours": 10.28
    },
    "faster": "ours",
-   "diff": -0.15
+   "diff": -2.08
   },
   {
    "band": "30-40",
    "need_xp": 630400,
    "ours": {
-    "hours": 16.64,
+    "hours": 15.67,
     "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
+    "run_km": 117.9,
+    "flights": 24,
+    "hearths": 5,
+    "quests": 188,
+    "xp": 649860,
     "dungeons": 0,
-    "xp_per_hour": 40944,
-    "paced_hours": 15.4
+    "xp_per_hour": 41471,
+    "paced_hours": 15.2
    },
    "rxp": {
-    "hours": 15.83,
+    "hours": 15.84,
     "grind_hours": 0.0,
     "run_km": 118.7,
     "flights": 18,
     "hearths": 3,
-    "quests": 170,
+    "quests": 177,
     "xp": 678565,
     "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
+    "xp_per_hour": 42838,
+    "paced_hours": 14.72
    },
    "faster": "rxp",
-   "diff": 0.69
+   "diff": 0.48
   },
   {
    "band": "40-50",
    "need_xp": 1008500,
    "ours": {
-    "hours": 20.54,
+    "hours": 23.26,
     "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
+    "run_km": 133.0,
+    "flights": 33,
+    "hearths": 12,
+    "quests": 221,
+    "xp": 1310275,
     "dungeons": 0,
-    "xp_per_hour": 55648,
-    "paced_hours": 18.12
+    "xp_per_hour": 56331,
+    "paced_hours": 17.9
    },
    "rxp": {
-    "hours": 21.07,
+    "hours": 21.08,
     "grind_hours": 0.0,
     "run_km": 145.2,
     "flights": 26,
     "hearths": 11,
-    "quests": 185,
+    "quests": 190,
     "xp": 1157080,
     "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 54889,
+    "paced_hours": 18.37
    },
    "faster": "ours",
-   "diff": -0.24
+   "diff": -0.47
   },
   {
    "band": "50-60",
    "need_xp": 1441200,
    "ours": {
-    "hours": 21.89,
+    "hours": 30.66,
     "grind_hours": 0.0,
-    "run_km": 214.7,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 66686,
-    "paced_hours": 21.61
+    "run_km": 187.5,
+    "flights": 39,
+    "hearths": 8,
+    "quests": 266,
+    "xp": 2008273,
+    "dungeons": 1,
+    "xp_per_hour": 65501,
+    "paced_hours": 22.0
    },
    "rxp": {
-    "hours": 29.51,
+    "hours": 29.53,
     "grind_hours": 0.0,
     "run_km": 227.9,
     "flights": 38,
     "hearths": 9,
-    "quests": 248,
+    "quests": 255,
     "xp": 1851468,
     "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
+    "xp_per_hour": 62697,
+    "paced_hours": 22.99
    },
    "faster": "ours",
-   "diff": -1.36
+   "diff": -0.99
   },
   {
    "band": "22-60",
    "need_xp": 3363500,
    "ours": {
-    "hours": 69.02,
+    "hours": 80.88,
     "grind_hours": 0.0,
-    "run_km": 592.8,
-    "flights": 97,
+    "run_km": 539.0,
+    "flights": 113,
     "hearths": 29,
-    "quests": 681,
-    "xp": 3559563,
-    "dungeons": 0,
-    "xp_per_hour": 51572,
-    "paced_hours": 65.22
+    "quests": 811,
+    "xp": 4352543,
+    "dungeons": 1,
+    "xp_per_hour": 53814,
+    "paced_hours": 62.5
    },
    "rxp": {
-    "hours": 76.52,
+    "hours": 76.58,
     "grind_hours": 0.0,
     "run_km": 608.5,
     "flights": 101,
     "hearths": 29,
-    "quests": 707,
+    "quests": 730,
     "xp": 3962833,
     "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
+    "xp_per_hour": 51747,
+    "paced_hours": 65.0
    },
-   "faster": "rxp",
-   "diff": 0.27
+   "faster": "ours",
+   "diff": -2.5
   }
  ],
  "Tirisfal Glades (dungeons)": [
@@ -1980,759 +764,151 @@
    "band": "22-30",
    "need_xp": 283400,
    "ours": {
-    "hours": 10.83,
-    "grind_hours": 1.78,
-    "run_km": 91.4,
-    "flights": 12,
+    "hours": 10.95,
+    "grind_hours": 0.0,
+    "run_km": 81.8,
+    "flights": 15,
     "hearths": 4,
-    "quests": 85,
-    "xp": 227265,
+    "quests": 128,
+    "xp": 350330,
     "dungeons": 2,
-    "xp_per_hour": 25112,
-    "paced_hours": 11.29
+    "xp_per_hour": 31993,
+    "paced_hours": 8.86
    },
    "rxp": {
-    "hours": 10.23,
+    "hours": 10.24,
     "grind_hours": 0.24,
     "run_km": 115.7,
     "flights": 19,
     "hearths": 6,
-    "quests": 104,
+    "quests": 108,
     "xp": 275720,
     "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
+    "xp_per_hour": 27572,
+    "paced_hours": 10.28
    },
-   "faster": "rxp",
-   "diff": 1.02
+   "faster": "ours",
+   "diff": -1.42
   },
   {
    "band": "30-40",
    "need_xp": 630400,
    "ours": {
-    "hours": 19.58,
-    "grind_hours": 0.0,
-    "run_km": 142.8,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
-    "dungeons": 4,
-    "xp_per_hour": 33807,
-    "paced_hours": 18.65
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 3.94
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.99,
-    "grind_hours": 0.0,
-    "run_km": 126.2,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 178,
-    "xp": 1101305,
-    "dungeons": 2,
-    "xp_per_hour": 52468,
-    "paced_hours": 19.22
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "rxp",
-   "diff": 0.86
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 27.43,
-    "grind_hours": 0.0,
-    "run_km": 250.7,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 64402,
-    "paced_hours": 22.38
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.59
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 77.1,
-    "grind_hours": 0.0,
-    "run_km": 612.3,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3757073,
-    "dungeons": 9,
-    "xp_per_hour": 48729,
-    "paced_hours": 69.02
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 4.07
-  }
- ],
- "Tirisfal Glades - Safe": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.09,
-    "grind_hours": 0.25,
-    "run_km": 112.1,
-    "flights": 18,
-    "hearths": 6,
-    "quests": 102,
-    "xp": 275455,
-    "dungeons": 0,
-    "xp_per_hour": 27993,
-    "paced_hours": 10.12
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "ours",
-   "diff": -0.15
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 16.64,
-    "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
-    "dungeons": 0,
-    "xp_per_hour": 40944,
-    "paced_hours": 15.4
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 0.69
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.54,
-    "grind_hours": 0.0,
-    "run_km": 132.7,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
-    "dungeons": 0,
-    "xp_per_hour": 55648,
-    "paced_hours": 18.12
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "ours",
-   "diff": -0.24
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 21.89,
-    "grind_hours": 0.0,
-    "run_km": 214.7,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 66686,
-    "paced_hours": 21.61
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -1.36
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 69.02,
-    "grind_hours": 0.0,
-    "run_km": 592.8,
-    "flights": 97,
-    "hearths": 29,
-    "quests": 681,
-    "xp": 3559563,
-    "dungeons": 0,
-    "xp_per_hour": 51572,
-    "paced_hours": 65.22
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 0.27
-  }
- ],
- "Tirisfal Glades - Safe (dungeons)": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.83,
-    "grind_hours": 1.78,
-    "run_km": 91.4,
-    "flights": 12,
+    "hours": 17.44,
+    "grind_hours": 0.05,
+    "run_km": 115.2,
+    "flights": 23,
     "hearths": 4,
-    "quests": 85,
-    "xp": 227265,
-    "dungeons": 2,
-    "xp_per_hour": 25112,
-    "paced_hours": 11.29
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 1.02
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 19.58,
-    "grind_hours": 0.0,
-    "run_km": 142.8,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
+    "quests": 185,
+    "xp": 628480,
     "dungeons": 4,
-    "xp_per_hour": 33807,
-    "paced_hours": 18.65
+    "xp_per_hour": 36140,
+    "paced_hours": 17.44
    },
    "rxp": {
-    "hours": 15.83,
+    "hours": 15.84,
     "grind_hours": 0.0,
     "run_km": 118.7,
     "flights": 18,
     "hearths": 3,
-    "quests": 170,
+    "quests": 177,
     "xp": 678565,
     "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
+    "xp_per_hour": 42838,
+    "paced_hours": 14.72
    },
    "faster": "rxp",
-   "diff": 3.94
+   "diff": 2.72
   },
   {
    "band": "40-50",
    "need_xp": 1008500,
    "ours": {
-    "hours": 20.99,
+    "hours": 24.24,
     "grind_hours": 0.0,
-    "run_km": 126.2,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 178,
-    "xp": 1101305,
-    "dungeons": 2,
-    "xp_per_hour": 52468,
-    "paced_hours": 19.22
+    "run_km": 125.7,
+    "flights": 33,
+    "hearths": 13,
+    "quests": 220,
+    "xp": 1268080,
+    "dungeons": 3,
+    "xp_per_hour": 52313,
+    "paced_hours": 19.28
    },
    "rxp": {
-    "hours": 21.07,
+    "hours": 21.08,
     "grind_hours": 0.0,
     "run_km": 145.2,
     "flights": 26,
     "hearths": 11,
-    "quests": 185,
+    "quests": 190,
     "xp": 1157080,
     "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 54889,
+    "paced_hours": 18.37
    },
    "faster": "rxp",
-   "diff": 0.86
+   "diff": 0.91
   },
   {
    "band": "50-60",
    "need_xp": 1441200,
    "ours": {
-    "hours": 27.43,
+    "hours": 37.76,
     "grind_hours": 0.0,
-    "run_km": 250.7,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 64402,
-    "paced_hours": 22.38
+    "run_km": 229.9,
+    "flights": 51,
+    "hearths": 9,
+    "quests": 320,
+    "xp": 2368133,
+    "dungeons": 3,
+    "xp_per_hour": 62715,
+    "paced_hours": 22.98
    },
    "rxp": {
-    "hours": 29.51,
+    "hours": 29.53,
     "grind_hours": 0.0,
     "run_km": 227.9,
     "flights": 38,
     "hearths": 9,
-    "quests": 248,
+    "quests": 255,
     "xp": 1851468,
     "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
+    "xp_per_hour": 62697,
+    "paced_hours": 22.99
    },
    "faster": "ours",
-   "diff": -0.59
+   "diff": -0.01
   },
   {
    "band": "22-60",
    "need_xp": 3363500,
    "ours": {
-    "hours": 77.1,
+    "hours": 89.11,
     "grind_hours": 0.0,
-    "run_km": 612.3,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3757073,
-    "dungeons": 9,
-    "xp_per_hour": 48729,
-    "paced_hours": 69.02
+    "run_km": 554.9,
+    "flights": 122,
+    "hearths": 30,
+    "quests": 853,
+    "xp": 4615023,
+    "dungeons": 10,
+    "xp_per_hour": 51790,
+    "paced_hours": 64.94
    },
    "rxp": {
-    "hours": 76.52,
+    "hours": 76.58,
     "grind_hours": 0.0,
     "run_km": 608.5,
     "flights": 101,
     "hearths": 29,
-    "quests": 707,
+    "quests": 730,
     "xp": 3962833,
     "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 4.07
-  }
- ],
- "Tirisfal Glades - Explorer": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 10.75,
-    "grind_hours": 0.25,
-    "run_km": 125.3,
-    "flights": 18,
-    "hearths": 6,
-    "quests": 102,
-    "xp": 275455,
-    "dungeons": 0,
-    "xp_per_hour": 26233,
-    "paced_hours": 10.8
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 0.53
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 17.77,
-    "grind_hours": 0.0,
-    "run_km": 158.9,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 681315,
-    "dungeons": 0,
-    "xp_per_hour": 38340,
-    "paced_hours": 16.44
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 1.73
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 20.63,
-    "grind_hours": 0.0,
-    "run_km": 134.9,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 182,
-    "xp": 1143030,
-    "dungeons": 0,
-    "xp_per_hour": 55406,
-    "paced_hours": 18.2
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
+    "xp_per_hour": 51747,
+    "paced_hours": 65.0
    },
    "faster": "ours",
-   "diff": -0.16
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 22.86,
-    "grind_hours": 0.0,
-    "run_km": 237.0,
-    "flights": 35,
-    "hearths": 9,
-    "quests": 227,
-    "xp": 1459763,
-    "dungeons": 0,
-    "xp_per_hour": 63856,
-    "paced_hours": 22.57
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "ours",
-   "diff": -0.4
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 71.87,
-    "grind_hours": 0.0,
-    "run_km": 656.7,
-    "flights": 97,
-    "hearths": 29,
-    "quests": 681,
-    "xp": 3559563,
-    "dungeons": 0,
-    "xp_per_hour": 49527,
-    "paced_hours": 67.91
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 2.96
-  }
- ],
- "Tirisfal Glades - Explorer (dungeons)": [
-  {
-   "band": "22-30",
-   "need_xp": 283400,
-   "ours": {
-    "hours": 11.98,
-    "grind_hours": 1.78,
-    "run_km": 115.8,
-    "flights": 12,
-    "hearths": 4,
-    "quests": 85,
-    "xp": 227265,
-    "dungeons": 2,
-    "xp_per_hour": 22280,
-    "paced_hours": 12.72
-   },
-   "rxp": {
-    "hours": 10.23,
-    "grind_hours": 0.24,
-    "run_km": 115.7,
-    "flights": 19,
-    "hearths": 6,
-    "quests": 104,
-    "xp": 275720,
-    "dungeons": 0,
-    "xp_per_hour": 27599,
-    "paced_hours": 10.27
-   },
-   "faster": "rxp",
-   "diff": 2.45
-  },
-  {
-   "band": "30-40",
-   "need_xp": 630400,
-   "ours": {
-    "hours": 21.19,
-    "grind_hours": 0.0,
-    "run_km": 179.9,
-    "flights": 21,
-    "hearths": 3,
-    "quests": 169,
-    "xp": 661945,
-    "dungeons": 4,
-    "xp_per_hour": 31238,
-    "paced_hours": 20.18
-   },
-   "rxp": {
-    "hours": 15.83,
-    "grind_hours": 0.0,
-    "run_km": 118.7,
-    "flights": 18,
-    "hearths": 3,
-    "quests": 170,
-    "xp": 678565,
-    "dungeons": 0,
-    "xp_per_hour": 42865,
-    "paced_hours": 14.71
-   },
-   "faster": "rxp",
-   "diff": 5.47
-  },
-  {
-   "band": "40-50",
-   "need_xp": 1008500,
-   "ours": {
-    "hours": 21.29,
-    "grind_hours": 0.0,
-    "run_km": 133.2,
-    "flights": 26,
-    "hearths": 12,
-    "quests": 178,
-    "xp": 1101305,
-    "dungeons": 2,
-    "xp_per_hour": 51728,
-    "paced_hours": 19.5
-   },
-   "rxp": {
-    "hours": 21.07,
-    "grind_hours": 0.0,
-    "run_km": 145.2,
-    "flights": 26,
-    "hearths": 11,
-    "quests": 185,
-    "xp": 1157080,
-    "dungeons": 0,
-    "xp_per_hour": 54915,
-    "paced_hours": 18.36
-   },
-   "faster": "rxp",
-   "diff": 1.14
-  },
-  {
-   "band": "50-60",
-   "need_xp": 1441200,
-   "ours": {
-    "hours": 28.65,
-    "grind_hours": 0.0,
-    "run_km": 278.8,
-    "flights": 42,
-    "hearths": 10,
-    "quests": 272,
-    "xp": 1766558,
-    "dungeons": 1,
-    "xp_per_hour": 61659,
-    "paced_hours": 23.37
-   },
-   "rxp": {
-    "hours": 29.51,
-    "grind_hours": 0.0,
-    "run_km": 227.9,
-    "flights": 38,
-    "hearths": 9,
-    "quests": 248,
-    "xp": 1851468,
-    "dungeons": 0,
-    "xp_per_hour": 62740,
-    "paced_hours": 22.97
-   },
-   "faster": "rxp",
-   "diff": 0.4
-  },
-  {
-   "band": "22-60",
-   "need_xp": 3363500,
-   "ours": {
-    "hours": 81.39,
-    "grind_hours": 0.0,
-    "run_km": 709.2,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 704,
-    "xp": 3757073,
-    "dungeons": 9,
-    "xp_per_hour": 46161,
-    "paced_hours": 72.86
-   },
-   "rxp": {
-    "hours": 76.52,
-    "grind_hours": 0.0,
-    "run_km": 608.5,
-    "flights": 101,
-    "hearths": 29,
-    "quests": 707,
-    "xp": 3962833,
-    "dungeons": 0,
-    "xp_per_hour": 51788,
-    "paced_hours": 64.95
-   },
-   "faster": "rxp",
-   "diff": 7.91
+   "diff": -0.06
   }
  ]
 }

@@ -179,8 +179,8 @@ RunCommand = function(input)
         if DufforthTweaksHelperGuideUI then DufforthTweaksHelperGuideUI.SetArrowShown(not (DufforthTweaksHelperDB.guide or {}).arrow) end
     elseif command == "move" then
         if not DufforthTweaksHelper.SetEditMode(not DufforthTweaksHelper.EditMode()) then Print(L["on-screen pieces can't move in combat."]) end
-    elseif command == "crafting" or command == "leveling" or command == "warrior"
-        or command == "class" or command == "consumables" or command == "zone" or command == "gear" then
+    elseif command == "crafting" or command == "leveling" or command == "professions" or command == "prof" or command == "warrior"
+        or command == "class" or command == "consumables" or command == "zone" or command == "gear" or command == "rested" or command == "alts" then
         if DufforthTweaksHelperMenu_Toggle then DufforthTweaksHelperMenu_Toggle(command) end
     elseif command == "shopping" then
         if DufforthTweaksHelperLeveling then DufforthTweaksHelperLeveling.ShowShopping() end
@@ -190,7 +190,7 @@ RunCommand = function(input)
         DufforthTweaksHelperAutoDE.Toggle()
     else
         Print("/dufforth - open the window (also the minimap button). /dth works too.")
-        Print("/dufforth crafting, /dufforth leveling, /dufforth zone, /dufforth class (consumables), /dufforth gear, /dufforth warrior - open it on that tab")
+        Print("/dufforth crafting, /dufforth professions, /dufforth zone, /dufforth class (consumables), /dufforth gear, /dufforth warrior - open it on that tab")
         Print("/dufforth shopping - open the Leveling tab's shopping list")
         Print("/dufforth guide - show or hide the leveling guide (Horde 1-60)")
         Print("/dufforth arrow - show or hide the guide's waypoint arrow")

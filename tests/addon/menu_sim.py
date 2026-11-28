@@ -31,7 +31,8 @@ SlashCmdList = {
 C_Spell = { GetSpellInfo = function() return { name = "Disenchant" } end }
 
 local function object(kind, name)
-  local o = { kind = kind, name = name, scripts = {}, attributes = {}, shown = true, enabled = true, events = {} }
+  local o = { kind = kind, name = name, scripts = {}, attributes = {}, shown = true, enabled = true, events = {}, children = {} }
+  function o:GetChildren() return unpack(self.children) end
   function o:SetScript(k, f) self.scripts[k] = f end
   function o:GetScript(k) return self.scripts[k] end
   function o:SetAttribute(k, v) self.attributes[k] = v end
@@ -70,6 +71,8 @@ end
 function CreateFrame(kind, name, parent, template)
   local f = object(kind, name)
   f.template, f.parent = template, parent
+  if type(parent) == "table" and type(rawget(parent, "children")) == "table" then table.insert(parent.children, f) end
+  if template == "UIPanelButtonTemplate" then f.Left, f.Middle, f.Right = object("Texture"), object("Texture"), object("Texture") end
   if kind ~= "Frame" or name then f.shown = true end
   ALL[#ALL+1] = f
   if name then _G[name] = f end
@@ -112,7 +115,7 @@ lua.execute(MOCK)
 rawget_w = None
 lua.execute("GetRealmName = function() return 'Realm 4' end; UnitFactionGroup = function() return 'Horde' end")
 lua.execute("UnitClass = function() return 'Warrior', 'WARRIOR' end; UnitLevel = function() return 30 end")
-for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Crafting.lua", "Leveling.lua", "Warrior.lua", "ConsumablesData.lua", "Consumables.lua", "GearData.lua", "Gear.lua", "Menu.lua"):
+for name in ("Core.lua", "Disenchant.lua", "AutoDisenchant.lua", "Crafting.lua", "Leveling.lua", "Warrior.lua", "ConsumablesData.lua", "Consumables.lua", "GearData.lua", "Gear.lua", "LevelLog.lua", "Rested.lua", "Menu.lua"):
     lua.execute(source(name))
 g = lua.globals()
 rawget_w = lua.eval("function(f) return rawget(f, 'width') end")
@@ -209,16 +212,53 @@ loader = lua.eval("function() for i = #ALL, 1, -1 do local f = ALL[i]; if rawget
 loader.scripts.OnEvent(loader, "PLAYER_LOGIN")
 mini = g.DufforthTweaksHelperMinimapButton
 check("minimap button exists and shows", mini is not None and mini.shown)
+# The guide is minimized: a left-click still opens the window (user: "when click in the menu icon i should be opening
+# the app windows not maximazing the leveling windows"); the guide comes back from its own round icon.
+lua.execute("""
+GUIDE_OPENED = false
+DufforthTweaksHelperGuideUI = { Hidden = function() return true end, SetCollapsed = function(on) if not on then GUIDE_OPENED = true end end }
+DufforthTweaksHelperDB.guide = { collapsed = true }
+TIP_LINES = {}
+GameTooltip.AddLine = function(_, t) TIP_LINES[#TIP_LINES + 1] = t end
+""")
 mini.scripts.OnClick(mini, "LeftButton")
 menu = g.DufforthTweaksHelperMenu
 check("left-click opens the menu", menu is not None and menu.shown)
+check("left-click with the guide minimized opens the window, not the guide (user)", g.GUIDE_OPENED is False)
+mini.scripts.OnEnter(mini)
+tip = " ".join(str(t) for t in g.TIP_LINES.values())
+check("the minimap tooltip says left-click opens the window", "Left-click: open the window" in tip, tip)
+check("the minimap tooltip says where the minimized guide is", "round guide icon" in tip, tip)
+lua.execute("DufforthTweaksHelperGuideUI = nil; DufforthTweaksHelperDB.guide = nil")
 def tabs():
     return [f.text for f in g.ALL.values() if f.kind == "Button" and rawget_tab(f) and f.shown]
 rawget_tab = lua.eval("function(f) return rawget(f, 'isTab') end")
 check("redesign: flat dark window like the guide, not the game's dialog frame (user)",
       menu.template == "BackdropTemplate" and menu.backdrop is not None)
-check("redesign: tabs Disenchant, Leveling, Zone, Grind, Money and your class; no Gather or Crafting tab (user)",
-      tabs() == ["Disenchant", "Leveling", "Zone", "Grind", "Money", "Warrior"], tabs())
+check("redesign: tabs Disenchant, Professions, Zone, Grind, Money and your class; no Gather or Crafting tab (user)",
+      tabs() == ["Disenchant", "Professions", "Zone", "Grind", "Money", "Alts", "Warrior"], tabs())
+check("rename: no tab called Leveling, it plans professions (user: 'this is not leveling is profesion leveling')",
+      "Leveling" not in tabs(), tabs())
+g.DufforthTweaksHelperMenu_Toggle("leveling")
+check("rename: /dth leveling still opens the Professions tab", g.DufforthTweaksHelperDB.menuTab == "Professions")
+g.DufforthTweaksHelperMenu_Toggle("disenchant"); g.DufforthTweaksHelperMenu_Toggle("professions")
+check("rename: /dth professions opens it", g.DufforthTweaksHelperDB.menuTab == "Professions")
+g.DufforthTweaksHelperDB.menuTab = "Leveling"
+g.DufforthTweaksHelperMenu_ApplySize(520, 520)
+check("rename: a saved 'Leveling' tab opens as Professions", g.DufforthTweaksHelperDB.menuTab == "Professions")
+lua.execute("""
+function UNDER(root, out)
+  out = out or {}
+  for _, c in ipairs(rawget(root, "children") or {}) do out[#out + 1] = c; UNDER(c, out) end
+  return out
+end
+""")
+under = list(lua.globals().UNDER(menu).values())
+panel_buttons = [f for f in under if f.template == "UIPanelButtonTemplate"]
+check("modern look: the game's red panel buttons are flattened in every tab (user: 'looks rusty')",
+      len(panel_buttons) > 5 and all(lua.eval("function(f) return rawget(f, 'dthSkin') == true end")(f) and f.Left.shown is False and f.Right.shown is False and f.Middle.shown is False for f in panel_buttons),
+      len(panel_buttons))
+check("modern look: the window has a slim header line under the tabs and a footer line", lua.eval("function(f) return rawget(f, 'dthHeaderLine') ~= nil and rawget(f, 'dthFooterLine') ~= nil end")(menu))
 check("redesign: the window can be made narrower and shorter (user: cannot resize smaller)",
       menu.bounds is not None and menu.bounds[1] <= 440 and menu.bounds[2] <= 320, menu.bounds and list(menu.bounds.values()))
 g.DufforthTweaksHelperMenu_Toggle("crafting")
@@ -237,12 +277,41 @@ g.DufforthTweaksHelperMenu_Toggle("consumables")
 check("/dufforth consumables opens the consumables view", g.DufforthTweaksHelperDB.menuTab == "Class" and g.DufforthTweaksHelperDB.classView == "consumables")
 check("the consumables view names your class and level", any(isinstance(f.text, str) and "Consumables for your Warrior, level 30" in f.text for f in g.ALL.values()))
 switch = [f for f in g.ALL.values() if f.kind == "Button" and f.text == "Macro"]
-check("each other view has a Macro button back", len(switch) == 2)
+check("each other view has a Macro button back", len(switch) == 3)
 switch[0].scripts.OnClick(switch[0])
 check("clicking Macro shows the macro again", g.DufforthTweaksHelperDB.classView == "macro")
 g.DufforthTweaksHelperMenu_Toggle("gear")
 check("/dufforth gear opens the Gear view", g.DufforthTweaksHelperDB.menuTab == "Class" and g.DufforthTweaksHelperDB.classView == "gear")
-check("the Gear view has its buttons to Consumables and Macro", len([f for f in g.ALL.values() if f.kind == "Button" and f.text == "Gear"]) == 2)
+check("the Gear view has its buttons to Consumables and Macro", len([f for f in g.ALL.values() if f.kind == "Button" and f.text == "Gear"]) == 3)
+g.DufforthTweaksHelperMenu_Toggle("levellog")
+check("/dufforth levellog opens the Leveling log view", g.DufforthTweaksHelperDB.menuTab == "Class" and g.DufforthTweaksHelperDB.classView == "log")
+texts = [f.text for f in g.ALL.values() if isinstance(f.text, str)]
+check("the Leveling log view has its switch", any("Log my leveling" in t for t in texts))
+check("the Leveling log view says what it kept and how to read it", any("of 5000 events kept" in t for t in texts) and any("analyze_leveling_log.py" in t for t in texts))
+clear = [f for f in g.ALL.values() if f.kind == "Button" and isinstance(f.text, str) and f.text.startswith("Clear leveling log (")]
+check("the Leveling log view has a Clear button with the count", len(clear) == 1, texts[-20:])
+
+# Rested XP of your alts in the main window (user: "where is the track of the experience reste from my alts").
+lua.execute("""
+DufforthTweaksHelperDB.rested = { chars = {
+  ["Player-1-AAA"] = { name = "Cobid", level = 32, max = 54500, rested = 35660, resting = true, at = time() - 3600, class = "DRUID" },
+} }
+""")
+# Its own tab now (user: "i want to see all my alts reste experience amount in a tab").
+g.DufforthTweaksHelperMenu_Toggle("rested")
+check("/dth rested opens the Alts tab", g.DufforthTweaksHelperDB.menuTab == "Alts")
+g.DufforthTweaksHelperMenu_Toggle("disenchant"); g.DufforthTweaksHelperMenu_Toggle("alts")
+check("/dth alts opens the Alts tab", g.DufforthTweaksHelperDB.menuTab == "Alts")
+shown_now = lua.eval("function(f) local p = f; while p do if rawget(p, 'shown') == false then return false end; p = rawget(p, 'parent') end; return true end")
+texts = [f.text for f in g.ALL.values() if isinstance(f.text, str) and shown_now(f)]
+check("the Alts tab has the column titles", all(t in texts for t in ("Character", "Lvl", "Rested XP", "Reaches", "Resting", "Full in")),
+      [t for t in texts if len(t) < 14][:30])
+check("the Alts tab lists the alt by name and level", "Cobid" in texts and "32" in texts, [t for t in texts if "Cobid" in t])
+check("the Alts tab shows the alt's rested amount", any(t.startswith("36,") and "%)" in t for t in texts), [t for t in texts if "%)" in t])
+check("the Alts tab legend says what the marks mean", any("Red = full" in t for t in texts))
+rested_btn = [f for f in g.ALL.values() if f.kind == "Button" and f.text == "Rested"]
+check("the class tab has no Rested view any more (moved to Alts)", len(rested_btn) == 0, len(rested_btn))
+
 # Interface 4.20: side tabs, Edit mode, folding sections.
 move = [f for f in g.ALL.values() if f.kind == "Button" and f.text in ("Move pieces", "Lock pieces")]
 check("Edit mode: a Move pieces button", len(move) == 1)
@@ -402,6 +471,35 @@ details_box.scripts.OnClick(details_box)
 T = g.DufforthTweaksHelperDB.deTooltip
 check("settings: saved", T.odds is True and T.shift is True and T.details is False)
 
+# Every tab fits left of the X, at any width and with a long class name (user screenshot, 2026-11-28: Paladin past the X).
+lua.execute("""
+function TABFIT()
+  local w = rawget(DufforthTweaksHelperMenu, "width")
+  local closeLeft = w - 4 - 20
+  local worst, out = -1000, {}
+  for _, f in ipairs(ALL) do
+    if f.kind == "Button" and rawget(f, "isTab") and rawget(f, "shown") then
+      local right = f.point[4] + rawget(f, "width")
+      out[#out + 1] = f.text .. "@" .. right
+      if right - closeLeft > worst then worst = right - closeLeft end
+    end
+  end
+  return worst, table.concat(out, " ")
+end
+function SETCLASSTAB(t)
+  for _, f in ipairs(ALL) do if f.kind == "Button" and rawget(f, "isTab") and rawget(f, "classTab") then f:SetText(t) end end
+end
+""")
+for cls in ("Warrior", "Paladin", "Caballero de la Muerte"):
+    lua.globals().SETCLASSTAB(cls)
+    for w in (420, 520, 900):
+        g.DufforthTweaksHelperMenu_ApplySize(w, 520)
+        worst, layout = lua.globals().TABFIT()
+        check(f"tabs fit left of the X: {cls} at width {w}", worst <= -2, layout)
+lua.globals().SETCLASSTAB("Warrior")
+g.DufforthTweaksHelperMenu_ApplySize(520, 520)
+close = [f for f in g.ALL.values() if f.kind == "Button" and f.text == "X"]
+check("the X stays in its own top-right corner", any(c.point[1] == "TOPRIGHT" and c.point[2] == -4 for c in close), len(close))
 if fails:
     sys.exit(f"{len(fails)} failed")
 print("all passed")

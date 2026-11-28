@@ -20,7 +20,7 @@ def q(s):
 
 def ideas(items, cat, farm):
     flips = [(int(i), r["name"], int(r["lowest"]), int(r["vendor_pays"]), int(r["listed"]))
-             for i, r in M.vendor_flips(items).head(TOP).iterrows() if r["profit_each"] >= 1]
+             for i, r in M.vendor_flips(items).head(TOP).iterrows()]
     cheap = [(int(i), r["name"], int(r["lowest"]), int(r["week"]), int(r["sold7"]))
              for i, r in M.underpriced(items).head(TOP).iterrows()]
     c = M.crafts(items, cat["recipes"])

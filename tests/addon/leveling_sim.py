@@ -322,7 +322,9 @@ for r in list(ui_lua.eval("ROWS()").values())[:5]:
     print("     shop row:", r.name.text, "|", r.sub.text, "|", r.cost.text)
 check("UI: nothing is printed to chat", int(ui_lua.eval("#CHAT")) == 0)
 check("UI: the open view is remembered", ui_lua.eval("DufforthTweaksHelperDB.leveling.view") == "shopping")
-check("UI: the active view's button is shown pressed", ui_lua.eval("PARENT.shopButton.enabled") is False and ui_lua.eval("PARENT.planButton.enabled") is True)
+check("UI: the active view's button is shown selected, both stay clickable (modern toggle)",
+      ui_lua.eval("rawget(PARENT.shopButton, 'dthSelected')") is True and not ui_lua.eval("rawget(PARENT.planButton, 'dthSelected')")
+      and ui_lua.eval("PARENT.shopButton.enabled") is not False and ui_lua.eval("PARENT.planButton.enabled") is not False)
 
 ui_lua.execute('SKILLS = {}; DufforthTweaksHelperLeveling.Refresh()')
 check("UI: no crafting profession says what to do", "Learn a crafting profession" in ui_lua.eval("TEXTS()"))
@@ -433,6 +435,8 @@ check("layout: name and second line keep their own lines on every row",
       all(r.name.point[1] == "TOPLEFT" and r.name.point[3] == -3 and r.sub.point[1] == "BOTTOMLEFT" and r.sub.point[3] == 4 for r in ui_lua.eval("ROWS()").values()))
 check("layout: material rows are indented past their icon", all(r.name.point[2] == 50 for r in ui_lua.eval("ROWS()").values() if r.row.part))
 check("auction: the button doesn't cover the price", all(r.cost.point[2] == -66 for r in search_rows))
+check("auction: one money column, every row's price ends at the same place (modern look)",
+      len({r.cost.point[2] for r in ui_lua.eval("ALLROWS()").values()}) == 1, sorted({r.cost.point[2] for r in ui_lua.eval("ALLROWS()").values()}))
 target = search_rows[-1]
 want = target.row.buy.id if target.row.buy else (target.row.part.id if target.row.part else None)
 target.rowButton.scripts.OnClick(target.rowButton)
@@ -667,6 +671,11 @@ check("vendors: still cheapest first", ui_lua.eval("PN[1].npc[1]") == "Goblin")
 ui_lua.execute("DufforthTweaksHelperLevelNPCs = REAL")
 ui_lua.execute("EVENT('AUCTION_HOUSE_CLOSED')")
 check("button: nothing is printed to chat", int(ui_lua.eval("#CHAT")) == 0)
+
+# At the cap the note shows once, in the list area, not also on the small notice line (user screenshot, 2026-11-28).
+ui_lua.execute('SKILLS = { { "Tailoring", false, false, 75, 0, 0, 75 } }; DufforthTweaksHelperLeveling.Refresh()')
+notice, empty = str(ui_lua.eval("PARENT.notice.text") or ""), str(ui_lua.eval("PARENT.empty.text") or "")
+check("at the cap: the cap note shows once", (notice + empty).count("at your cap") == 1, (notice, empty))
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")
 sys.exit(1 if fails else 0)

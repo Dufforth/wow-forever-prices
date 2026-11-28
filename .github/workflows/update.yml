@@ -71,6 +71,8 @@ jobs:
           python tests/addon/crafting_sim.py > /dev/null
           python tests/addon/leveling_sim.py > /dev/null
           python tests/addon/full_load_sim.py > /dev/null
+          python tests/addon/rested_sim.py > /dev/null
+          python tests/addon/levellog_sim.py > /dev/null
           python tests/addon/warrior_sim.py > /dev/null
           python tests/addon/warrior_fight_sim.py > /dev/null
           python tests/addon/druid_sim.py > /dev/null

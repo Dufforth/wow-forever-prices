@@ -21,6 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 AH_CUT = 0.95          # the auction house keeps 5%
 KILL_SECONDS = 30      # measured from the user's solo fights (route planner)
 MIN_SOLD = 20          # sold in 7 days: below this, "sells" isn't a promise
+# Vendor flips must pay for the time: buying, carrying (a bag slot each for gear) and selling. User, 2026-11-27: rows
+# like "buy at 5s, a vendor pays 5s" made copper per item. No AH cut or deposit applies: you buy, a vendor buys back.
+MIN_FLIP_EACH = 100    # at least 1s profit per item
+MIN_FLIP_MARGIN = 0.10  # and at least 10% of what you pay
 
 
 def gold(c):
@@ -44,7 +48,8 @@ def load(prices_path):
 def vendor_flips(items):
     f = items[(items["listed"] > 0) & items["lowest"].notna() & (items["lowest"] < items["vendor_pays"])].copy()
     f["profit_each"] = f["vendor_pays"] - f["lowest"]
-    f["profit_all"] = f["profit_each"] * f["listed"]
+    f = f[(f["profit_each"] >= MIN_FLIP_EACH) & (f["profit_each"] >= MIN_FLIP_MARGIN * f["lowest"])].copy()
+    f["profit_all"] = f["profit_each"] * f["listed"]  # an upper bound: only the cheapest listing is known
     return f.sort_values("profit_all", ascending=False)
 
 

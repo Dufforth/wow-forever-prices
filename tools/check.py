@@ -3,9 +3,12 @@
 
     python tools/check.py            tests for files changed since the last commit (git)
     python tools/check.py guide gear tests whose names contain these words
-    python tools/check.py all        every test (do this before installing or pushing)
+    python tools/check.py addon/DufforthTweaksHelper/Money.lua   tests for the files you edited (use this while
+                                     much work is uncommitted: git diff would select nearly every test)
+    python tools/check.py all        every test (only before pushing; takes 10+ minutes)
+    -v                               also list the passing files
 
-One line per test file ("ok guide_sim" or "FAIL guide_sim" plus up to 8 failing lines); exit code 1 on any failure.
+Prints only failing files (plus up to 8 failing lines each) and a summary; exit code 1 on any failure.
 Missing test libraries (lupa, pandas) are installed with pip first.
 """
 import subprocess
@@ -18,10 +21,12 @@ UNIT = ROOT / "tests"
 
 # Changed file (or folder prefix) -> test files to run. Addon files without a match run the full-load test.
 MAP = {
-    "addon/DufforthTweaksHelper/Guide": ["guide_sim"], "addon/DufforthTweaksHelper/QuestAuto": ["quest_auto_sim"],
+    "addon/DufforthTweaksHelper/Guide": ["guide_sim", "rxp_sim", "rxp_parity_sim"], "catalog/rxp_": ["rxp_sim", "rxp_parity_sim", "test_rxp_steps", "test_route_from_rxp"], "addon/DufforthTweaksHelper/Rested": ["rested_sim", "guide_sim", "locale_sim"], "addon/DufforthTweaksHelper/QuestAuto": ["quest_auto_sim"],
     "addon/DufforthTweaksHelper/Warrior": ["warrior_sim", "warrior_fight_sim", "druid_sim", "druid_fight_sim", "hunter_sim"],
     "addon/DufforthTweaksHelper/Druid": ["druid_sim", "druid_fight_sim", "full_load_sim"],
     "addon/DufforthTweaksHelper/Hunter": ["hunter_sim", "full_load_sim", "menu_sim"],
+    "addon/DufforthTweaksHelper/LevelLog": ["levellog_sim", "full_load_sim", "menu_sim"],
+    "tools/analyze_leveling_log": ["test_analyze_leveling"], "tests/data/leveling_saved": ["test_analyze_leveling"],
     "addon/DufforthTweaksHelper/Pet": ["pets_sim", "full_load_sim", "menu_sim"],
     "addon/DufforthTweaksHelper/Money": ["money_sim", "full_load_sim", "menu_sim"], "tools/money_finder": ["test_money_finder", "money_sim"],
     "tools/build_addon_money": ["test_money_finder", "money_sim"], "catalog/build_pets": ["test_build_pets"],
@@ -64,6 +69,30 @@ def changed_files():
     return sorted(set(run("diff", "--name-only", "HEAD") + run("ls-files", "--others", "--exclude-standard")))
 
 
+def pick(args):
+    """Test names for arguments: file paths (contain a slash or a file extension) map through MAP, words match names."""
+    paths = [a.replace("\\", "/") for a in args if "/" in a or "\\" in a or Path(a).suffix]
+    words = [a for a in args if not ("/" in a or "\\" in a or Path(a).suffix)]
+    out = targets(paths)
+    out += [t for t in all_tests() if any(w in t for w in words) and t not in out]
+    return out
+
+
+def report(results, verbose=False):
+    """Lines to print for [(name, ok, failing lines)]: failures only unless verbose, then the summary."""
+    lines = []
+    for name, ok, bad in results:
+        if ok:
+            if verbose:
+                lines.append("ok   " + name)
+            continue
+        lines.append("FAIL " + name)
+        lines += ["     " + l[:200] for l in bad[:8]]
+    passed = sum(1 for _, ok, _ in results if ok)
+    lines.append(f"{passed}/{len(results)} test files passed")
+    return lines
+
+
 def ensure_libs():
     missing = [m for m in ("lupa", "pandas") if subprocess.run([sys.executable, "-c", f"import {m}"], capture_output=True).returncode]
     if missing:
@@ -85,26 +114,21 @@ def run(name):
 
 
 def main(args):
+    verbose = "-v" in args
+    args = [a for a in args if a != "-v"]
     ensure_libs()
     if args == ["all"]:
         names = all_tests()
     elif args:
-        names = [t for t in all_tests() if any(a in t for a in args)]
+        names = pick(args)
     else:
         names = targets(changed_files())
         if not names:
             print("no changed files with tests (use: python tools/check.py all)")
             return 0
-    failed = 0
-    for name in names:
-        ok, bad = run(name)
-        print(("ok   " if ok else "FAIL ") + name)
-        if not ok:
-            failed += 1
-            for line in bad[:8]:
-                print("     " + line[:200])
-    print(f"{len(names) - failed}/{len(names)} test files passed")
-    return 1 if failed else 0
+    results = [(name, *run(name)) for name in names]
+    print("\n".join(report(results, verbose)))
+    return 0 if all(ok for _, ok, _ in results) else 1
 
 
 if __name__ == "__main__":

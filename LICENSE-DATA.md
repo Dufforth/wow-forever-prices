@@ -13,7 +13,9 @@ Because of that licence, these files are shared under **CC BY-NC-SA 4.0** too: f
 non-commercial purposes, with credit to RestedXP Guides and to this project, and under the same licence:
 
 - `catalog/forever_rxp_quests.json`
-- `catalog/rxp_routes.json` (the order of RestedXP's Forever Horde guides, 1-60, main and dungeon; every leveling route follows it)
+- `catalog/rxp_routes.json` (RestedXP's Forever Horde guide steps, 1-60, main and dungeon, kept whole, and its Forever Spirit Healer list; every leveling route follows it)
+- the guide text of those steps (RestedXP's wording, colour names and icons), shown in the addon's leveling guide (`GuideData.lua`, from `catalog/route.json`)
+- the addon's leveling-guide step engine (`GuideRx.lua`, `GuideRxUI.lua`) follows how RestedXP's addon moves you through its steps, points its arrow and lays out its active steps; written for this project, no RestedXP code, names or art
 - `catalog/rxp_forever_route.json` (the steps of RestedXP's Forever Horde guide, 22-60, kept only to compare our routes with it; not in the addon)
 - `reports/route-scorecard-22-60.json`
 - `catalog/route.json`

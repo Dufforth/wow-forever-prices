@@ -126,3 +126,28 @@ class RecipeOriginTests(unittest.TestCase):
         self.assertEqual(listed["o"], ["unknown"], "listed on Wowhead without a source is not a trainer recipe")
         starter = build_catalog.build(tables(), "1.0", {}, {}, {"spells": {"9": [1, [], 0]}, "items": {}})[0]["recipes"][0]
         self.assertEqual(starter["o"], ["trainer"], "skill-1 recipes come with the profession")
+
+
+class ShippedCatalogTests(unittest.TestCase):
+    """The committed site/catalog.json must carry Blizzard's November 10-11 hotfixes."""
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        path = Path(__file__).resolve().parents[1] / "site" / "catalog.json"
+        cls.catalog = json.loads(path.read_text(encoding="utf-8"))
+
+    def recipe(self, name):
+        return next(r for r in self.catalog["recipes"] if r["n"] == name)
+
+    def test_built_after_the_hotfixes(self):
+        self.assertGreaterEqual(int(self.catalog["build"].split(".")[-1]), 71139)
+
+    def test_hotfixed_vendor_prices(self):
+        self.assertEqual(self.catalog["items"]["4390"]["sell"], 125)  # Iron Grenade 1s 25c
+        elixir = [i for i in self.catalog["items"].values() if i["n"] == "Minor Arcane Elixir"]
+        self.assertEqual([i["sell"] for i in elixir], [5])
+
+    def test_tailoring_bags_need_five_bolts(self):
+        self.assertIn([4339, 5], self.recipe("Red Mageweave Bag")["r"])
+        self.assertIn([4305, 5], self.recipe("Green Silk Pack")["r"])

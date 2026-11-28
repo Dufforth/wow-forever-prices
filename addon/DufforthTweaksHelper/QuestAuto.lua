@@ -49,7 +49,14 @@ function Q.Vendor()
 end
 
 -- A quest worth taking: not gray, not one you skipped in the guide. Unknown quests (Forever's own) are.
+local function RxModel()
+    local ui = DufforthTweaksHelperGuideUI
+    local m = ui and ui.model
+    return m and m.rxp and m.RxAutoQuest and m or nil
+end
+
 function Q.Wanted(id)
+    if RxModel() then return true end -- RestedXP's route takes every quest of its active steps, low or not
     local data, guide = DufforthTweaksHelperGuideData, DufforthTweaksHelperGuide
     local q = data and data.quests and data.quests[id]
     if q and guide and guide.GRAY and UnitLevel and q[2] > 0 and q[2] <= UnitLevel("player") - guide.GRAY then return false end
@@ -63,6 +70,12 @@ end
 function Q.InGuide(id, kind)
     local data, ui = DufforthTweaksHelperGuideData, DufforthTweaksHelperGuideUI
     if not (id and data and data.routes) then return false end
+    -- RestedXP's route: only the quests of the steps you're on (its questAccept / questTurnIn lists).
+    local rx = RxModel()
+    if rx then
+        local ok, yes = pcall(rx.RxAutoQuest, rx, id, kind)
+        return ok and yes or false
+    end
     local name = ui and ui.RouteName and ui.RouteName()
     local route = name and data.routes[name]
     for _, step in ipairs(route and route.steps or {}) do
@@ -71,14 +84,45 @@ function Q.InGuide(id, kind)
     return false
 end
 
+-- RestedXP's gossip skip on a step that asks for it (.skipgossip): no quests offered, so pick the option it names
+-- (the first by default; with several, one after another each time you talk).
+local gossipTurn = 0
+function Q.SkipGossip(gs, npcId, options, quests)
+    if not gs or quests > 0 or options == 0 then return nil end
+    if gs == true then return 1 end
+    local id = gs[1]
+    if #gs == 1 then
+        if id == npcId then return 1 end
+        if id > 9 or id > options then return nil end
+        return id
+    end
+    if id ~= npcId and id ~= 0 then return nil end
+    gossipTurn = (gossipTurn % (#gs - 1)) + 1
+    return gs[gossipTurn + 1]
+end
+
+local function NpcId()
+    local guid = UnitGUID and UnitGUID("npc")
+    return tonumber(guid and string.match(guid, "^%a+%-%d+%-%d+%-%d+%-%d+%-(%d+)"))
+end
+
 local function Gossip()
     local G = C_GossipInfo
     if not G then return end
-    for _, q in ipairs(G.GetActiveQuests and G.GetActiveQuests() or {}) do
+    local active, available = G.GetActiveQuests and G.GetActiveQuests() or {}, G.GetAvailableQuests and G.GetAvailableQuests() or {}
+    for _, q in ipairs(active) do
         if q.isComplete and Q.InGuide(q.questID, "turnin") then G.SelectActiveQuest(q.questID); return end
     end
-    for _, q in ipairs(G.GetAvailableQuests and G.GetAvailableQuests() or {}) do
+    for _, q in ipairs(available) do
         if Q.InGuide(q.questID, "accept") and Q.Wanted(q.questID) then G.SelectAvailableQuest(q.questID); return end
+    end
+    local rx = RxModel()
+    if not rx then return end
+    local ok, gs = pcall(rx.RxGossip, rx)
+    local options = G.GetOptions and G.GetOptions() or {}
+    local pick = ok and Q.SkipGossip(gs, NpcId(), #options, #active + #available)
+    if pick and options[pick] then
+        if G.SelectOptionByIndex then G.SelectOptionByIndex(pick) else G.SelectOption(options[pick].gossipOptionID) end
     end
 end
 
